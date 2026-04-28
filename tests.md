@@ -3797,3 +3797,61 @@ Queued messages are saved through the backend, survive page refresh, and can be 
 
 #### Rollback/Cleanup
 - Delete any queued test messages that should not be sent
+
+---
+
+### Floating active plan dock
+
+#### Feature/Change Name
+Floating active plan dock keeps the active live plan visible while preserving the existing inline plan card.
+
+#### Prerequisites/Setup
+1. Use the dev wrapper's Vite server at `http://127.0.0.1:5173`
+2. Open a thread with at least one completed plan and one active live plan
+3. Ensure the active plan uses the `live-plan` fixture/state and includes an updating status
+4. Light theme and dark theme are available from the appearance switcher
+5. Mobile verification uses a narrow viewport with the composer fixture visible
+6. Codex.app reference was unavailable on this Linux host, so fallback parity used the current web inline plan card
+
+#### Steps
+1. Open the test thread in light theme
+2. Confirm the active `live-plan` is selected instead of the completed plan
+3. Confirm the original inline plan card remains in the conversation
+4. Confirm the floating dock is visible and shows the updating badge
+5. Collapse the floating dock, reload the page, and confirm it remains collapsed
+6. Switch to dark theme and confirm the dock card stays transparent against the dark surface
+7. Resize to a mobile viewport and confirm the dock clears the composer fixture
+8. Check the browser console for errors during the light, dark, reload, and mobile checks
+
+#### Expected Results
+- The active live plan is selected over completed plans
+- The inline plan card remains visible in its original conversation position
+- The floating dock is visible and shows the updating badge
+- Collapsed state persists through reload
+- Dark theme keeps the dock card transparent instead of showing a light surface
+- Mobile layout keeps the dock clear of the composer fixture
+- No browser console errors are emitted
+
+#### Light-theme Result
+Passed. The active `live-plan` was selected, the inline plan card was preserved, the floating dock was visible, and the updating badge was shown.
+
+#### Dark-theme Result
+Passed. The floating dock rendered on the dark surface with the dock card remaining transparent.
+
+#### Active Live Update Behavior Result
+Passed. The live plan state was used instead of a completed plan, and the updating badge stayed visible in the dock.
+
+#### Collapse Persistence Result
+Passed. The collapsed dock state persisted through page reload.
+
+#### Mobile Viewport Behavior Result
+Passed. The mobile dock cleared the composer fixture.
+
+#### Screenshot Paths
+- `/home/drj/projects/codexUI-floating-plan-dock-dev/output/playwright/floating-plan-dock-light.png`
+- `/home/drj/projects/codexUI-floating-plan-dock-dev/output/playwright/floating-plan-dock-dark.png`
+- `/home/drj/projects/codexUI-floating-plan-dock-dev/output/playwright/floating-plan-dock-mobile.png`
+
+#### Rollback/Cleanup
+- Remove any temporary floating-plan fixture state used for browser verification
+- Clear local storage for the dock collapse preference if a clean first-run state is needed
