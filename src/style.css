@@ -1037,6 +1037,234 @@
   @apply text-amber-400;
 }
 
+.plan-card {
+  @apply flex max-w-[min(var(--chat-card-max,76ch),100%)] flex-col gap-3 rounded-2xl border border-sky-200 bg-sky-50 px-4 py-3 text-slate-900;
+}
+
+.plan-card-header {
+  @apply flex items-center justify-between gap-3;
+}
+
+.plan-card-title {
+  @apply m-0 text-sm font-semibold leading-5 text-sky-900;
+}
+
+.plan-card-badge {
+  @apply inline-flex items-center rounded-full bg-sky-200 px-2 py-0.5 text-[11px] font-medium leading-4 text-sky-900;
+}
+
+.plan-card-explanation {
+  @apply text-slate-700;
+}
+
+.plan-card-markdown {
+  @apply flex flex-col gap-2;
+}
+
+.plan-card-markdown .message-text,
+.plan-card-markdown .message-heading,
+.plan-card-markdown .message-blockquote,
+.plan-card-markdown .message-list,
+.plan-card-markdown .message-table-wrap,
+.plan-card-markdown .message-code-block,
+.plan-card-markdown .message-divider {
+  @apply m-0;
+}
+
+.plan-card-markdown .message-text {
+  @apply text-sm leading-relaxed whitespace-pre-wrap text-slate-800;
+}
+
+.plan-card-markdown .message-heading {
+  @apply text-slate-900 tracking-tight;
+}
+
+.plan-card-markdown .message-heading-h1 {
+  @apply text-2xl font-semibold leading-tight;
+}
+
+.plan-card-markdown .message-heading-h2 {
+  @apply text-xl font-semibold leading-tight;
+}
+
+.plan-card-markdown .message-heading-h3 {
+  @apply text-lg font-semibold leading-snug;
+}
+
+.plan-card-markdown .message-heading-h4 {
+  @apply text-base font-semibold leading-snug;
+}
+
+.plan-card-markdown .message-heading-h5 {
+  @apply text-sm font-semibold leading-snug uppercase tracking-[0.02em];
+}
+
+.plan-card-markdown .message-heading-h6 {
+  @apply text-xs font-semibold leading-snug uppercase tracking-[0.04em] text-slate-600;
+}
+
+.plan-card-markdown .message-blockquote {
+  @apply border-l-4 border-slate-300 pl-4 py-1 text-sm leading-relaxed whitespace-pre-wrap text-slate-700 bg-slate-50/70 rounded-r-lg;
+}
+
+.plan-card-markdown .message-list {
+  @apply pl-5 text-sm leading-relaxed text-slate-800 flex flex-col gap-1.5;
+}
+
+.plan-card-markdown .message-list-unordered {
+  @apply list-disc;
+}
+
+.plan-card-markdown .message-list-ordered {
+  @apply list-decimal;
+}
+
+.plan-card-markdown .message-list-item {
+  @apply pl-1;
+}
+
+.plan-card-markdown .message-list-item-text {
+  @apply whitespace-pre-wrap;
+}
+
+.plan-card-markdown .message-list-item-paragraph + .message-list-item-paragraph {
+  @apply mt-2;
+}
+
+.plan-card-markdown .message-task-list {
+  @apply list-none pl-0;
+}
+
+.plan-card-markdown .message-task-item {
+  @apply flex items-start gap-2;
+}
+
+.plan-card-markdown .message-task-checkbox {
+  @apply mt-0.5 text-sm leading-none text-slate-500 select-none;
+}
+
+.plan-card-markdown .message-code-block {
+  @apply overflow-hidden rounded-xl border border-slate-200 bg-slate-950/95 text-slate-100;
+}
+
+.plan-card-markdown .message-code-language {
+  @apply border-b border-slate-800 bg-slate-900/90 px-3 py-2 text-[11px] font-medium uppercase tracking-[0.08em] text-slate-400;
+}
+
+.plan-card-markdown .message-code-pre {
+  @apply m-0 overflow-x-auto px-3 py-3 text-[13px] leading-6;
+}
+
+.plan-card-markdown .message-inline-code {
+  @apply rounded-md bg-slate-200/80 px-1.5 py-0.5 font-mono text-[0.9em] text-slate-900;
+}
+
+.plan-card-markdown .message-file-link {
+  @apply text-sky-700 underline decoration-sky-300 underline-offset-2;
+}
+
+.plan-card-markdown .message-table {
+  @apply bg-white/90;
+}
+
+.plan-step-list {
+  @apply m-0 flex list-none flex-col gap-2 p-0;
+}
+
+.plan-step-item {
+  @apply flex items-start gap-2 rounded-xl border border-white/70 bg-white/80 px-3 py-2 text-sm leading-relaxed text-slate-800;
+}
+
+.plan-step-item[data-status='completed'] {
+  @apply border-emerald-200 bg-emerald-50/80;
+}
+
+.plan-step-item[data-status='inProgress'] {
+  @apply border-amber-200 bg-amber-50/80;
+}
+
+.plan-step-status {
+  @apply mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-slate-200 text-xs font-semibold text-slate-700;
+}
+
+.plan-step-status[data-status='completed'] {
+  @apply bg-emerald-200 text-emerald-900;
+}
+
+.plan-step-status[data-status='inProgress'] {
+  @apply bg-amber-200 text-amber-900;
+}
+
+.plan-step-text {
+  @apply min-w-0 flex-1;
+}
+
+.plan-card-actions {
+  @apply mt-3 flex justify-end;
+}
+
+.plan-card-implement-button {
+  @apply inline-flex items-center rounded-full border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-800 transition hover:border-slate-400 hover:bg-slate-50;
+}
+
+.floating-plan-dock {
+  @apply fixed right-5 bottom-24 z-40 flex w-[min(420px,calc(100vw-2rem))] flex-col overflow-hidden rounded-2xl border border-sky-200 bg-white/95 text-slate-900 shadow-2xl shadow-slate-900/15 backdrop-blur;
+}
+
+.floating-plan-dock-toggle {
+  @apply flex min-h-12 w-full items-center gap-2 border-0 bg-sky-50 px-4 py-3 text-left text-sm font-semibold text-sky-950 transition hover:bg-sky-100;
+}
+
+.floating-plan-dock-title {
+  @apply min-w-0 flex-1 truncate;
+}
+
+.floating-plan-dock-live {
+  @apply inline-flex shrink-0 rounded-full bg-sky-200 px-2 py-0.5 text-[11px] font-medium leading-4 text-sky-950;
+}
+
+.floating-plan-dock-chevron {
+  @apply shrink-0 text-xs text-sky-900;
+}
+
+.floating-plan-dock-body {
+  @apply max-h-[min(52vh,520px)] overflow-y-auto p-3;
+}
+
+.floating-plan-dock .plan-card {
+  @apply max-w-none border-0 bg-transparent p-0 shadow-none;
+}
+
+.floating-plan-dock.is-collapsed {
+  @apply w-[min(320px,calc(100vw-2rem))];
+}
+
+@media (max-width: 767px) {
+  .floating-plan-dock {
+    @apply inset-x-3 bottom-3 w-auto rounded-2xl;
+  }
+
+  .floating-plan-dock-body {
+    @apply max-h-[45vh] p-3;
+  }
+}
+
+:root.dark .floating-plan-dock {
+  @apply border-sky-900/70 bg-slate-950/95 text-slate-100 shadow-black/35;
+}
+
+:root.dark .floating-plan-dock-toggle {
+  @apply bg-slate-900 text-sky-100 hover:bg-slate-800;
+}
+
+:root.dark .floating-plan-dock-live {
+  @apply bg-sky-900/80 text-sky-100;
+}
+
+:root.dark .floating-plan-dock-chevron {
+  @apply text-sky-200;
+}
+
 :root.dark .plan-card {
   @apply border-sky-700/70 bg-slate-900/78;
 }
