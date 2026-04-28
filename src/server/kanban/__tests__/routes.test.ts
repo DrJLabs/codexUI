@@ -60,6 +60,18 @@ describe('createKanbanMiddleware', () => {
     expect(state.body.data.tasks).toEqual([])
   })
 
+  it('serves SSE with streaming-friendly headers', async () => {
+    const { baseUrl } = await createTestServer()
+
+    const response = await fetch(`${baseUrl}/codex-api/kanban/events`)
+    await response.body?.cancel()
+
+    expect(response.status).toBe(200)
+    expect(response.headers.get('content-type')).toContain('text/event-stream')
+    expect(response.headers.get('cache-control')).toBe('no-store')
+    expect(response.headers.get('x-accel-buffering')).toBe('no')
+  })
+
   it('creates tasks and rejects invalid status transitions', async () => {
     const { baseUrl } = await createTestServer()
 
@@ -101,6 +113,21 @@ describe('createKanbanMiddleware', () => {
     expect(emptyTitle.body.error).toContain('Task title is required')
     expect(missingCriteria.status).toBe(400)
     expect(missingCriteria.body.error).toContain('Acceptance criteria must be an array')
+  })
+
+  it('preserves 400 status for malformed JSON request bodies', async () => {
+    const { baseUrl } = await createTestServer()
+
+    const response = await requestJson<{ error: string }>(
+      `${baseUrl}/codex-api/kanban/tasks`,
+      {
+        method: 'POST',
+        body: '{ invalid json',
+      },
+    )
+
+    expect(response.status).toBe(400)
+    expect(response.body.error).toBeTruthy()
   })
 
   it('returns 500 for corrupt server-side state files', async () => {

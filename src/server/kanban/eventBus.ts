@@ -9,6 +9,10 @@ export type KanbanEvent = {
 export class KanbanEventBus {
   private readonly emitter = new EventEmitter()
 
+  constructor() {
+    this.emitter.setMaxListeners(0)
+  }
+
   emit(event: Omit<KanbanEvent, 'atIso'>): void {
     this.emitter.emit('event', {
       ...event,

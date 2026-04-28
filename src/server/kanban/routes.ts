@@ -45,10 +45,12 @@ export function createKanbanRouter(options: CreateKanbanRouterOptions = {}): Rou
   }))
 
   router.get('/events', (req, res) => {
-    res.status(200)
-    res.setHeader('Content-Type', 'text/event-stream; charset=utf-8')
-    res.setHeader('Cache-Control', 'no-store')
-    res.setHeader('Connection', 'keep-alive')
+    res.writeHead(200, {
+      'Content-Type': 'text/event-stream; charset=utf-8',
+      'Cache-Control': 'no-store',
+      Connection: 'keep-alive',
+      'X-Accel-Buffering': 'no',
+    })
     let unsubscribe: (() => void) | null = null
     let isClosed = false
     const cleanup = () => {
@@ -103,7 +105,7 @@ export function createKanbanRouter(options: CreateKanbanRouterOptions = {}): Rou
 
   router.use((error: unknown, _req: Request, res: Response, _next: express.NextFunction) => {
     const message = error instanceof Error && error.message.trim().length > 0 ? error.message : 'Kanban request failed'
-    const status = resolveErrorStatus(message)
+    const status = resolveErrorStatus(error, message)
     res.status(status).json({ error: message })
   })
 
@@ -128,7 +130,8 @@ function readRouteParam(value: string | string[] | undefined, name: string): str
   return resolved
 }
 
-function resolveErrorStatus(message: string): number {
+function resolveErrorStatus(error: unknown, message: string): number {
+  if (isHttpStatusError(error)) return error.status
   const lowerMessage = message.toLowerCase()
   if (lowerMessage.includes('not found')) return 404
   if (
@@ -141,4 +144,13 @@ function resolveErrorStatus(message: string): number {
     return 400
   }
   return 500
+}
+
+function isHttpStatusError(error: unknown): error is { status: number } {
+  return error !== null
+    && typeof error === 'object'
+    && 'status' in error
+    && typeof (error as { status?: unknown }).status === 'number'
+    && (error as { status: number }).status >= 400
+    && (error as { status: number }).status <= 599
 }

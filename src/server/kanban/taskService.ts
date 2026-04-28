@@ -62,16 +62,13 @@ export class KanbanTaskService {
         status: 'backlog',
         runState: 'idle',
         labels: input.labels ?? [],
-        acceptanceCriteria: (input.acceptanceCriteria ?? []).map((criterion) => {
-          const criterionNowIso = new Date().toISOString()
-          return {
-            id: createKanbanId('criterion'),
-            text: criterion.text.trim(),
-            checked: criterion.checked === true,
-            createdAtIso: criterionNowIso,
-            updatedAtIso: criterionNowIso,
-          }
-        }),
+        acceptanceCriteria: (input.acceptanceCriteria ?? []).map((criterion) => ({
+          id: createKanbanId('criterion'),
+          text: criterion.text.trim(),
+          checked: criterion.checked === true,
+          createdAtIso: nowIso,
+          updatedAtIso: nowIso,
+        })),
         projectRoot: this.projectRoot,
         cwd: this.projectRoot,
         baseBranch: '',
@@ -158,7 +155,8 @@ export class KanbanTaskService {
       if (!task) {
         throw new Error('Kanban task not found')
       }
-      nextTask = updater(task, new Date().toISOString())
+      const nowIso = new Date().toISOString()
+      nextTask = updater(task, nowIso)
       state.tasks[taskId] = nextTask
     })
     if (!nextTask) throw new Error('Failed to update Kanban task')
