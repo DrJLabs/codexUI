@@ -45,7 +45,11 @@ const defaultGateway: KanbanBoardGateway = {
 }
 
 function createEmptyTasksByStatus(): Record<KanbanStatus, KanbanTask[]> {
-  return Object.fromEntries(KANBAN_STATUSES.map((status) => [status.id, []])) as Record<KanbanStatus, KanbanTask[]>
+  const grouped = {} as Record<KanbanStatus, KanbanTask[]>
+  for (const status of KANBAN_STATUSES) {
+    grouped[status.id] = []
+  }
+  return grouped
 }
 
 function readStoredFilters(storage: KanbanBoardStorage): KanbanFilters {

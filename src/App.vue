@@ -60,6 +60,22 @@
             </span>
           </button>
 
+          <button
+            v-if="!isSidebarCollapsed"
+            class="sidebar-skills-link"
+            :class="{ 'is-active': isKanbanRoute }"
+            type="button"
+            @click="router.push({ name: 'kanban' }); isMobile && setSidebarCollapsed(true)"
+          >
+            <span class="sidebar-skills-link-icon" aria-hidden="true">
+              <IconTablerLayoutKanban />
+            </span>
+            <span class="sidebar-skills-link-copy">
+              <span class="sidebar-skills-link-title">{{ t('Kanban') }}</span>
+              <span class="sidebar-skills-link-subtitle">{{ t('Local task board') }}</span>
+            </span>
+          </button>
+
           <SidebarThreadTree :groups="projectGroups" :project-display-name-by-id="projectDisplayNameById"
             v-if="!isSidebarCollapsed"
             :selected-thread-id="selectedThreadId" :is-loading="isLoadingThreads"
@@ -462,7 +478,7 @@
         :style="contentStyle"
       >
         <span v-if="isVirtualKeyboardOpen" class="content-keyboard-spacer" aria-hidden="true" />
-        <ContentHeader :title="contentTitle" :accent="isSkillsRoute">
+        <ContentHeader :title="contentTitle" :accent="isSkillsRoute || isKanbanRoute">
           <template #leading>
             <SidebarThreadControls
               v-if="isSidebarCollapsed || isMobile"
@@ -474,6 +490,9 @@
             />
             <span v-if="isSkillsRoute" class="skills-route-header-icon" aria-hidden="true">
               <IconTablerBolt />
+            </span>
+            <span v-else-if="isKanbanRoute" class="skills-route-header-icon" aria-hidden="true">
+              <IconTablerLayoutKanban />
             </span>
           </template>
           <template #actions>
@@ -512,6 +531,9 @@
               @skills-changed="onSkillsChanged"
               @try-item="onTryDirectoryItem"
             />
+          </template>
+          <template v-else-if="isKanbanRoute">
+            <KanbanBoardPage />
           </template>
           <template v-else-if="isHomeRoute">
             <div class="content-grid content-grid-home">
@@ -857,6 +879,7 @@ import ComposerDropdown from './components/content/ComposerDropdown.vue'
 import ComposerRuntimeDropdown from './components/content/ComposerRuntimeDropdown.vue'
 import SidebarThreadControls from './components/sidebar/SidebarThreadControls.vue'
 import IconTablerBolt from './components/icons/IconTablerBolt.vue'
+import IconTablerLayoutKanban from './components/icons/IconTablerLayoutKanban.vue'
 import IconTablerSearch from './components/icons/IconTablerSearch.vue'
 import IconTablerSettings from './components/icons/IconTablerSettings.vue'
 import IconTablerTerminal from './components/icons/IconTablerTerminal.vue'
@@ -898,6 +921,7 @@ const ThreadConversation = defineAsyncComponent(() => import('./components/conte
 const ThreadTerminalPanel = defineAsyncComponent(() => import('./components/content/ThreadTerminalPanel.vue'))
 const ReviewPane = defineAsyncComponent(() => import('./components/content/ReviewPane.vue'))
 const DirectoryHub = defineAsyncComponent(() => import('./components/content/DirectoryHub.vue'))
+const KanbanBoardPage = defineAsyncComponent(() => import('./components/kanban/KanbanBoardPage.vue'))
 const { t, uiLanguage, uiLanguageOptions, setUiLanguage } = useUiLanguage()
 
 const SIDEBAR_COLLAPSED_STORAGE_KEY = 'codex-web-local.sidebar-collapsed.v1'
@@ -1244,8 +1268,10 @@ const routeThreadId = computed(() => {
 
 const isHomeRoute = computed(() => route.name === 'home')
 const isSkillsRoute = computed(() => route.name === 'skills')
+const isKanbanRoute = computed(() => route.name === 'kanban')
 const contentTitle = computed(() => {
   if (isSkillsRoute.value) return t('Skills')
+  if (isKanbanRoute.value) return t('Kanban')
   if (isHomeRoute.value) return t('Start new thread')
   return selectedThread.value?.title ?? t('Choose a thread')
 })
@@ -1305,7 +1331,7 @@ const isTerminalKeyboardLayoutActive = computed(() => (
 ))
 const directoryCwd = computed(() => selectedThread.value?.cwd?.trim() ?? newThreadCwd.value.trim())
 const isSelectedThreadInProgress = computed(() => !isHomeRoute.value && selectedThread.value?.inProgress === true)
-const showThreadContextBadge = computed(() => !isHomeRoute.value && !isSkillsRoute.value && selectedThreadId.value.trim().length > 0)
+const showThreadContextBadge = computed(() => !isHomeRoute.value && !isSkillsRoute.value && !isKanbanRoute.value && selectedThreadId.value.trim().length > 0)
 const isAccountSwitchBlocked = computed(() =>
   isSendingMessage.value ||
   isInterruptingTurn.value ||
@@ -2800,7 +2826,7 @@ function onImplementPlan(payload: { turnId: string }): void {
 
 
 function onExportChat(): void {
-  if (isHomeRoute.value || isSkillsRoute.value || typeof document === 'undefined') return
+  if (isHomeRoute.value || isSkillsRoute.value || isKanbanRoute.value || typeof document === 'undefined') return
   if (!selectedThread.value || filteredMessages.value.length === 0) return
   const markdown = buildThreadMarkdown()
   const fileName = buildExportFileName()
@@ -3294,7 +3320,7 @@ watch(
   async (threadId) => {
     if (!hasInitialized.value) return
     if (isRouteSyncInProgress.value) return
-    if (isHomeRoute.value || isSkillsRoute.value) return
+    if (isHomeRoute.value || isSkillsRoute.value || isKanbanRoute.value) return
 
     if (!threadId) {
       if (route.name !== 'home') {
