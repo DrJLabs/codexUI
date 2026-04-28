@@ -73,7 +73,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useKanbanBoard } from '../../composables/useKanbanBoard'
 import { KANBAN_STATUSES, type KanbanStatus, type KanbanTaskLabel } from '../../types/kanban'
@@ -107,6 +107,7 @@ const {
   setSearchQuery,
   toggleLabelFilter,
   clearFilters,
+  subscribeToEvents,
 } = useKanbanBoard()
 
 const route = useRoute()
@@ -122,6 +123,14 @@ const activeTaskCount = computed(() => Object.values(countsByStatus.value).reduc
 
 onMounted(() => {
   void loadBoard()
+  stopEventSubscription = subscribeToEvents()
+})
+
+let stopEventSubscription: (() => void) | null = null
+
+onUnmounted(() => {
+  stopEventSubscription?.()
+  stopEventSubscription = null
 })
 
 watch(() => route.query.task, () => {

@@ -466,7 +466,7 @@ git commit -m "feat: persist kanban board state"
 
 Use Express request/response tests or direct middleware invocation consistent with existing server tests. Cover:
 
-- `GET /codex-api/kanban/health` returns `{ ok: true }`
+- `GET /codex-api/kanban/health` returns `{ data: { ok: true } }`
 - `GET /codex-api/kanban/state` returns one board and an empty task list
 - `POST /codex-api/kanban/tasks` creates a task
 - `POST /codex-api/kanban/tasks/:taskId/status` rejects invalid transition with `400`
@@ -499,13 +499,13 @@ if (authSession) {
   app.use(authSession.middleware)
 }
 
-app.use(kanban)
+app.use('/codex-api/kanban', kanban)
 app.use(bridge)
 ```
 
 - [ ] **Step 4: Mount in Vite before the dev bridge**
 
-In `vite.config.ts`, create `const kanban = createKanbanMiddleware()` inside `configureServer(server)` and call `server.middlewares.use(kanban)` before handlers that proxy `/codex-api/*` to the bridge.
+In `vite.config.ts`, create `const kanban = createKanbanMiddleware()` inside `configureServer(server)` and call `server.middlewares.use('/codex-api/kanban', kanban)` before handlers that proxy `/codex-api/*` to the bridge.
 
 - [ ] **Step 5: Run routes test and build smoke**
 

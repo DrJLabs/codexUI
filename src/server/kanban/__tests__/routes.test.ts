@@ -3,7 +3,7 @@ import { createServer, type Server } from 'node:http'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import express from 'express'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createKanbanMiddleware } from '../index'
 import { resolveProjectStatePath } from '../paths'
 
@@ -72,14 +72,18 @@ describe('createKanbanMiddleware', () => {
     expect(response.headers.get('x-accel-buffering')).toBe('no')
   })
 
-  it('creates tasks and rejects invalid status transitions', async () => {
+  it('creates tasks, normalizes labels, and rejects invalid status transitions', async () => {
     const { baseUrl } = await createTestServer()
 
-    const created = await requestJson<{ data: { id: string; title: string; status: string } }>(
+    const created = await requestJson<{ data: { id: string; title: string; status: string; labels: Array<{ id: string; name: string }> } }>(
       `${baseUrl}/codex-api/kanban/tasks`,
       {
         method: 'POST',
-        body: JSON.stringify({ title: 'Route task', description: 'Created over HTTP' }),
+        body: JSON.stringify({
+          title: 'Route task',
+          description: 'Created over HTTP',
+          labels: [{ name: 'Bug' }, { name: 'bug' }],
+        }),
       },
     )
     const invalidTransition = await requestJson<{ error: string }>(
@@ -107,6 +111,7 @@ describe('createKanbanMiddleware', () => {
     expect(created.status).toBe(201)
     expect(created.body.data.title).toBe('Route task')
     expect(created.body.data.status).toBe('backlog')
+    expect(created.body.data.labels.map((label) => label.id)).toEqual(['label_bug', 'label_bug_2'])
     expect(invalidTransition.status).toBe(400)
     expect(invalidTransition.body.error).toContain('Invalid status transition')
     expect(emptyTitle.status).toBe(400)
@@ -134,10 +139,16 @@ describe('createKanbanMiddleware', () => {
     const { baseUrl, dataDir, projectRoot } = await createTestServer()
     await requestJson<{ data: unknown }>(`${baseUrl}/codex-api/kanban/state`)
     await writeFile(resolveProjectStatePath(dataDir, projectRoot), '{ invalid json', 'utf8')
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
 
-    const state = await requestJson<{ error: string }>(`${baseUrl}/codex-api/kanban/state`)
+    try {
+      const state = await requestJson<{ error: string }>(`${baseUrl}/codex-api/kanban/state`)
 
-    expect(state.status).toBe(500)
-    expect(state.body.error).toContain('Kanban state file is corrupt; backup written to')
+      expect(state.status).toBe(500)
+      expect(state.body.error).toBe('Kanban request failed')
+      expect(consoleError).toHaveBeenCalled()
+    } finally {
+      consoleError.mockRestore()
+    }
   })
 })

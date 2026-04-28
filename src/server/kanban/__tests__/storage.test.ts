@@ -117,6 +117,16 @@ describe('KanbanStorage', () => {
     await expect(service.setTaskStatus(task.id, { status: 'ready' })).resolves.toMatchObject({ status: 'ready' })
   })
 
+  it('preserves blocked reason when status update omits a reason', async () => {
+    const { service } = await createHarness()
+
+    const task = await service.createTask({ title: 'Blocked task' })
+    await service.updateTask(task.id, { blockedReason: 'Waiting on review' })
+    const moved = await service.setTaskStatus(task.id, { status: 'ready' })
+
+    expect(moved.blockedReason).toBe('Waiting on review')
+  })
+
   it('backs up corrupt state files before throwing an operator-visible error', async () => {
     const { dataDir, projectRoot, storage } = await createHarness()
     await storage.load()

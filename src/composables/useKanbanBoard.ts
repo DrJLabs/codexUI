@@ -131,18 +131,23 @@ export function useKanbanBoard(options: UseKanbanBoardOptions = {}) {
   function applySnapshot(snapshot: KanbanStateSnapshot): void {
     tasks.value = snapshot.tasks
     executionPolicy.value = snapshot.policy
-    if (selectedTaskId.value && !tasks.value.some((task) => task.id === selectedTaskId.value && !task.archived)) {
-      selectedTaskId.value = ''
-    }
+    reconcileSelection()
   }
 
   function patchTask(task: KanbanTask): void {
     const index = tasks.value.findIndex((item) => item.id === task.id)
     if (index >= 0) {
       tasks.value.splice(index, 1, task)
-      return
+    } else {
+      tasks.value.push(task)
     }
-    tasks.value.push(task)
+    reconcileSelection()
+  }
+
+  function reconcileSelection(): void {
+    if (selectedTaskId.value && !tasks.value.some((task) => task.id === selectedTaskId.value && !task.archived)) {
+      selectedTaskId.value = ''
+    }
   }
 
   async function loadBoard(): Promise<void> {
@@ -151,6 +156,9 @@ export function useKanbanBoard(options: UseKanbanBoardOptions = {}) {
     try {
       applySnapshot(await gateway.loadKanbanState())
     } catch (error) {
+      tasks.value = []
+      executionPolicy.value = null
+      selectedTaskId.value = ''
       errorMessage.value = error instanceof Error ? error.message : 'Failed to load Kanban board'
     } finally {
       isLoading.value = false
@@ -222,6 +230,16 @@ export function useKanbanBoard(options: UseKanbanBoardOptions = {}) {
     selectedTaskId.value = ''
   }
 
+  function subscribeToEvents(): () => void {
+    return gateway.subscribeKanbanEvents(() => {
+      void loadBoard()
+    }, {
+      onError: () => {
+        // Browser EventSource handles reconnects; keep this hook for observability.
+      },
+    })
+  }
+
   function persistFilters(): void {
     writeStoredFilters(storage, filters.value)
   }
@@ -265,6 +283,7 @@ export function useKanbanBoard(options: UseKanbanBoardOptions = {}) {
     setTaskStatus,
     selectTask,
     clearSelection,
+    subscribeToEvents,
     addAcceptanceCriterion,
     updateAcceptanceCriterion,
     removeAcceptanceCriterion,

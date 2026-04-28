@@ -67,7 +67,11 @@ export function createKanbanRouter(options: CreateKanbanRouterOptions = {}): Rou
       }
     }
     writeEvent('event: ready\ndata: {"ok":true}\n\n')
-    unsubscribe = eventBus.subscribe((event) => writeEvent(formatSseEvent(event)))
+    if (isClosed) return
+    unsubscribe = eventBus.subscribe((event) => {
+      if (isClosed) return
+      writeEvent(formatSseEvent(event))
+    })
     req.on('close', cleanup)
     res.on('error', cleanup)
     req.socket.on('error', cleanup)
@@ -106,7 +110,10 @@ export function createKanbanRouter(options: CreateKanbanRouterOptions = {}): Rou
   router.use((error: unknown, _req: Request, res: Response, _next: express.NextFunction) => {
     const message = error instanceof Error && error.message.trim().length > 0 ? error.message : 'Kanban request failed'
     const status = resolveErrorStatus(error, message)
-    res.status(status).json({ error: message })
+    if (status >= 500) {
+      console.error('Kanban API error:', error)
+    }
+    res.status(status).json({ error: status >= 500 ? 'Kanban request failed' : message })
   })
 
   return router

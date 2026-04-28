@@ -1,7 +1,7 @@
 <template>
   <div class="kanban-mobile-tabs" role="tablist" aria-label="Kanban statuses">
     <button
-      v-for="status in statuses"
+      v-for="(status, index) in statuses"
       :key="status.id"
       ref="tabRefs"
       class="kanban-mobile-tab"
@@ -11,7 +11,7 @@
       :aria-selected="status.id === modelValue"
       :tabindex="status.id === modelValue ? 0 : -1"
       @click="emit('update:modelValue', status.id)"
-      @keydown="onTabKeydown($event, status.id)"
+      @keydown="onTabKeydown($event, index)"
     >
       <span>{{ status.title }}</span>
       <span class="kanban-mobile-tab-count">{{ countsByStatus[status.id] ?? 0 }}</span>
@@ -35,9 +35,7 @@ const emit = defineEmits<{
 
 const tabRefs = ref<HTMLButtonElement[]>([])
 
-function onTabKeydown(event: KeyboardEvent, status: KanbanStatus): void {
-  const currentIndex = props.statuses.findIndex((item) => item.id === status)
-  if (currentIndex < 0) return
+function onTabKeydown(event: KeyboardEvent, currentIndex: number): void {
   const lastIndex = props.statuses.length - 1
   let nextIndex: number | null = null
 

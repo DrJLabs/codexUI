@@ -195,6 +195,62 @@ describe('useKanbanBoard', () => {
       status: 'ready',
       archived: true,
     })
+    expect(board.selectedTaskId.value).toBe('')
     expect(board.selectedTask.value).toBeNull()
+  })
+
+  it('clears stale board state when loading fails after a prior success', async () => {
+    let shouldFail = false
+    const gateway = createGateway(createState([createTask({ id: 'task_a' })]))
+    const board = useKanbanBoard({
+      gateway: {
+        ...gateway,
+        loadKanbanState: async () => {
+          if (shouldFail) throw new Error('offline')
+          return await gateway.loadKanbanState()
+        },
+      },
+      storage: null,
+    })
+
+    await board.loadBoard()
+    board.selectTask('task_a')
+    shouldFail = true
+    await board.loadBoard()
+
+    expect(board.tasks.value).toEqual([])
+    expect(board.executionPolicy.value).toBeNull()
+    expect(board.selectedTaskId.value).toBe('')
+    expect(board.errorMessage.value).toBe('offline')
+  })
+
+  it('reloads the board when subscribed kanban events arrive', async () => {
+    let emitEvent: (event: unknown) => void = () => {}
+    let stopCalled = false
+    let currentState = createState([createTask({ id: 'task_a', title: 'Original' })])
+    const gateway = createGateway(currentState)
+    const board = useKanbanBoard({
+      gateway: {
+        ...gateway,
+        loadKanbanState: async () => currentState,
+        subscribeKanbanEvents: (nextHandler) => {
+          emitEvent = nextHandler
+          return () => {
+            stopCalled = true
+          }
+        },
+      },
+      storage: null,
+    })
+
+    await board.loadBoard()
+    const stop = board.subscribeToEvents()
+    currentState = createState([createTask({ id: 'task_a', title: 'Updated' })])
+    emitEvent({ type: 'task.updated' })
+    await Promise.resolve()
+
+    expect(board.tasks.value[0]?.title).toBe('Updated')
+    stop()
+    expect(stopCalled).toBe(true)
   })
 })

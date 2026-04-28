@@ -48,16 +48,25 @@ function labelColor(name: string): string {
   return colors[index] ?? '#71717a'
 }
 
+function labelIdFromName(name: string): string {
+  const normalized = name.toLowerCase().replace(/[^a-z0-9]+/gu, '_').replace(/^_+|_+$/gu, '')
+  return `label_${normalized || 'custom'}`
+}
+
 function parseLabels(): KanbanTaskLabel[] {
-  return labelsText.value
-    .split(',')
-    .map((label) => label.trim())
-    .filter(Boolean)
-    .map((name) => ({
-      id: `label_${name.toLowerCase().replace(/[^a-z0-9]+/gu, '_').replace(/^_+|_+$/gu, '')}`,
+  const labels: KanbanTaskLabel[] = []
+  const usedIds = new Set<string>()
+  for (const name of labelsText.value.split(',').map((label) => label.trim()).filter(Boolean)) {
+    const id = labelIdFromName(name)
+    if (usedIds.has(id)) continue
+    usedIds.add(id)
+    labels.push({
+      id,
       name,
       color: labelColor(name),
-    }))
+    })
+  }
+  return labels
 }
 
 function save(): void {

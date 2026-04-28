@@ -17,16 +17,38 @@ function readString(value: unknown): string {
   return typeof value === 'string' ? value.trim() : ''
 }
 
+function labelIdFromName(name: string): string {
+  const normalized = name.toLowerCase().replace(/[^a-z0-9]+/gu, '_').replace(/^_+|_+$/gu, '')
+  return `label_${normalized || 'custom'}`
+}
+
+function uniqueLabelId(baseId: string, usedIds: Set<string>): string {
+  let id = baseId
+  let suffix = 2
+  while (usedIds.has(id)) {
+    id = `${baseId}_${suffix}`
+    suffix += 1
+  }
+  usedIds.add(id)
+  return id
+}
+
 function readLabels(value: unknown): KanbanTaskLabel[] {
   if (!Array.isArray(value)) return []
-  return value.map((item) => {
+  const usedIds = new Set<string>()
+  const labels: KanbanTaskLabel[] = []
+  for (const item of value) {
     const record = asRecord(item)
-    return {
-      id: readString(record.id),
-      name: readString(record.name),
+    const name = readString(record.name)
+    if (!name) continue
+    const baseId = readString(record.id) || labelIdFromName(name)
+    labels.push({
+      id: uniqueLabelId(baseId, usedIds),
+      name,
       color: readString(record.color),
-    }
-  }).filter((label) => label.id && label.name)
+    })
+  }
+  return labels
 }
 
 export function parseCreateTaskInput(value: unknown): CreateKanbanTaskInput {
@@ -72,7 +94,7 @@ export function parseStatusInput(value: unknown): SetKanbanTaskStatusInput {
   }
   return {
     status: status as SetKanbanTaskStatusInput['status'],
-    reason: readString(record.reason),
+    reason: 'reason' in record ? readString(record.reason) : undefined,
   }
 }
 
