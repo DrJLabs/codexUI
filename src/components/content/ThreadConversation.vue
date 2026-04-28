@@ -662,6 +662,12 @@
       <li ref="bottomAnchorRef" class="conversation-bottom-anchor" />
     </ul>
 
+    <FloatingPlanDock
+      :message="activeFloatingPlanMessage"
+      :render-markdown-blocks-as-html="renderMarkdownBlocksAsHtml"
+      @implement-plan="implementPlan"
+    />
+
     <button
       v-if="showJumpToLatestButton"
       type="button"
@@ -828,11 +834,13 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import type { ThreadScrollState, UiFileChange, UiLiveOverlay, UiMessage, UiServerRequest } from '../../types/codex'
 import { useMobile } from '../../composables/useMobile'
+import FloatingPlanDock from './FloatingPlanDock.vue'
 import PlanCard from './PlanCard.vue'
 import {
   buildPlanCopyText,
   isPlanMessage,
   readPlanData,
+  selectActivePlanMessage,
 } from './planUtils'
 
 import IconTablerArrowUp from '../icons/IconTablerArrowUp.vue'
@@ -1231,6 +1239,7 @@ const isLoadingMore = ref(false)
 
 const visibleMessages = computed(() => props.messages.slice(renderWindowStart.value))
 const hasMoreAbove = computed(() => renderWindowStart.value > 0)
+const activeFloatingPlanMessage = computed(() => selectActivePlanMessage(props.messages))
 
 const showJumpToLatestButton = computed(
   () => !autoFollowOutput.value && (props.messages.length > 0 || props.pendingRequests.length > 0 || Boolean(props.liveOverlay)),
