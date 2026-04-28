@@ -1,5 +1,6 @@
 import { defineConfig } from "vite";
 import vue from "@vitejs/plugin-vue";
+import express from "express";
 import { createCodexBridgeMiddleware } from "./src/server/codexAppServerBridge";
 import { createKanbanMiddleware } from "./src/server/kanban";
 import { createDirectoryListingHtml, createTextEditorHtml, decodeBrowsePath, getLocalDirectoryListing, isTextEditableFile, normalizeLocalPath } from "./src/server/localBrowseUi";
@@ -132,6 +133,8 @@ export default defineConfig({
         process.env.CODEXUI_SERVER_PORT = String(server.config.server.port ?? 5173);
         const bridge = createCodexBridgeMiddleware();
         const kanban = createKanbanMiddleware();
+        const kanbanApp = express();
+        kanbanApp.use("/codex-api/kanban", kanban);
         const httpServer = server.httpServer;
         if (httpServer) {
           httpServer.once("listening", () => {
@@ -177,9 +180,7 @@ export default defineConfig({
             });
           }
         }
-        server.middlewares.use("/codex-api/kanban", (req, res, next) => {
-          kanban(req as Parameters<typeof kanban>[0], res as Parameters<typeof kanban>[1], next);
-        });
+        server.middlewares.use(kanbanApp);
         server.middlewares.use((req, res, next) => {
           if (!req.url || (req.method !== "GET" && req.method !== "HEAD")) return next();
           const url = new URL(req.url, "http://localhost");
