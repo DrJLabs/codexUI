@@ -1,17 +1,25 @@
 <template>
   <Teleport to="body">
-    <div v-if="task" class="kanban-sheet-backdrop" @click.self="$emit('close')">
-      <section class="kanban-sheet" aria-label="Task details">
+    <div v-if="task" class="kanban-sheet-backdrop" @click.self="emit('close')">
+      <section
+        ref="sheetRef"
+        class="kanban-sheet"
+        aria-label="Task details"
+        role="dialog"
+        aria-modal="true"
+        tabindex="-1"
+        @keydown.esc="emit('close')"
+      >
         <KanbanTaskInspector
           :task="task"
-          @close="$emit('close')"
-          @archive="$emit('archive')"
-          @set-status="$emit('set-status', $event)"
-          @save-summary="$emit('save-summary', $event)"
-          @add-criterion="$emit('add-criterion', $event)"
-          @update-criterion="(criterionId, patch) => $emit('update-criterion', criterionId, patch)"
-          @remove-criterion="$emit('remove-criterion', $event)"
-          @toggle-criterion="(criterionId, checked) => $emit('toggle-criterion', criterionId, checked)"
+          @close="emit('close')"
+          @archive="emit('archive')"
+          @set-status="emit('set-status', $event)"
+          @save-summary="emit('save-summary', $event)"
+          @add-criterion="emit('add-criterion', $event)"
+          @update-criterion="(criterionId, patch) => emit('update-criterion', criterionId, patch)"
+          @remove-criterion="emit('remove-criterion', $event)"
+          @toggle-criterion="(criterionId, checked) => emit('toggle-criterion', criterionId, checked)"
         />
       </section>
     </div>
@@ -19,14 +27,15 @@
 </template>
 
 <script setup lang="ts">
+import { nextTick, ref, watch } from 'vue'
 import type { KanbanStatus, KanbanTask, KanbanTaskLabel } from '../../types/kanban'
 import KanbanTaskInspector from './KanbanTaskInspector.vue'
 
-defineProps<{
+const props = defineProps<{
   task: KanbanTask | null
 }>()
 
-defineEmits<{
+const emit = defineEmits<{
   close: []
   archive: []
   'set-status': [status: KanbanStatus]
@@ -36,6 +45,14 @@ defineEmits<{
   'remove-criterion': [criterionId: string]
   'toggle-criterion': [criterionId: string, checked: boolean]
 }>()
+
+const sheetRef = ref<HTMLElement | null>(null)
+
+watch(() => props.task?.id ?? '', async (taskId) => {
+  if (!taskId) return
+  await nextTick()
+  sheetRef.value?.focus()
+})
 </script>
 
 <style scoped>

@@ -3832,7 +3832,7 @@ Queued messages are saved through the backend, survive page refresh, and can be 
 ### Kanban Board v0.1 Manual Verification
 
 #### Feature/Change Name
-Server-persisted local Kanban board with `#/kanban` route, sidebar navigation, seven status columns, task editing, acceptance criteria, label filters, and mobile task sheet.
+Server-persisted local Kanban board with `#/kanban` route, sidebar navigation, seven status columns, query-linked task selection, task editing, acceptance criteria, label filters, and accessible mobile task sheet.
 
 #### Prerequisites/Setup
 1. Dev server running with `pnpm run dev -- --host 0.0.0.0 --port 4173`
@@ -3850,16 +3850,21 @@ Server-persisted local Kanban board with `#/kanban` route, sidebar navigation, s
 7. Refresh the browser and confirm the task, labels, status, and criteria remain
 8. Restart the dev server and confirm the same state is restored
 9. Use search and label filters to narrow the visible cards, then clear filters
-10. Switch to dark theme and repeat create, edit, criteria, and status actions
-11. Resize to mobile width and confirm status tabs replace the seven-column board
-12. Select a mobile task and confirm details open in a full-height sheet with editable fields
+10. Copy the selected route as `#/kanban?task=<task-id>`, reload it, and confirm the same task opens selected
+11. Archive the task and confirm the task query clears and the board no longer counts the archived task
+12. Switch to dark theme and repeat create, edit, criteria, and status actions
+13. Resize to mobile width and confirm status tabs replace the seven-column board
+14. Use ArrowLeft, ArrowRight, Home, and End on the mobile status tabs and confirm focus/selection move together
+15. Select a mobile task and confirm details open in a dialog-like full-height sheet, focus moves into it, Escape closes it, and backdrop click still closes it
 
 #### Expected Results
 - `#/kanban` loads inside the existing CodexUI shell
 - Sidebar Kanban navigation works on desktop and mobile
 - Desktop shows seven status columns
 - Mobile shows status tabs and a sheet, not a horizontal seven-column board
+- `#/kanban?task=<id>` opens the selected task and clears when the selected task is archived or missing
 - Task create/edit/status/archive data persists across browser refresh and dev-server restart
+- Archived tasks are excluded from status counts, visible columns, and label filters
 - Search and label filters affect visible cards only, not stored task data
 - Light theme and dark theme remain legible
 - Execution controls remain disabled in v0.1

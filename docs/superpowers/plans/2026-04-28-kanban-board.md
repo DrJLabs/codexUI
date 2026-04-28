@@ -554,10 +554,10 @@ updateKanbanTask(taskId: string, patch: UpdateKanbanTaskInput): Promise<KanbanTa
 setKanbanTaskStatus(taskId: string, status: KanbanStatus, reason?: string): Promise<KanbanTask>
 archiveKanbanTask(taskId: string): Promise<KanbanTask>
 replaceKanbanAcceptanceCriteria(taskId: string, criteria: ReplaceKanbanAcceptanceCriteriaInput['criteria']): Promise<KanbanTask>
-subscribeKanbanEvents(handler: (event: unknown) => void): () => void
+subscribeKanbanEvents(handler: (event: unknown) => void, options?: { onError?: (error: Event) => void }): () => void
 ```
 
-Use `fetch()` and normalize non-2xx JSON errors to `Error(message)`.
+Use `fetch()` and normalize non-2xx JSON errors to `Error(message)`. Archive requests must send an explicit empty JSON body. SSE subscribers must tolerate malformed event payloads, report connection errors through the optional handler, and leave browser-native reconnect behavior intact until teardown closes the source.
 
 - [ ] **Step 3: Implement composable**
 
@@ -591,6 +591,7 @@ clearFilters
 ```
 
 Persist only filters to `localStorage` key `codex-web-local.kanban.filters.v1`.
+Exclude archived tasks from status groups, visible filtered groups, counts, selected task resolution, and label filter options.
 
 - [ ] **Step 4: Run focused tests**
 
@@ -638,6 +639,7 @@ In `src/App.vue`:
 - render `<KanbanBoardPage />` before the home/thread branches
 - add sidebar button near Skills, with `router.push({ name: 'kanban' })` and mobile drawer close
 - update `showThreadContextBadge`, route watchers, and terminal toggle predicates so Kanban behaves like Skills and does not require a selected thread
+- ensure `pageTitle` uses `Kanban` on the Kanban route instead of retaining a previously selected thread title
 
 - [ ] **Step 3: Build empty page**
 
@@ -647,6 +649,7 @@ In `src/App.vue`:
 - error state with retry
 - empty state with create-task action
 - execution-disabled banner from policy
+- selection sync for `#/kanban?task=<id>`: initialize `selectedTaskId` from the query parameter, update the query when selection changes, and remove the query when selection clears or the task is missing/archived after load
 
 - [ ] **Step 4: Verify static route behavior**
 
@@ -707,6 +710,7 @@ KanbanTaskSheet when selected
 ```
 
 Do not render a horizontal seven-column board on mobile.
+Mobile status tabs must implement roving tabindex keyboard navigation with ArrowLeft, ArrowRight, Home, and End.
 
 - [ ] **Step 3: Run build and commit**
 
@@ -739,6 +743,7 @@ git commit -m "feat: render kanban board shell"
 - [ ] **Step 1: Add editors and actions**
 
 Implement create/edit/archive, acceptance criteria replace, label editing, and explicit status action buttons using the allowed transition table from Task 2.
+Async mutation failures must be caught and surfaced in the page instead of being discarded. The mobile task sheet must behave as a dialog with `role="dialog"`, `aria-modal="true"`, focus-on-open, Escape close, and backdrop click close.
 
 - [ ] **Step 2: Manual verification**
 
@@ -751,8 +756,9 @@ Verify:
 3. Move task `Backlog -> Ready -> Running -> Review -> Done`.
 4. Refresh the browser and confirm state persists.
 5. Restart the dev server and confirm state persists.
-6. Switch to dark mode and repeat create/edit/status flow.
-7. Resize to mobile width and confirm status tabs plus full-height sheet behavior.
+6. Open `#/kanban?task=<created-task-id>` and confirm the same task is selected after browser refresh and dev-server restart.
+7. Switch to dark mode and repeat create/edit/status flow.
+8. Resize to mobile width and confirm status tabs plus full-height sheet behavior, including keyboard navigation and Escape close.
 
 - [ ] **Step 3: Append `tests.md` section**
 

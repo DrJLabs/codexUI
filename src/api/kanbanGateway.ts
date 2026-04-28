@@ -57,6 +57,7 @@ export async function setKanbanTaskStatus(taskId: string, status: KanbanStatus, 
 export async function archiveKanbanTask(taskId: string): Promise<KanbanTask> {
   return await requestKanban<KanbanTask>(`/tasks/${encodeURIComponent(taskId)}/archive`, {
     method: 'POST',
+    body: JSON.stringify({}),
   })
 }
 
@@ -70,13 +71,28 @@ export async function replaceKanbanAcceptanceCriteria(
   })
 }
 
-export function subscribeKanbanEvents(handler: (event: unknown) => void): () => void {
+type KanbanEventSubscriptionOptions = {
+  onError?: (error: Event) => void
+}
+
+function handleKanbanEvent(event: MessageEvent, handler: (event: unknown) => void): void {
+  try {
+    handler(JSON.parse(event.data) as unknown)
+  } catch (error) {
+    console.warn('Ignoring malformed Kanban event payload', error)
+  }
+}
+
+export function subscribeKanbanEvents(
+  handler: (event: unknown) => void,
+  options: KanbanEventSubscriptionOptions = {},
+): () => void {
   const source = new EventSource('/codex-api/kanban/events')
-  source.addEventListener('task.created', (event) => handler(JSON.parse(event.data) as unknown))
-  source.addEventListener('task.updated', (event) => handler(JSON.parse(event.data) as unknown))
-  source.addEventListener('task.status_changed', (event) => handler(JSON.parse(event.data) as unknown))
-  source.onerror = () => {
-    source.close()
+  source.addEventListener('task.created', (event) => handleKanbanEvent(event, handler))
+  source.addEventListener('task.updated', (event) => handleKanbanEvent(event, handler))
+  source.addEventListener('task.status_changed', (event) => handleKanbanEvent(event, handler))
+  source.onerror = (error) => {
+    options.onError?.(error)
   }
   return () => source.close()
 }

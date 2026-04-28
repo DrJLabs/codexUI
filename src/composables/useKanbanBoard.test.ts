@@ -161,6 +161,23 @@ describe('useKanbanBoard', () => {
     expect(board.visibleTasksByStatus.value.backlog.map((task) => task.id)).toEqual(['task_a'])
   })
 
+  it('excludes archived tasks from board groups, filters, and counts', async () => {
+    const board = useKanbanBoard({
+      gateway: createGateway(createState([
+        createTask({ id: 'task_active', status: 'backlog', labels: [{ id: 'label_ui', name: 'UI', color: '#16a34a' }] }),
+        createTask({ id: 'task_archived', status: 'backlog', archived: true, labels: [{ id: 'label_ui', name: 'UI', color: '#16a34a' }] }),
+      ])),
+      storage: null,
+    })
+
+    await board.loadBoard()
+    board.toggleLabelFilter('UI')
+
+    expect(board.tasksByStatus.value.backlog.map((task) => task.id)).toEqual(['task_active'])
+    expect(board.visibleTasksByStatus.value.backlog.map((task) => task.id)).toEqual(['task_active'])
+    expect(board.countsByStatus.value.backlog).toBe(1)
+  })
+
   it('selects tasks and patches local state after actions', async () => {
     const board = useKanbanBoard({
       gateway: createGateway(createState([createTask({ id: 'task_a', title: 'Original' })])),
@@ -173,8 +190,11 @@ describe('useKanbanBoard', () => {
     await board.setTaskStatus('task_a', 'ready')
     await board.archiveTask('task_a')
 
-    expect(board.selectedTask.value?.title).toBe('Updated')
-    expect(board.selectedTask.value?.status).toBe('ready')
-    expect(board.selectedTask.value?.archived).toBe(true)
+    expect(board.tasks.value.find((task) => task.id === 'task_a')).toMatchObject({
+      title: 'Updated',
+      status: 'ready',
+      archived: true,
+    })
+    expect(board.selectedTask.value).toBeNull()
   })
 })

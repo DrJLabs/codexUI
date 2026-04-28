@@ -1,17 +1,19 @@
-import { mkdtemp } from 'node:fs/promises'
+import { mkdtemp, writeFile } from 'node:fs/promises'
 import { createServer, type Server } from 'node:http'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import express from 'express'
 import { afterEach, describe, expect, it } from 'vitest'
 import { createKanbanMiddleware } from '../index'
+import { resolveProjectStatePath } from '../paths'
 
 const servers: Server[] = []
 
 async function createTestServer() {
   const dataDir = await mkdtemp(join(tmpdir(), 'codexui-kanban-routes-'))
+  const projectRoot = join(dataDir, 'project')
   const app = express()
-  app.use('/codex-api/kanban', createKanbanMiddleware({ dataDir, projectRoot: join(dataDir, 'project') }))
+  app.use('/codex-api/kanban', createKanbanMiddleware({ dataDir, projectRoot }))
   const server = createServer(app)
   servers.push(server)
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
@@ -19,6 +21,8 @@ async function createTestServer() {
   if (!address || typeof address === 'string') throw new Error('Expected test server port')
   return {
     baseUrl: `http://127.0.0.1:${address.port}`,
+    dataDir,
+    projectRoot,
   }
 }
 
@@ -73,11 +77,40 @@ describe('createKanbanMiddleware', () => {
         body: JSON.stringify({ status: 'done' }),
       },
     )
+    const emptyTitle = await requestJson<{ error: string }>(
+      `${baseUrl}/codex-api/kanban/tasks/${created.body.data.id}`,
+      {
+        method: 'PATCH',
+        body: JSON.stringify({ title: '   ' }),
+      },
+    )
+    const missingCriteria = await requestJson<{ error: string }>(
+      `${baseUrl}/codex-api/kanban/tasks/${created.body.data.id}/criteria/replace`,
+      {
+        method: 'POST',
+        body: JSON.stringify({}),
+      },
+    )
 
     expect(created.status).toBe(201)
     expect(created.body.data.title).toBe('Route task')
     expect(created.body.data.status).toBe('backlog')
     expect(invalidTransition.status).toBe(400)
     expect(invalidTransition.body.error).toContain('Invalid status transition')
+    expect(emptyTitle.status).toBe(400)
+    expect(emptyTitle.body.error).toContain('Task title is required')
+    expect(missingCriteria.status).toBe(400)
+    expect(missingCriteria.body.error).toContain('Acceptance criteria must be an array')
+  })
+
+  it('returns 500 for corrupt server-side state files', async () => {
+    const { baseUrl, dataDir, projectRoot } = await createTestServer()
+    await requestJson<{ data: unknown }>(`${baseUrl}/codex-api/kanban/state`)
+    await writeFile(resolveProjectStatePath(dataDir, projectRoot), '{ invalid json', 'utf8')
+
+    const state = await requestJson<{ error: string }>(`${baseUrl}/codex-api/kanban/state`)
+
+    expect(state.status).toBe(500)
+    expect(state.body.error).toContain('Kanban state file is corrupt; backup written to')
   })
 })

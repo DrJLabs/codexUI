@@ -94,6 +94,7 @@ export function useKanbanBoard(options: UseKanbanBoardOptions = {}) {
   const tasksByStatus = computed(() => {
     const grouped = createEmptyTasksByStatus()
     for (const task of tasks.value) {
+      if (task.archived) continue
       grouped[task.status].push(task)
     }
     return grouped
@@ -104,6 +105,7 @@ export function useKanbanBoard(options: UseKanbanBoardOptions = {}) {
     const query = filters.value.searchQuery.trim().toLowerCase()
     const labelNames = new Set(filters.value.labelNames.map((label) => label.toLowerCase()))
     for (const task of tasks.value) {
+      if (task.archived) continue
       if (query) {
         const haystack = [
           task.title,
@@ -124,12 +126,12 @@ export function useKanbanBoard(options: UseKanbanBoardOptions = {}) {
     KANBAN_STATUSES.map((status) => [status.id, tasksByStatus.value[status.id].length]),
   ) as Record<KanbanStatus, number>)
 
-  const selectedTask = computed(() => tasks.value.find((task) => task.id === selectedTaskId.value) ?? null)
+  const selectedTask = computed(() => tasks.value.find((task) => task.id === selectedTaskId.value && !task.archived) ?? null)
 
   function applySnapshot(snapshot: KanbanStateSnapshot): void {
     tasks.value = snapshot.tasks
     executionPolicy.value = snapshot.policy
-    if (selectedTaskId.value && !tasks.value.some((task) => task.id === selectedTaskId.value)) {
+    if (selectedTaskId.value && !tasks.value.some((task) => task.id === selectedTaskId.value && !task.archived)) {
       selectedTaskId.value = ''
     }
   }

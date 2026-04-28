@@ -1,5 +1,5 @@
 import type { RequestHandler } from 'express'
-import { createKanbanRouter, type CreateKanbanRouterOptions } from './routes'
+import { createKanbanRouter, type CreateKanbanRouterOptions } from './routes.js'
 
 export type CreateKanbanMiddlewareOptions = CreateKanbanRouterOptions
 

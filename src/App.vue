@@ -1280,6 +1280,7 @@ const browserHostName =
     ? (window.location.hostname || window.location.host || 'codexui')
     : 'codexui'
 const pageTitle = computed(() => {
+  if (isSkillsRoute.value || isKanbanRoute.value || isHomeRoute.value) return contentTitle.value
   const threadTitle = selectedThread.value?.title?.trim() ?? ''
   return threadTitle || browserHostName
 })

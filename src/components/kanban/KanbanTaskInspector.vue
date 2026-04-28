@@ -5,7 +5,7 @@
         <p class="kanban-inspector-eyebrow">{{ task.status }}</p>
         <h2>{{ task.title }}</h2>
       </div>
-      <button type="button" @click="$emit('close')">Close</button>
+      <button type="button" aria-label="Close task inspector" @click="$emit('close')">Close</button>
     </header>
     <TaskStatusActions :status="task.status" @set-status="$emit('set-status', $event)" />
     <TaskSummaryEditor :task="task" @save="$emit('save-summary', $event)" @archive="$emit('archive')" />

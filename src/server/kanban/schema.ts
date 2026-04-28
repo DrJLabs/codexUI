@@ -53,7 +53,11 @@ export function parseCreateTaskInput(value: unknown): CreateKanbanTaskInput {
 export function parseUpdateTaskInput(value: unknown): UpdateKanbanTaskInput {
   const record = asRecord(value)
   const patch: UpdateKanbanTaskInput = {}
-  if ('title' in record) patch.title = readString(record.title)
+  if ('title' in record) {
+    const title = readString(record.title)
+    if (!title) throw new Error('Task title is required')
+    patch.title = title
+  }
   if ('description' in record) patch.description = readString(record.description)
   if ('blockedReason' in record) patch.blockedReason = readString(record.blockedReason)
   if ('labels' in record) patch.labels = readLabels(record.labels)
@@ -74,15 +78,16 @@ export function parseStatusInput(value: unknown): SetKanbanTaskStatusInput {
 
 export function parseReplaceAcceptanceCriteriaInput(value: unknown): ReplaceKanbanAcceptanceCriteriaInput {
   const record = asRecord(value)
-  const criteria = Array.isArray(record.criteria)
-    ? record.criteria.map((item) => {
-      const itemRecord = asRecord(item)
-      return {
-        id: readString(itemRecord.id),
-        text: readString(itemRecord.text),
-        checked: itemRecord.checked === true,
-      }
-    }).filter((item) => item.text)
-    : []
+  if (!Array.isArray(record.criteria)) {
+    throw new Error('Acceptance criteria must be an array')
+  }
+  const criteria = record.criteria.map((item) => {
+    const itemRecord = asRecord(item)
+    return {
+      id: readString(itemRecord.id),
+      text: readString(itemRecord.text),
+      checked: itemRecord.checked === true,
+    }
+  }).filter((item) => item.text)
   return { criteria }
 }

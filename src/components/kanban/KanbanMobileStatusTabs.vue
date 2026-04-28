@@ -3,12 +3,15 @@
     <button
       v-for="status in statuses"
       :key="status.id"
+      ref="tabRefs"
       class="kanban-mobile-tab"
       :class="{ 'is-active': status.id === modelValue }"
       type="button"
       role="tab"
       :aria-selected="status.id === modelValue"
-      @click="$emit('update:modelValue', status.id)"
+      :tabindex="status.id === modelValue ? 0 : -1"
+      @click="emit('update:modelValue', status.id)"
+      @keydown="onTabKeydown($event, status.id)"
     >
       <span>{{ status.title }}</span>
       <span class="kanban-mobile-tab-count">{{ countsByStatus[status.id] ?? 0 }}</span>
@@ -17,17 +20,41 @@
 </template>
 
 <script setup lang="ts">
+import { nextTick, ref } from 'vue'
 import type { KANBAN_STATUSES, KanbanStatus } from '../../types/kanban'
 
-defineProps<{
+const props = defineProps<{
   statuses: typeof KANBAN_STATUSES
   modelValue: KanbanStatus
   countsByStatus: Record<KanbanStatus, number>
 }>()
 
-defineEmits<{
+const emit = defineEmits<{
   'update:modelValue': [status: KanbanStatus]
 }>()
+
+const tabRefs = ref<HTMLButtonElement[]>([])
+
+function onTabKeydown(event: KeyboardEvent, status: KanbanStatus): void {
+  const currentIndex = props.statuses.findIndex((item) => item.id === status)
+  if (currentIndex < 0) return
+  const lastIndex = props.statuses.length - 1
+  let nextIndex: number | null = null
+
+  if (event.key === 'ArrowRight') nextIndex = currentIndex === lastIndex ? 0 : currentIndex + 1
+  if (event.key === 'ArrowLeft') nextIndex = currentIndex === 0 ? lastIndex : currentIndex - 1
+  if (event.key === 'Home') nextIndex = 0
+  if (event.key === 'End') nextIndex = lastIndex
+  if (nextIndex === null) return
+
+  event.preventDefault()
+  const nextStatus = props.statuses[nextIndex]
+  if (!nextStatus) return
+  emit('update:modelValue', nextStatus.id)
+  void nextTick(() => {
+    tabRefs.value[nextIndex]?.focus()
+  })
+}
 </script>
 
 <style scoped>

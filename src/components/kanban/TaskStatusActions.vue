@@ -26,10 +26,10 @@ defineEmits<{
 
 const ACTIONS: Record<KanbanStatus, Array<{ id: KanbanStatus; label: string }>> = {
   backlog: [{ id: 'ready', label: 'Mark ready' }, { id: 'cancelled', label: 'Cancel' }],
-  ready: [{ id: 'backlog', label: 'Backlog' }, { id: 'running', label: 'Start placeholder' }, { id: 'cancelled', label: 'Cancel' }],
+  ready: [{ id: 'backlog', label: 'Backlog' }, { id: 'running', label: 'Move to running' }, { id: 'cancelled', label: 'Cancel' }],
   running: [{ id: 'review', label: 'Send to review' }, { id: 'rework', label: 'Needs rework' }, { id: 'cancelled', label: 'Cancel' }],
   review: [{ id: 'done', label: 'Mark done' }, { id: 'rework', label: 'Request rework' }, { id: 'cancelled', label: 'Cancel' }],
-  rework: [{ id: 'ready', label: 'Ready' }, { id: 'running', label: 'Start placeholder' }, { id: 'cancelled', label: 'Cancel' }],
+  rework: [{ id: 'ready', label: 'Ready' }, { id: 'running', label: 'Move to running' }, { id: 'cancelled', label: 'Cancel' }],
   done: [{ id: 'review', label: 'Reopen review' }, { id: 'rework', label: 'Reopen rework' }],
   cancelled: [{ id: 'backlog', label: 'Reopen backlog' }],
 }

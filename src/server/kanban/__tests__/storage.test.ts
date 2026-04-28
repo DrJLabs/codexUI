@@ -67,6 +67,15 @@ describe('KanbanStorage', () => {
     expect(snapshot.tasks[0]?.acceptanceCriteria[0]?.text).toBe('state survives reload')
   })
 
+  it('serializes concurrent mutations so tasks are not lost', async () => {
+    const { service } = await createHarness()
+
+    await Promise.all(Array.from({ length: 8 }, (_, index) => service.createTask({ title: `Task ${index}` })))
+    const snapshot = await service.listState()
+
+    expect(snapshot.tasks).toHaveLength(8)
+  })
+
   it('increments version on update and archives without deleting', async () => {
     const { service } = await createHarness()
 
@@ -79,6 +88,24 @@ describe('KanbanStorage', () => {
     expect(archived.archived).toBe(true)
     expect(snapshot.tasks).toHaveLength(1)
     expect(snapshot.tasks[0]?.archived).toBe(true)
+  })
+
+  it('preserves criterion metadata when replacement ids include whitespace', async () => {
+    const { service } = await createHarness()
+
+    const task = await service.createTask({
+      title: 'Criteria task',
+      acceptanceCriteria: [{ text: 'Existing criterion' }],
+    })
+    const criterion = task.acceptanceCriteria[0]
+    if (!criterion) throw new Error('Expected criterion')
+    const replaced = await service.replaceAcceptanceCriteria(task.id, {
+      criteria: [{ id: ` ${criterion.id} `, text: 'Updated criterion', checked: true }],
+    })
+
+    expect(replaced.acceptanceCriteria[0]?.id).toBe(criterion.id)
+    expect(replaced.acceptanceCriteria[0]?.createdAtIso).toBe(criterion.createdAtIso)
+    expect(replaced.acceptanceCriteria[0]?.text).toBe('Updated criterion')
   })
 
   it('rejects invalid status transitions and allows valid ones', async () => {
@@ -102,5 +129,17 @@ describe('KanbanStorage', () => {
     expect(backups.some((name) => name.endsWith('.json'))).toBe(true)
     const backupContent = await readFile(join(dataDir, 'backups', backups[0] ?? ''), 'utf8')
     expect(backupContent).toBe('{ invalid json')
+  })
+
+  it('backs up invalid migrated state files before throwing an operator-visible error', async () => {
+    const { dataDir, projectRoot, storage } = await createHarness()
+    await storage.load()
+    const statePath = resolveProjectStatePath(dataDir, projectRoot)
+    await writeFile(statePath, JSON.stringify({ schemaVersion: 1, boards: [] }), 'utf8')
+
+    await expect(storage.load()).rejects.toThrow('Kanban state file is corrupt; backup written to')
+
+    const backups = await readdir(join(dataDir, 'backups'))
+    expect(backups.some((name) => name.endsWith('.json'))).toBe(true)
   })
 })

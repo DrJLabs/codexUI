@@ -49,9 +49,26 @@ export function createKanbanRouter(options: CreateKanbanRouterOptions = {}): Rou
     res.setHeader('Content-Type', 'text/event-stream; charset=utf-8')
     res.setHeader('Cache-Control', 'no-store')
     res.setHeader('Connection', 'keep-alive')
-    res.write('event: ready\ndata: {"ok":true}\n\n')
-    const unsubscribe = eventBus.subscribe((event) => res.write(formatSseEvent(event)))
-    req.on('close', unsubscribe)
+    let unsubscribe: (() => void) | null = null
+    let isClosed = false
+    const cleanup = () => {
+      if (isClosed) return
+      isClosed = true
+      unsubscribe?.()
+      unsubscribe = null
+    }
+    const writeEvent = (payload: string) => {
+      try {
+        res.write(payload)
+      } catch {
+        cleanup()
+      }
+    }
+    writeEvent('event: ready\ndata: {"ok":true}\n\n')
+    unsubscribe = eventBus.subscribe((event) => writeEvent(formatSseEvent(event)))
+    req.on('close', cleanup)
+    res.on('error', cleanup)
+    req.socket.on('error', cleanup)
   })
 
   router.post('/tasks', asyncHandler(async (req, res) => {
@@ -61,32 +78,32 @@ export function createKanbanRouter(options: CreateKanbanRouterOptions = {}): Rou
   }))
 
   router.patch('/tasks/:taskId', asyncHandler(async (req, res) => {
-    const task = await service.updateTask(readRouteParam(req.params.taskId), parseUpdateTaskInput(req.body))
+    const task = await service.updateTask(readRouteParam(req.params.taskId, 'taskId'), parseUpdateTaskInput(req.body))
     eventBus.emit({ type: 'task.updated', payload: { taskId: task.id } })
     res.status(200).json({ data: task })
   }))
 
   router.post('/tasks/:taskId/status', asyncHandler(async (req, res) => {
-    const task = await service.setTaskStatus(readRouteParam(req.params.taskId), parseStatusInput(req.body))
+    const task = await service.setTaskStatus(readRouteParam(req.params.taskId, 'taskId'), parseStatusInput(req.body))
     eventBus.emit({ type: 'task.status_changed', payload: { taskId: task.id, status: task.status } })
     res.status(200).json({ data: task })
   }))
 
   router.post('/tasks/:taskId/archive', asyncHandler(async (req, res) => {
-    const task = await service.archiveTask(readRouteParam(req.params.taskId))
+    const task = await service.archiveTask(readRouteParam(req.params.taskId, 'taskId'))
     eventBus.emit({ type: 'task.updated', payload: { taskId: task.id, archived: true } })
     res.status(200).json({ data: task })
   }))
 
   router.post('/tasks/:taskId/criteria/replace', asyncHandler(async (req, res) => {
-    const task = await service.replaceAcceptanceCriteria(readRouteParam(req.params.taskId), parseReplaceAcceptanceCriteriaInput(req.body))
+    const task = await service.replaceAcceptanceCriteria(readRouteParam(req.params.taskId, 'taskId'), parseReplaceAcceptanceCriteriaInput(req.body))
     eventBus.emit({ type: 'task.updated', payload: { taskId: task.id } })
     res.status(200).json({ data: task })
   }))
 
   router.use((error: unknown, _req: Request, res: Response, _next: express.NextFunction) => {
     const message = error instanceof Error && error.message.trim().length > 0 ? error.message : 'Kanban request failed'
-    const status = message.includes('not found') ? 404 : 400
+    const status = resolveErrorStatus(message)
     res.status(status).json({ error: message })
   })
 
@@ -103,7 +120,25 @@ function normalizeProjectRoot(value: string): string {
   return isAbsolute(value) ? value : resolve(value)
 }
 
-function readRouteParam(value: string | string[] | undefined): string {
-  if (Array.isArray(value)) return value.join('/')
-  return value ?? ''
+function readRouteParam(value: string | string[] | undefined, name: string): string {
+  const resolved = Array.isArray(value) ? value.join('/') : value
+  if (!resolved) {
+    throw new Error(`Missing route parameter: ${name}`)
+  }
+  return resolved
+}
+
+function resolveErrorStatus(message: string): number {
+  const lowerMessage = message.toLowerCase()
+  if (lowerMessage.includes('not found')) return 404
+  if (
+    lowerMessage.startsWith('task title is required')
+    || lowerMessage.startsWith('invalid kanban status')
+    || lowerMessage.startsWith('invalid status transition')
+    || lowerMessage.startsWith('acceptance criteria must be an array')
+    || lowerMessage.startsWith('missing route parameter')
+  ) {
+    return 400
+  }
+  return 500
 }
