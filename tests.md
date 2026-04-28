@@ -3826,3 +3826,44 @@ Queued messages are saved through the backend, survive page refresh, and can be 
 
 #### Rollback/Cleanup
 - Delete any queued test messages that should not be sent
+
+---
+
+### Kanban Board v0.1 Manual Verification
+
+#### Feature/Change Name
+Server-persisted local Kanban board with `#/kanban` route, sidebar navigation, seven status columns, task editing, acceptance criteria, label filters, and mobile task sheet.
+
+#### Prerequisites/Setup
+1. Dev server running with `pnpm run dev -- --host 0.0.0.0 --port 4173`
+2. Open `http://127.0.0.1:4173/#/kanban`
+3. Light theme and dark theme are both available from Settings
+4. No Playwright automation is required unless explicitly requested
+
+#### Steps
+1. In light theme, open the sidebar and click `Kanban`
+2. Confirm the page title reads `Kanban` and an execution-disabled banner is visible
+3. Click `New task`
+4. Select the new task card and edit the title, description, and comma-separated labels
+5. Add two acceptance criteria and check one criterion
+6. Move the task through `Backlog -> Ready -> Running -> Review -> Done` using explicit status buttons
+7. Refresh the browser and confirm the task, labels, status, and criteria remain
+8. Restart the dev server and confirm the same state is restored
+9. Use search and label filters to narrow the visible cards, then clear filters
+10. Switch to dark theme and repeat create, edit, criteria, and status actions
+11. Resize to mobile width and confirm status tabs replace the seven-column board
+12. Select a mobile task and confirm details open in a full-height sheet with editable fields
+
+#### Expected Results
+- `#/kanban` loads inside the existing CodexUI shell
+- Sidebar Kanban navigation works on desktop and mobile
+- Desktop shows seven status columns
+- Mobile shows status tabs and a sheet, not a horizontal seven-column board
+- Task create/edit/status/archive data persists across browser refresh and dev-server restart
+- Search and label filters affect visible cards only, not stored task data
+- Light theme and dark theme remain legible
+- Execution controls remain disabled in v0.1
+
+#### Rollback/Cleanup
+- Archive or edit test tasks from the Kanban UI
+- Remove local Kanban data under `${CODEX_HOME:-$HOME/.codex}/codexui-kanban/` if a fully clean board is needed

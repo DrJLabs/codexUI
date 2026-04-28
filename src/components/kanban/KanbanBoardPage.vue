@@ -15,32 +15,101 @@
       title="Loading board"
       copy="Fetching local Kanban state."
     />
-    <KanbanEmptyState
-      v-else-if="tasks.length === 0"
-      title="No tasks yet"
-      copy="Create a local task to start organizing work."
-      action-label="Create task"
-      @action="createFirstTask"
-    />
-    <div v-else class="kanban-page-placeholder">
-      {{ tasks.length }} task{{ tasks.length === 1 ? '' : 's' }}
-    </div>
+    <template v-else>
+      <KanbanToolbar
+        :search-query="filters.searchQuery"
+        :label-names="labelNames"
+        :active-labels="filters.labelNames"
+        @update:search-query="setSearchQuery"
+        @toggle-label="toggleLabelFilter"
+        @clear-filters="clearFilters"
+        @create-task="createFirstTask"
+      />
+      <KanbanEmptyState
+        v-if="tasks.length === 0"
+        title="No tasks yet"
+        copy="Create a local task to start organizing work."
+        action-label="Create task"
+        @action="createFirstTask"
+      />
+      <div v-else class="kanban-page-layout">
+        <KanbanBoardViewport
+          :statuses="KANBAN_STATUSES"
+          :visible-tasks-by-status="visibleTasksByStatus"
+          :counts-by-status="countsByStatus"
+          :selected-task-id="selectedTaskId"
+          :selected-mobile-status="selectedMobileStatus"
+          @select-task="selectTask"
+          @update:selected-mobile-status="selectedMobileStatus = $event"
+        />
+        <KanbanTaskInspector
+          :task="selectedTask"
+          @close="clearSelection"
+          @archive="archiveSelectedTask"
+          @set-status="setSelectedTaskStatus"
+          @save-summary="saveSelectedSummary"
+          @add-criterion="addSelectedCriterion"
+          @update-criterion="updateSelectedCriterion"
+          @remove-criterion="removeSelectedCriterion"
+          @toggle-criterion="toggleSelectedCriterion"
+        />
+        <KanbanTaskSheet
+          :task="selectedTask"
+          @close="clearSelection"
+          @archive="archiveSelectedTask"
+          @set-status="setSelectedTaskStatus"
+          @save-summary="saveSelectedSummary"
+          @add-criterion="addSelectedCriterion"
+          @update-criterion="updateSelectedCriterion"
+          @remove-criterion="removeSelectedCriterion"
+          @toggle-criterion="toggleSelectedCriterion"
+        />
+      </div>
+    </template>
   </div>
 </template>
 
 <script setup lang="ts">
-import { onMounted } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useKanbanBoard } from '../../composables/useKanbanBoard'
+import { KANBAN_STATUSES, type KanbanStatus, type KanbanTaskLabel } from '../../types/kanban'
+import KanbanBoardViewport from './KanbanBoardViewport.vue'
 import KanbanEmptyState from './KanbanEmptyState.vue'
+import KanbanTaskInspector from './KanbanTaskInspector.vue'
+import KanbanTaskSheet from './KanbanTaskSheet.vue'
+import KanbanToolbar from './KanbanToolbar.vue'
 
 const {
   tasks,
+  visibleTasksByStatus,
+  countsByStatus,
+  selectedTaskId,
+  selectedTask,
+  filters,
   isLoading,
   errorMessage,
   executionPolicy,
   loadBoard,
   createTask,
+  updateTask,
+  archiveTask,
+  setTaskStatus,
+  selectTask,
+  clearSelection,
+  addAcceptanceCriterion,
+  updateAcceptanceCriterion,
+  removeAcceptanceCriterion,
+  setCriterionChecked,
+  setSearchQuery,
+  toggleLabelFilter,
+  clearFilters,
 } = useKanbanBoard()
+
+const selectedMobileStatus = ref<KanbanStatus>('backlog')
+
+const labelNames = computed(() => Array.from(new Set(
+  tasks.value.flatMap((task) => task.labels.map((label) => label.name)),
+)).sort((left, right) => left.localeCompare(right)))
 
 onMounted(() => {
   void loadBoard()
@@ -49,11 +118,58 @@ onMounted(() => {
 function createFirstTask(): void {
   void createTask({ title: 'New task' })
 }
+
+function readSelectedTaskId(): string {
+  return selectedTask.value?.id ?? ''
+}
+
+function saveSelectedSummary(patch: { title: string; description: string; labels: KanbanTaskLabel[] }): void {
+  const taskId = readSelectedTaskId()
+  if (!taskId) return
+  void updateTask(taskId, patch)
+}
+
+function archiveSelectedTask(): void {
+  const taskId = readSelectedTaskId()
+  if (!taskId) return
+  void archiveTask(taskId)
+}
+
+function setSelectedTaskStatus(status: KanbanStatus): void {
+  const taskId = readSelectedTaskId()
+  if (!taskId) return
+  void setTaskStatus(taskId, status)
+}
+
+function addSelectedCriterion(text: string): void {
+  const taskId = readSelectedTaskId()
+  if (!taskId) return
+  void addAcceptanceCriterion(taskId, text)
+}
+
+function updateSelectedCriterion(criterionId: string, patch: { text?: string; checked?: boolean }): void {
+  const taskId = readSelectedTaskId()
+  if (!taskId) return
+  void updateAcceptanceCriterion(taskId, criterionId, patch)
+}
+
+function removeSelectedCriterion(criterionId: string): void {
+  const taskId = readSelectedTaskId()
+  if (!taskId) return
+  void removeAcceptanceCriterion(taskId, criterionId)
+}
+
+function toggleSelectedCriterion(criterionId: string, checked: boolean): void {
+  const taskId = readSelectedTaskId()
+  if (!taskId) return
+  void setCriterionChecked(taskId, criterionId, checked)
+}
 </script>
 
 <style scoped>
 .kanban-page {
   display: grid;
+  align-content: start;
   gap: 16px;
   min-height: 100%;
   padding: 16px;
@@ -69,11 +185,26 @@ function createFirstTask(): void {
   font-weight: 700;
 }
 
-.kanban-page-placeholder {
-  padding: 16px;
-  border: 1px solid rgba(113, 113, 122, 0.25);
-  border-radius: 8px;
-  background: rgba(250, 250, 250, 0.8);
-  color: #3f3f46;
+.kanban-page-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 340px);
+  gap: 16px;
+  min-width: 0;
+}
+
+:global(:root.dark) .kanban-page-banner {
+  border-color: rgba(245, 158, 11, 0.3);
+  background: rgba(120, 53, 15, 0.35);
+  color: #fcd34d;
+}
+
+@media (max-width: 860px) {
+  .kanban-page {
+    padding: 12px;
+  }
+
+  .kanban-page-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 </style>
