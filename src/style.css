@@ -1241,7 +1241,8 @@
 
 @media (max-width: 767px) {
   .floating-plan-dock {
-    @apply inset-x-3 bottom-3 w-auto rounded-2xl;
+    @apply inset-x-3 w-auto rounded-2xl;
+    bottom: max(6.5rem, env(safe-area-inset-bottom));
   }
 
   .floating-plan-dock-body {
@@ -1267,6 +1268,10 @@
 
 :root.dark .plan-card {
   @apply border-sky-700/70 bg-slate-900/78;
+}
+
+:root.dark .floating-plan-dock .plan-card {
+  @apply border-0 bg-transparent shadow-none;
 }
 
 :root.dark .plan-card .plan-card-title {
