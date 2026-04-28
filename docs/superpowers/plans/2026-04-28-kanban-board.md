@@ -40,6 +40,15 @@ Do not add in v0:
 - Autonomous merge, auto-PR, auto-push, or `thread/shellCommand`.
 - Execution using inherited `danger-full-access` or `approvalPolicy=never`.
 
+Stop after Task 6 for the first implementation checkpoint. Tasks 7-12 cross execution, audit, worktree, app-server, and recovery trust boundaries; before starting Task 7, write a focused v0.2 execution addendum that locks down:
+
+- exact `CodexBridgeRuntime` implementation shape in `src/server/codexAppServerBridge.ts`
+- CSRF token issuance, storage, and request header contract
+- actor/session model for audit events
+- notification correlation rules for `threadId`, `turnId`, `taskId`, and `runId`
+- persisted run state machine and startup recovery transitions
+- exact smoke command for built ESM/server module loading
+
 ## File Map
 
 Create for v0.1:
@@ -662,13 +671,16 @@ git add src/router/index.ts src/App.vue src/components/icons/IconTablerLayoutKan
 git commit -m "feat: add kanban route shell"
 ```
 
-## Task 6: v0.1 Board CRUD UI
+## Task 6A: v0.1 Board Shell, Columns, And Cards
 
 **Files:**
 
-- Create all v0.1 Kanban components listed in the file map.
+- Create: `src/components/kanban/KanbanToolbar.vue`
+- Create: `src/components/kanban/KanbanBoardViewport.vue`
+- Create: `src/components/kanban/KanbanMobileStatusTabs.vue`
+- Create: `src/components/kanban/KanbanColumn.vue`
+- Create: `src/components/kanban/KanbanTaskCard.vue`
 - Modify: `src/components/kanban/KanbanBoardPage.vue`
-- Modify: `src/style.css` only for global dark/mobile sheet rules that component styles cannot cover.
 
 - [ ] **Step 1: Build desktop board**
 
@@ -696,11 +708,39 @@ KanbanTaskSheet when selected
 
 Do not render a horizontal seven-column board on mobile.
 
-- [ ] **Step 3: Add editors and actions**
+- [ ] **Step 3: Run build and commit**
+
+Run:
+
+```bash
+pnpm run build:frontend
+```
+
+Commit:
+
+```bash
+git add src/components/kanban/KanbanToolbar.vue src/components/kanban/KanbanBoardViewport.vue src/components/kanban/KanbanMobileStatusTabs.vue src/components/kanban/KanbanColumn.vue src/components/kanban/KanbanTaskCard.vue src/components/kanban/KanbanBoardPage.vue
+git commit -m "feat: render kanban board shell"
+```
+
+## Task 6B: v0.1 Task Inspector, Editors, And Manual Verification
+
+**Files:**
+
+- Create: `src/components/kanban/KanbanTaskInspector.vue`
+- Create: `src/components/kanban/KanbanTaskSheet.vue`
+- Create: `src/components/kanban/TaskSummaryEditor.vue`
+- Create: `src/components/kanban/AcceptanceCriteriaEditor.vue`
+- Create: `src/components/kanban/TaskStatusActions.vue`
+- Modify: `src/components/kanban/KanbanBoardPage.vue`
+- Modify: `src/style.css` only for global dark/mobile sheet rules that component styles cannot cover.
+- Modify: `tests.md`
+
+- [ ] **Step 1: Add editors and actions**
 
 Implement create/edit/archive, acceptance criteria replace, label editing, and explicit status action buttons using the allowed transition table from Task 2.
 
-- [ ] **Step 4: Manual verification**
+- [ ] **Step 2: Manual verification**
 
 Run `pnpm run dev -- --host 0.0.0.0 --port 4173`.
 
@@ -714,11 +754,11 @@ Verify:
 6. Switch to dark mode and repeat create/edit/status flow.
 7. Resize to mobile width and confirm status tabs plus full-height sheet behavior.
 
-- [ ] **Step 5: Append `tests.md` section**
+- [ ] **Step 3: Append `tests.md` section**
 
 Add a section named `Kanban Board v0.1 Manual Verification` with prerequisites, exact steps, expected results, light-theme result, dark-theme result, mobile result, and cleanup notes.
 
-- [ ] **Step 6: Run verification commands and commit**
+- [ ] **Step 4: Run verification commands and commit**
 
 Run:
 
@@ -881,14 +921,15 @@ Explicitly reject `thread/shellCommand`.
 
 - [ ] **Step 4: CJS smoke requirement**
 
-Because this changes server module loading behavior, run:
+Because this changes server module loading behavior in an ESM package, do not use `require('./dist-cli/index.js')` as the primary smoke. Run:
 
 ```bash
 pnpm run build
-node -e "const mod = require('./dist-cli/index.js'); console.log(typeof mod)"
+node -e "import('./dist-cli/index.js').then(() => console.log('dist-cli import ok'))"
+node -e "import('./dist/server/codexAppServerBridge.js').then((mod) => console.log(typeof mod.createCodexBridgeMiddleware))"
 ```
 
-If the CLI artifact is not require-compatible, run the closest public CJS smoke available for the changed server entry and record the exact command in the completion report.
+If the emitted server path differs, inspect `dist/` and run the closest import-based smoke for the changed server entry. Record the exact command in the completion report.
 
 - [ ] **Step 5: Commit**
 
