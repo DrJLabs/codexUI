@@ -396,6 +396,30 @@ This file tracks manual regression and feature verification steps.
 #### Rollback/Cleanup
 - Decline or cancel the MCP request after verification, and close any opened authorization URL if it was only used for testing.
 
+### Feature: Kanban Codex Agent Reference
+
+#### Prerequisites
+- Repository checkout is available.
+- `docs/kanban-codex-agent-reference.md` exists.
+
+#### Steps
+1. Open `docs/kanban-codex-agent-reference.md`.
+2. Confirm the lifecycle section documents `backlog -> ready -> running -> review -> done`, with `rework` and `cancelled`.
+3. Confirm the assignee section uses only `operator`, `codex:auto`, and `codex:thread:<threadId>`.
+4. Confirm the safe execution section covers trusted local/Tailscale access, CSRF, managed worktrees, and no automatic merge, push, or pull request creation.
+5. Confirm marker examples use `kanban:create` and `kanban:update` fenced JSON blocks.
+6. Confirm completion behavior covers result capture, marker parsing, proposal creation, and review packet generation.
+7. Confirm API examples cover create, update, reorder, execute, complete, approve proposal, and reject proposal.
+8. Run `rg -n "OpenClaw|nerve root|root session" docs/kanban-codex-agent-reference.md`.
+
+#### Expected Results
+- The reference is Codex-specific and avoids unrelated agent terminology.
+- The API examples match `/codex-api/kanban` routes and use the Kanban CSRF header where required.
+- The `rg` check produces no output.
+
+#### Rollback/Cleanup
+- Remove `docs/kanban-codex-agent-reference.md` only if rolling back this documentation task.
+
 ### Feature: pnpm dev script installs dependencies and starts Vite
 
 ### Feature: Tailscale CIDRs bypass password and Cloudflare tunnel is opt-in
@@ -3826,3 +3850,543 @@ Queued messages are saved through the backend, survive page refresh, and can be 
 
 #### Rollback/Cleanup
 - Delete any queued test messages that should not be sent
+
+---
+
+### Kanban Board v0.1 Manual Verification
+
+#### Feature/Change Name
+Server-persisted local Kanban board with `#/kanban` route, sidebar navigation, seven status columns, query-linked task selection, task editing, acceptance criteria, label filters, and accessible mobile task sheet.
+
+#### Prerequisites/Setup
+1. Dev server running with `pnpm run dev -- --host 0.0.0.0 --port 4173`
+2. Open `http://127.0.0.1:4173/#/kanban`
+3. Light theme and dark theme are both available from Settings
+4. No Playwright automation is required unless explicitly requested
+
+#### Steps
+1. In light theme, open the sidebar and click `Kanban`
+2. Confirm the page title reads `Kanban` and an execution-disabled banner is visible
+3. Click `New task`
+4. Select the new task card and edit the title, description, and comma-separated labels
+5. Add two acceptance criteria and check one criterion
+6. Move the task through `Backlog -> Ready -> Running -> Review -> Done` using explicit status buttons
+7. Refresh the browser and confirm the task, labels, status, and criteria remain
+8. Restart the dev server and confirm the same state is restored
+9. Use search and label filters to narrow the visible cards, then clear filters
+10. Copy the selected route as `#/kanban?task=<task-id>`, reload it, and confirm the same task opens selected
+11. Archive the task and confirm the task query clears and the board no longer counts the archived task
+12. Switch to dark theme and repeat create, edit, criteria, and status actions
+13. Resize to mobile width and confirm status tabs replace the seven-column board
+14. Use ArrowLeft, ArrowRight, Home, and End on the mobile status tabs and confirm focus/selection move together
+15. Select a mobile task and confirm details open in a dialog-like full-height sheet, focus moves into it, Escape closes it, and backdrop click still closes it
+
+#### Expected Results
+- `#/kanban` loads inside the existing CodexUI shell
+- Sidebar Kanban navigation works on desktop and mobile
+- Desktop shows seven status columns
+- Mobile shows status tabs and a sheet, not a horizontal seven-column board
+- `#/kanban?task=<id>` opens the selected task and clears when the selected task is archived or missing
+- Task create/edit/status/archive data persists across browser refresh and dev-server restart
+- Archived tasks are excluded from status counts, visible columns, and label filters
+- Search and label filters affect visible cards only, not stored task data
+- Light theme and dark theme remain legible
+- Execution controls remain disabled in v0.1
+
+#### Rollback/Cleanup
+- Archive or edit test tasks from the Kanban UI
+- Remove local Kanban data under `${CODEX_HOME:-$HOME/.codex}/codexui-kanban/` if a fully clean board is needed
+
+---
+
+### Kanban v0.2 Execution Safety Gate
+
+#### Feature/Change Name
+Trusted local or Tailscale execution preflight with per-router CSRF token and append-only audit hash chain.
+
+#### Prerequisites/Setup
+1. Dev server running with `pnpm run dev -- --host 0.0.0.0 --port 4173`
+2. A local Kanban task ID is available from `#/kanban`
+3. Execution remains disabled unless `CODEXUI_KANBAN_EXECUTION_ENABLED=1` is set before starting the server
+4. Light theme and dark theme are both available from Settings
+
+#### Steps
+1. In light theme with execution disabled, send `POST /codex-api/kanban/tasks/<task-id>/run` and confirm it returns `403`
+2. Restart with `CODEXUI_KANBAN_EXECUTION_ENABLED=1`
+3. Fetch `GET /codex-api/kanban/csrf` from `127.0.0.1` and save the returned `csrfToken`
+4. Send `POST /codex-api/kanban/tasks/<task-id>/run` without `x-codexui-kanban-csrf` and confirm it returns `403`
+5. Send the same request with non-Tailscale `x-forwarded-for: 203.0.113.10` and confirm it returns `403`
+6. Send the request from loopback or Tailscale Serve with the CSRF header and confirm it returns the temporary runner-not-available response
+7. Inspect `${CODEX_HOME:-$HOME/.codex}/codexui-kanban/audit/` and confirm a JSONL audit event was appended
+8. Switch to dark theme and confirm the Kanban page still renders normally with execution controls unavailable until later v0.2 UI tasks wire them
+
+#### Expected Results
+- Execution start is blocked by default
+- Non-Tailscale forwarded, LAN, reverse-proxy, and unknown remote requests cannot start execution
+- Tailscale clients and Tailscale Serve forwarding are trusted when CSRF is present
+- Execution mutations require `x-codexui-kanban-csrf`
+- Valid loopback preflight does not start Codex yet and reports that the runner is not available
+- Audit entries include `prevEventHash` and `eventHash`, and secret-shaped fields are redacted
+- Light theme and dark theme remain unchanged by the server-only safety gate
+
+#### Rollback/Cleanup
+- Stop the dev server and restart without `CODEXUI_KANBAN_EXECUTION_ENABLED=1`
+- Remove local test audit data under `${CODEX_HOME:-$HOME/.codex}/codexui-kanban/audit/` if needed
+
+---
+
+### Kanban v0.2 Managed Worktree Queue
+
+#### Feature/Change Name
+Managed Git worktree creation, one-active-run queue limits, and conservative startup recovery classification for Kanban execution.
+
+#### Prerequisites/Setup
+1. A Git-backed project is available with a committed `main` or `master` branch
+2. Dev server can be started with `CODEXUI_KANBAN_EXECUTION_ENABLED=1 pnpm run dev -- --host 0.0.0.0 --port 4173`
+3. Light theme and dark theme are both available from Settings
+
+#### Steps
+1. Create or choose a Kanban task that would be eligible for execution
+2. Trigger managed-worktree creation through the execution flow once later runner wiring is available
+3. Confirm the created branch follows `codexui/task/<task-id>-<slug>`
+4. Confirm the worktree path lives under `${CODEX_HOME:-$HOME/.codex}/codexui-kanban/worktrees/`
+5. Confirm a second active run for the same task is blocked or queued
+6. Add an uncommitted file inside the managed worktree and attempt cleanup
+7. Switch between light theme and dark theme and confirm the Kanban page remains readable while run controls show queued or blocked state in later UI tasks
+
+#### Expected Results
+- Worktrees are created under the Kanban-managed data root, not directly inside the source repo
+- The manager creates a task-scoped branch and writes lock metadata with run ID, task ID, PID, and heartbeat timestamp
+- Only one global active run, one active run per repo, and one active run per task can proceed
+- Dirty worktree cleanup is refused
+- Startup recovery never auto-accepts approvals or auto-deletes dirty worktrees
+- Light theme and dark theme remain unchanged by the server-only queue foundation
+
+#### Rollback/Cleanup
+- Remove clean test worktrees with `git -C <repo-root> worktree remove <worktree-path>`
+- Remove test branches with `git -C <repo-root> branch -D <branch-name>` after the worktree is removed
+- Remove local test metadata under `${CODEX_HOME:-$HOME/.codex}/codexui-kanban/worktrees/` if needed
+
+---
+
+### Kanban v0.2 Internal Codex Bridge Adapter
+
+#### Feature/Change Name
+Narrow internal Codex bridge runtime and Kanban adapter allowlist for future runner integration.
+
+#### Prerequisites/Setup
+1. Project dependencies are installed
+2. Dev server can be started with `pnpm run dev -- --host 0.0.0.0 --port 4173`
+3. Light theme and dark theme are both available from Settings
+
+#### Steps
+1. Run `pnpm run test:unit -- src/server/kanban/__tests__/codexBridgeAdapter.test.ts`
+2. Run `pnpm run build`
+3. Run the built CLI import smoke recorded in the implementation notes
+4. Open `#/kanban` in light theme and confirm the board still loads
+5. Switch to dark theme and confirm the board still loads
+
+#### Expected Results
+- The adapter forwards only allowed app-server methods: `thread/start`, `thread/resume`, `turn/start`, `turn/interrupt`, `review/start`, and `command/exec`
+- `thread/shellCommand` is rejected before it reaches the shared runtime
+- Production and Vite dev server setup pass the existing shared bridge runtime into Kanban middleware
+- Public Codex bridge HTTP behavior remains unchanged
+- Light theme and dark theme remain unchanged by the server-only adapter foundation
+
+#### Rollback/Cleanup
+- No persistent cleanup is needed for adapter-only tests
+
+---
+
+### Kanban v0.2 Runner Controls And Logs
+
+#### Feature/Change Name
+Kanban task run controls, managed worktree runner start, interrupt route, and persisted run logs/events.
+
+#### Prerequisites/Setup
+1. A Git-backed project is available with a committed `main` or `master` branch
+2. Dev server running locally with `CODEXUI_KANBAN_EXECUTION_ENABLED=1 pnpm run dev -- --host 0.0.0.0 --port 4173`
+3. Open `http://127.0.0.1:4173/#/kanban` or the configured Tailscale Serve URL
+4. Light theme and dark theme are both available from Settings
+
+#### Steps
+1. In light theme, create or select a Kanban task
+2. Confirm the task inspector shows run state, Run, Stop, and Run log controls
+3. Click `Run`
+4. Confirm the task moves to `running` state and a managed worktree is created under `${CODEX_HOME:-$HOME/.codex}/codexui-kanban/worktrees/`
+5. Click `Refresh` in the run log panel and confirm startup log text appears when the run has started
+6. Click `Stop` while a run is active
+7. Confirm the run moves to `cancelled` and the worktree is preserved
+8. Switch to dark theme and repeat inspection of run controls and log panel
+
+#### Expected Results
+- Run requests are trusted-access-only and CSRF-protected; loopback and Tailscale Serve are allowed
+- Runner uses a managed worktree and the narrow Codex bridge adapter
+- Run logs are served by `GET /codex-api/kanban/runs/<run-id>/logs`
+- Interrupt calls preserve the worktree and mark task/run state cancelled
+- Light theme and dark theme controls remain readable
+
+#### Rollback/Cleanup
+- Stop the dev server and restart without `CODEXUI_KANBAN_EXECUTION_ENABLED=1`
+- Remove clean test worktrees with `git -C <repo-root> worktree remove <worktree-path>`
+- Remove test branches with `git -C <repo-root> branch -D <branch-name>` after worktree removal
+
+---
+
+### Kanban Phone Over Tailscale Mutations
+
+#### Feature/Change Name
+Kanban trusted-access policy for phone-driven Tailscale Serve usage.
+
+#### Prerequisites/Setup
+1. Dev server running with `CODEXUI_KANBAN_EXECUTION_ENABLED=1 pnpm run dev -- --host 0.0.0.0 --port 4173`
+2. Tailscale Serve maps the device DNS name to the local dev server, for example `https://codexui-dev.tail7570d1.ts.net`
+3. Open the Tailscale Serve URL on a phone connected to the same tailnet
+4. Light theme and dark theme are both available from Settings
+
+#### Steps
+1. In light theme, open `#/kanban` from the phone over the Tailscale Serve URL
+2. Create or select a task and confirm normal non-execution mutations still work
+3. Click `Run` and confirm the request is allowed when the request arrives from Tailscale Serve
+4. Confirm requests with a spoofed non-Tailscale `x-forwarded-for` value still return `403`
+5. Confirm the run still requires `x-codexui-kanban-csrf`
+6. Switch to dark theme and repeat the Kanban route inspection from the phone
+
+#### Expected Results
+- Loopback browser requests and Tailscale clients are trusted
+- Tailscale Serve forwarding is trusted only when the socket peer is loopback and the forwarded client IP is in the Tailscale range
+- Arbitrary LAN clients, non-Tailscale forwarded clients, and spoofed forwarded headers remain blocked for guarded Kanban mutations
+- CSRF remains required for run, interrupt, cleanup, review, and proposal mutations
+- Light theme and dark theme remain readable on the phone
+
+#### Rollback/Cleanup
+- Stop the dev server and restart without `CODEXUI_KANBAN_EXECUTION_ENABLED=1`
+- Disable or remove the Tailscale Serve mapping if it was only created for testing
+- Archive or delete temporary Kanban tasks from local state
+
+---
+
+### Kanban v0.2 Review Packets And Proposals
+
+#### Feature/Change Name
+Review packet generation from managed worktree diffs, review approve/reject routes, and inert proposal accept/reject routes.
+
+#### Prerequisites/Setup
+1. A Kanban run has produced a managed worktree with local file changes
+2. Dev server running locally with `CODEXUI_KANBAN_EXECUTION_ENABLED=1 pnpm run dev -- --host 0.0.0.0 --port 4173`
+3. Open `http://127.0.0.1:4173/#/kanban`
+4. Light theme and dark theme are both available from Settings
+
+#### Steps
+1. Select the task with a completed or active run
+2. Click `Regenerate` in the review packet panel
+3. Confirm `GET /codex-api/kanban/tasks/<task-id>/review-packet` returns a packet with `packetHash`, summary counts, and raw diff patch
+4. Approve the review through `POST /codex-api/kanban/tasks/<task-id>/review/approve` and confirm the task moves to `done`
+5. Repeat with another review task and reject it through `POST /codex-api/kanban/tasks/<task-id>/review/reject`; confirm the task moves to `rework`
+6. Confirm `GET /codex-api/kanban/proposals` lists inert proposals without starting execution
+7. Switch to dark theme and confirm the review packet and proposal panels remain readable
+
+#### Expected Results
+- Review packet hash changes when task update time, run ID, diff, or test results change
+- Approval only marks the task done; it does not merge, push, or open a PR
+- Rejection marks the task for rework
+- Accepted proposals become backlog tasks and do not run automatically
+- Light theme and dark theme remain readable
+
+#### Rollback/Cleanup
+- Move test tasks back to the intended status or archive them
+- Remove clean test worktrees and branches after review verification
+
+---
+
+### Kanban Safe Execution v0.2 Manual Verification
+
+#### Feature/Change Name
+End-to-end safe execution hardening for Kanban runs: loopback gating, CSRF, managed worktrees, interrupt, review packet, proposals, command risk classification, and cleanup confirmation.
+
+#### Prerequisites/Setup
+1. Use a local browser on the same machine as the dev server
+2. Start from a Git-backed project with a clean committed `main` or `master` branch
+3. Start the dev server with `CODEXUI_KANBAN_EXECUTION_ENABLED=1 pnpm run dev -- --host 0.0.0.0 --port 4173`
+4. Open `http://127.0.0.1:4173/#/kanban`
+5. Light theme and dark theme are both available from Settings
+
+#### Steps
+1. In light theme, create a Kanban task with acceptance criteria
+2. Click `Run` and confirm the request succeeds from loopback or Tailscale Serve trusted access
+3. From an untrusted forwarded/remote context, send a run request with a non-Tailscale `x-forwarded-for` value and confirm it returns `403`
+4. Confirm the run creates a worktree under `${CODEX_HOME:-$HOME/.codex}/codexui-kanban/worktrees/`
+5. Click `Stop` while a run is active and confirm the run becomes `cancelled`
+6. Make an uncommitted change in the managed worktree and confirm cleanup is refused
+7. Clean the worktree, send cleanup with confirmation `remove <run-id>`, and confirm cleanup succeeds
+8. Generate a review packet and confirm it includes a hash, diff summary, and raw patch
+9. Approve a review task and confirm it moves to `done` without merge, push, or PR creation
+10. Reject a review task and confirm it moves to `rework`
+11. Confirm risky commands such as `rm -rf`, `git reset --hard`, `curl ... | sh`, and `npm publish` are flagged by unit coverage
+12. Switch to dark theme and repeat inspection of run controls, logs, review packet panel, and proposal panel
+
+#### Expected Results
+- Execution remains disabled unless explicitly enabled with `CODEXUI_KANBAN_EXECUTION_ENABLED=1`
+- Non-Tailscale forwarded, LAN, and public tunnel requests cannot start runs or cleanup worktrees
+- Tailscale clients and Tailscale Serve forwarding can start runs when execution is enabled and CSRF is present
+- CSRF is required for execution, interrupt, cleanup, review, and proposal mutations
+- Runs use managed worktrees and never run directly on `main`
+- Interrupt preserves the worktree
+- Dirty worktrees are never deleted automatically
+- Review approval only marks done; it does not merge, push, or create PRs
+- Light theme and dark theme remain readable
+
+#### Rollback/Cleanup
+- Stop the dev server and restart without `CODEXUI_KANBAN_EXECUTION_ENABLED=1`
+- Remove clean test worktrees with `git -C <repo-root> worktree remove <worktree-path>`
+- Remove test branches with `git -C <repo-root> branch -D <branch-name>` after worktree removal
+- Archive or delete temporary Kanban tasks from local state
+
+---
+
+### Kanban Nerve-Parity Metadata And Filters
+
+#### Feature/Change Name
+Kanban metadata editor, priority/assignee toolbar filters, server-side task list filtering, and card metadata display.
+
+#### Prerequisites/Setup
+1. Start the dev server with `pnpm run dev -- --host 0.0.0.0 --port 4173`
+2. Open `http://127.0.0.1:4173/#/kanban`
+3. Create or select at least two tasks with different labels
+4. Light theme and dark theme are both available from Settings
+
+#### Steps
+1. In light theme, select a task and edit metadata below the summary editor: set priority, assignee, model, thinking, due date, estimate minutes, and actual minutes
+2. Save metadata and confirm the task card shows the priority and assignee in its metadata row
+3. Use the toolbar priority filter to select `High` and confirm only matching high-priority tasks remain visible
+4. Use the toolbar assignee filter to select `Codex auto` or `Operator` and confirm the visible board narrows accordingly
+5. Clear filters and confirm search and label filters still work as before
+6. Switch to dark theme and repeat metadata editing plus priority and assignee filtering
+7. On a mobile-width viewport, open the task sheet and confirm the metadata editor appears below the summary editor and remains usable
+
+#### Expected Results
+- Saving metadata updates the selected task through the versioned update path
+- Priority and assignee filters update the board without breaking search or label filtering
+- Task cards show compact priority and assignee metadata without overflowing on mobile
+- The metadata editor is readable and usable in light theme and dark theme
+
+#### Rollback/Cleanup
+- Clear toolbar filters
+- Restore test task metadata to the desired values or archive temporary tasks
+
+---
+
+### Kanban Configurable Columns, WIP Display, And Drag Reorder
+
+#### Feature/Change Name
+Kanban board configuration panel, config-visible columns, WIP limit display, and native drag/drop card reorder.
+
+#### Prerequisites/Setup
+1. Start the dev server with `pnpm run dev -- --host 0.0.0.0 --port 4173`
+2. Open `http://127.0.0.1:4173/#/kanban`
+3. Create at least three tasks across two statuses
+4. Light theme and dark theme are both available from Settings
+
+#### Steps
+1. Run `pnpm vitest run src/composables/useKanbanBoard.test.ts`
+2. Run `pnpm run build`
+3. In light theme, open the board config panel and hide one column; click Save
+4. Confirm the desktop board and mobile status tabs no longer show the hidden column
+5. Set a WIP limit on a visible column, save, and move enough tasks into that column to exceed the limit
+6. Confirm the column header displays `count / limit` and shows the over-limit state without blocking additional drops
+7. Drag a task card within a column and between columns
+8. Confirm the reordered card persists after refresh and status action buttons still move tasks as the keyboard-accessible fallback
+9. Change default status, default priority, and proposal policy; save and refresh
+10. Switch to dark theme and repeat config panel inspection, WIP display inspection, and drag/drop reorder
+
+#### Expected Results
+- Config saves through the Kanban config endpoint and updates the rendered board without a full page reload
+- Hidden columns are omitted from desktop columns and mobile tabs
+- WIP limits are displayed as `count / limit`; over-limit styling is visible but drops still work
+- Task cards are draggable and drop reorder sends the target status plus before/after task anchors
+- Version conflicts show a mutation error and reload the board
+- Light theme and dark theme controls remain readable
+
+#### Rollback/Cleanup
+- Re-enable hidden columns and clear temporary WIP limits if they were only used for testing
+- Move or archive temporary Kanban tasks
+
+---
+
+### Kanban Proposal V2 And Marker Parsing
+
+#### Feature/Change Name
+Kanban proposal V2 records, fenced `kanban:create` / `kanban:update` marker parsing, proposal approval/rejection routes, and status filtering.
+
+#### Prerequisites/Setup
+1. Start the dev server with `pnpm run dev -- --host 0.0.0.0 --port 4173`
+2. Open `http://127.0.0.1:4173/#/kanban`
+3. Create at least one task that can receive an update proposal
+4. Light theme and dark theme are both available from Settings
+
+#### Steps
+1. Run `pnpm vitest run src/server/kanban/__tests__/markerParser.test.ts src/server/kanban/__tests__/proposalService.test.ts src/server/kanban/__tests__/routes.test.ts`
+2. Run `pnpm run build`
+3. In light theme, set proposal policy to `Confirm`
+4. Submit or inspect an agent result containing a valid fenced `kanban:create` block and confirm the visible result text no longer includes the marker block
+5. Confirm a pending create proposal appears and approving it creates a task with the proposed metadata
+6. Submit or inspect an agent result containing a valid fenced `kanban:update` block for the existing task
+7. Confirm approving the update proposal patches the target task
+8. Reject a second proposal and confirm it no longer appears when filtering pending proposals
+9. Set proposal policy to `Auto`, submit a valid marker-created proposal, and confirm it is approved immediately
+10. Repeat proposal inbox inspection and approval/rejection readability checks in dark theme
+
+#### Expected Results
+- Valid marker fences are parsed into V2 create/update proposals and removed from clean result text
+- Invalid JSON marker fences remain in clean result text and do not create proposals
+- Create proposal approval creates a task; update proposal approval patches the target task
+- Rejected proposals record resolution metadata
+- Proposal listing honors the `status` filter
+- Light theme and dark theme remain readable for proposal-related UI surfaces
+
+#### Rollback/Cleanup
+- Restore proposal policy to the desired value
+- Archive or delete temporary tasks created during proposal approval
+- Reject or clear temporary pending proposals from local Kanban state if they were only used for testing
+
+---
+
+### Kanban Proposal Inbox V2
+
+#### Feature/Change Name
+Kanban proposal inbox tabs, compact proposal previews, and approve/reject actions.
+
+#### Prerequisites/Setup
+1. Start the dev server with `pnpm run dev -- --host 0.0.0.0 --port 4173`
+2. Open `http://127.0.0.1:4173/#/kanban`
+3. Have at least one pending create proposal and one pending update proposal, or create them through the proposal API
+4. Light theme and dark theme are both available from Settings
+
+#### Steps
+1. Run `pnpm vitest run src/composables/useKanbanBoard.test.ts`
+2. Run `pnpm run build`
+3. In light theme, confirm the proposal inbox appears below the Kanban toolbar without blocking the board columns
+4. Switch between `pending`, `approved`, and `rejected` tabs and confirm the list refreshes for each status
+5. Confirm each proposal row shows a create/update type badge, proposed-by metadata, timestamp, and compact payload preview
+6. Approve a pending create proposal and confirm the proposal list refreshes and the created task appears on the board
+7. Reject a pending proposal and confirm it leaves the pending list after refresh
+8. On a mobile-width viewport, confirm the tabs and approve/reject controls stack below the proposal content without overlap
+9. Switch to dark theme and repeat inbox tab, preview, approve, and reject readability checks
+
+#### Expected Results
+- Proposal tabs call the filtered proposal listing path without blocking board loading
+- Proposal load failures show only the inbox error state and leave the board usable
+- Approve and reject actions use the trusted CSRF-protected proposal routes
+- Approve/reject refresh both proposals and board/task state
+- Light theme and dark theme proposal inbox surfaces remain readable and controls remain accessible
+
+#### Rollback/Cleanup
+- Archive or delete temporary tasks created by proposal approval
+- Reject temporary pending proposals that were only used for testing
+
+---
+
+### Kanban Parity Final Verification
+
+#### Feature/Change Name
+Final verification for the CodexUI Kanban parity implementation.
+
+#### Prerequisites/Setup
+1. Use the `feature/kanban-board-dev` worktree.
+2. Start the dev server with `CODEXUI_KANBAN_EXECUTION_ENABLED=1 pnpm run dev -- --host 0.0.0.0 --port 5173`.
+3. Ensure the Tailscale Serve host is configured as an allowed Vite host.
+
+#### Steps
+1. Run `pnpm run test:unit`.
+2. Run `pnpm run build`.
+3. Run `git diff --check`.
+4. Call `GET /codex-api/kanban/health` on `127.0.0.1:5173`.
+5. Call `GET /codex-api/kanban/csrf` with `x-forwarded-for: 100.100.100.100` and confirm `200`.
+6. Call `GET /codex-api/kanban/csrf` with `x-forwarded-for: 203.0.113.10` and confirm `403`.
+7. In light theme, open `#/kanban` and smoke check metadata editing, filters, drag reorder, config panel, proposal inbox, and review packet access.
+8. Repeat the UI smoke in dark theme.
+9. From a phone over Tailscale Serve, open the Kanban route and confirm board loading, proposal inbox visibility, and guarded mutation access.
+
+#### Expected Results
+- Unit tests, build, and whitespace check pass.
+- Local health endpoint returns `{"data":{"ok":true}}`.
+- Tailscale-range forwarded CSRF request is trusted and non-Tailscale forwarded request is rejected.
+- Kanban parity UI remains readable and usable in both light and dark theme.
+- Phone-over-Tailscale access can load the board and use trusted guarded mutations with CSRF.
+
+#### Rollback/Cleanup
+- Stop the port `5173` dev server if it was only started for verification.
+- Archive or delete temporary Kanban tasks and proposals created during smoke testing.
+
+---
+
+### Kanban Review Hardening
+
+#### Feature/Change Name
+Kanban CSRF coverage, review approval validation, startup recovery, and failed-start worktree preservation.
+
+#### Prerequisites/Setup
+1. Use the `feature/kanban-board-dev` worktree.
+2. Start the dev server with `CODEXUI_KANBAN_EXECUTION_ENABLED=1 pnpm run dev -- --host 0.0.0.0 --port 5173`.
+3. Open `http://127.0.0.1:5173/#/kanban` locally, or the configured Tailscale Serve host from a phone.
+
+#### Steps
+1. Run `pnpm vitest run src/api/kanbanGateway.test.ts src/server/kanban/__tests__/routes.test.ts src/server/kanban/__tests__/codexKanbanRunner.test.ts src/server/kanban/__tests__/reviewPacketService.test.ts src/server/kanban/__tests__/startupRecovery.test.ts src/server/kanban/__tests__/recoveryService.test.ts`.
+2. Run `pnpm run build`.
+3. In light theme, create and edit a Kanban task and confirm the board uses CSRF-protected mutations without forcing loopback-only access.
+4. In dark theme, repeat task create/edit/archive and confirm the board remains readable.
+5. Attempt to approve a task in review without a current review packet and confirm approval is rejected.
+6. Generate or load a valid review packet with no unresolved proposals and confirm approval moves the task to `done`.
+7. Resolve all pending proposals linked to a review packet and confirm only still-pending proposals block approval.
+8. Try interrupting a completed run and confirm the request is rejected without changing the terminal run/task state.
+
+#### Expected Results
+- All core mutating routes require trusted access plus a current CSRF token.
+- Stale CSRF tokens are refreshed once by the browser gateway and retried.
+- Review approval requires the task's current review packet and rejects unresolved proposals.
+- Review packets track pending proposal IDs only; approved/rejected proposals do not keep approval blocked.
+- Interrupt requests are accepted only for active runs and cannot rewrite terminal runs.
+- Restart recovery marks persisted active/queued runs as `needs_recovery` without deleting worktrees.
+- Failed Codex startup preserves the managed worktree for explicit cleanup.
+- Phone-over-Tailscale access remains supported for guarded board mutations.
+
+#### Rollback/Cleanup
+- Archive or delete temporary Kanban tasks created during testing.
+- Use the explicit worktree cleanup action for preserved failed-start worktrees after inspecting them.
+
+---
+
+### Kanban Review Fix Round - Queue and Metadata Validation
+
+#### Feature/Change Name
+Duplicate queued-run protection and metadata validation affordances.
+
+#### Prerequisites/Setup
+1. Use the `feature/kanban-board-dev` worktree.
+2. Start this worktree's dev server on loopback: `CODEXUI_KANBAN_EXECUTION_ENABLED=1 node scripts/dev.cjs --host 127.0.0.1 --port 5173`.
+3. Open `http://127.0.0.1:5173/#/kanban`.
+
+#### Steps
+1. Run `pnpm vitest run src/server/kanban/__tests__/taskQueue.test.ts src/server/kanban/__tests__/routes.test.ts src/server/kanban/__tests__/taskService.test.ts src/server/kanban/__tests__/remoteAccess.test.ts src/server/kanban/__tests__/codexKanbanRunner.test.ts src/server/kanban/__tests__/storage.test.ts src/server/kanban/__tests__/worktreeManager.test.ts src/server/kanban/__tests__/policy.test.ts src/server/kanban/__tests__/auditLog.test.ts`.
+2. Run `pnpm run test:unit`.
+3. Run `pnpm run build`.
+4. In light theme, open a task's metadata editor, enter an invalid estimate or actual minute value, and press Save.
+5. Confirm the displayed validation error also marks the estimate and actual inputs invalid.
+6. Switch to another task and confirm stale validation errors clear.
+7. Repeat steps 4-6 in dark theme.
+
+#### Expected Results
+- Duplicate queued runs for the same task are rejected before a second queued item is stored.
+- Queued-run promotion emits board refresh events when capacity opens.
+- Spoofed left-most `X-Forwarded-For` values do not grant Tailscale trusted mutation access.
+- Archived queued tasks fail instead of being promoted into hidden execution.
+- Corrupt-state backups and long managed-worktree branch segments include collision-resistant suffixes.
+- Storage mutation queues recover after a failed mutation and audit log hash chaining avoids full-file reads after the cached hash is initialized.
+- Execution access honors policy toggles for Tailscale and loopback-only runs while ordinary trusted board mutations remain available.
+- Unit tests and build pass.
+- Metadata validation errors are visible and field-level invalid styling appears in both light and dark theme.
+- Switching selected tasks resets stale metadata validation messages.
+- Tasks in `stopping` run state still disable Run/Stop controls as active work in both light and dark theme.
+
+#### Rollback/Cleanup
+- Revert temporary metadata edits or archive/delete tasks created for the smoke check.

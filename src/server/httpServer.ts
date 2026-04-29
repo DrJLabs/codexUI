@@ -6,6 +6,7 @@ import { writeFile, stat } from 'node:fs/promises'
 import express, { type Express } from 'express'
 import { createCodexBridgeMiddleware } from './codexAppServerBridge.js'
 import { createAuthSession } from './authMiddleware.js'
+import { createKanbanMiddleware } from './kanban/index.js'
 import { createDirectoryListingHtml, createTextEditorHtml, decodeBrowsePath, getLocalDirectoryListing, isTextEditableFile, normalizeLocalPath } from './localBrowseUi.js'
 import { WebSocketServer, type WebSocket } from 'ws'
 
@@ -15,6 +16,7 @@ const spaEntryFile = join(distDir, 'index.html')
 
 export type ServerOptions = {
   password?: string
+  projectRoot?: string
 }
 
 export type ServerInstance = {
@@ -75,6 +77,8 @@ function readWildcardPathParam(value: unknown): string {
 export function createServer(options: ServerOptions = {}): ServerInstance {
   const app = express()
   const bridge = createCodexBridgeMiddleware()
+  const projectRoot = options.projectRoot ?? process.cwd()
+  const kanban = createKanbanMiddleware({ bridge, projectRoot })
   const authSession = options.password ? createAuthSession(options.password) : null
 
   // 1. Auth middleware (if password is set)
@@ -82,10 +86,13 @@ export function createServer(options: ServerOptions = {}): ServerInstance {
     app.use(authSession.middleware)
   }
 
-  // 2. Bridge middleware for /codex-api/*
+  // 2. Kanban owns /codex-api/kanban/* before the generic bridge.
+  app.use('/codex-api/kanban', kanban)
+
+  // 3. Bridge middleware for /codex-api/*
   app.use(bridge)
 
-  // 3. Serve local images referenced in markdown (desktop parity for absolute image paths)
+  // 4. Serve local images referenced in markdown (desktop parity for absolute image paths)
   app.get('/codex-local-image', (req, res) => {
     const rawPath = typeof req.query.path === 'string' ? req.query.path : ''
     const localPath = normalizeLocalImagePath(rawPath)
