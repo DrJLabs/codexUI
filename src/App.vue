@@ -853,22 +853,24 @@
                       aria-label="Thread artifacts"
                       @click.stop
                     >
-                      <div class="artifact-drawer-header">
-                        <button
-                          class="artifact-drawer-close"
+	                      <div class="artifact-drawer-header">
+	                        <button
+	                          class="artifact-drawer-close"
                           type="button"
                           :aria-label="t('Close artifacts')"
                           :title="t('Close artifacts')"
                           @click="closeArtifactDrawer"
                         >
-                          <IconTablerX class="artifact-drawer-close-icon" />
-                        </button>
-                      </div>
-                      <ThreadArtifactSidebar
-                        class="artifact-drawer-sidebar"
-                        :thread-id="selectedThreadId"
-                        :artifacts="selectedThreadArtifacts"
-                      />
+	                          <IconTablerX class="artifact-drawer-close-icon" />
+	                        </button>
+	                      </div>
+	                      <ThreadWorkspaceHeader :model="threadWorkspaceModel" />
+	                      <ThreadArtifactSidebar
+	                        class="artifact-drawer-sidebar"
+	                        :thread-id="threadWorkspaceModel.threadId"
+	                        :artifacts="selectedThreadArtifacts"
+	                        :workspace-model="threadWorkspaceModel"
+	                      />
                     </aside>
                   </div>
                 </Transition>
@@ -956,6 +958,7 @@ import IconTablerTerminal from './components/icons/IconTablerTerminal.vue'
 import IconTablerX from './components/icons/IconTablerX.vue'
 import { useDesktopState } from './composables/useDesktopState'
 import { useMobile } from './composables/useMobile'
+import { useThreadWorkspace } from './composables/useThreadWorkspace'
 import { useUiLanguage } from './composables/useUiLanguage'
 import {
   checkoutGitBranch,
@@ -995,6 +998,7 @@ const ReviewPane = defineAsyncComponent(() => import('./components/content/Revie
 const DirectoryHub = defineAsyncComponent(() => import('./components/content/DirectoryHub.vue'))
 const KanbanBoardPage = defineAsyncComponent(() => import('./components/kanban/KanbanBoardPage.vue'))
 const ThreadArtifactSidebar = defineAsyncComponent(() => import('./components/artifacts/ThreadArtifactSidebar.vue'))
+const ThreadWorkspaceHeader = defineAsyncComponent(() => import('./components/artifacts/ThreadWorkspaceHeader.vue'))
 const { t, uiLanguage, uiLanguageOptions, setUiLanguage } = useUiLanguage()
 
 const SIDEBAR_COLLAPSED_STORAGE_KEY = 'codex-web-local.sidebar-collapsed.v1'
@@ -1257,6 +1261,12 @@ const currentThreadBranch = ref<string | null>(null)
 const isLoadingThreadBranches = ref(false)
 const isSwitchingThreadBranch = ref(false)
 const selectedThreadArtifacts = ref<WorkspaceArtifact[]>([])
+const threadWorkspaceModel = useThreadWorkspace({
+  threadId: selectedThreadId,
+  artifacts: selectedThreadArtifacts,
+  proposalCount: computed(() => selectedThreadArtifacts.value.filter((artifact) => artifact.kind === 'proposal').length),
+  activeWorktreeCount: computed(() => selectedThreadArtifacts.value.filter((artifact) => artifact.kind === 'worktree').length),
+})
 let threadArtifactLoadSequence = 0
 let threadArtifactRefreshTimer: ReturnType<typeof setTimeout> | null = null
 let threadArtifactRefreshInterval: ReturnType<typeof setInterval> | null = null
