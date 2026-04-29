@@ -1,6 +1,6 @@
 # Kanban Board Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Add a first-class, local-first Kanban board to CodexUI, starting with board CRUD and server-side persistence, then adding opt-in, loopback-only execution through managed worktrees.
 
@@ -264,7 +264,7 @@ export type KanbanApiError = {
 - Create: `src/server/kanban/paths.ts`
 - Test: `src/server/kanban/__tests__/config.test.ts`
 
-- [ ] **Step 1: Write config tests**
+- [x] **Step 1: Write config tests**
 
 ```ts
 import { describe, expect, it } from 'vitest'
@@ -288,7 +288,7 @@ describe('resolveKanbanConfig', () => {
 })
 ```
 
-- [ ] **Step 2: Add types and config implementation**
+- [x] **Step 2: Add types and config implementation**
 
 Use the shared `src/types/kanban.ts` contract above. Implement `resolveKanbanConfig(env = process.env)` with these fixed policy values:
 
@@ -317,7 +317,7 @@ export function resolveKanbanConfig(env: NodeJS.ProcessEnv = process.env) {
 }
 ```
 
-- [ ] **Step 3: Add ID and path helpers**
+- [x] **Step 3: Add ID and path helpers**
 
 `ids.ts` exports `createKanbanId(prefix)` using `node:crypto.randomUUID()` and returns IDs like `task_<uuid-without-dashes>`.
 
@@ -332,7 +332,7 @@ export function resolveProjectRunDir(dataDir: string, projectRoot: string, runId
 
 Default data dir must be `${CODEX_HOME || ~/.codex}/codexui-kanban`.
 
-- [ ] **Step 4: Run the focused test**
+- [x] **Step 4: Run the focused test**
 
 Run: `pnpm exec vitest run src/server/kanban/__tests__/config.test.ts`
 
@@ -355,7 +355,7 @@ git commit -m "feat: add kanban type and policy foundation"
 - Create: `src/server/kanban/taskService.ts`
 - Test: `src/server/kanban/__tests__/storage.test.ts`
 
-- [ ] **Step 1: Write storage tests**
+- [x] **Step 1: Write storage tests**
 
 Cover these behaviors:
 
@@ -367,7 +367,7 @@ Cover these behaviors:
 
 Run target: `pnpm exec vitest run src/server/kanban/__tests__/storage.test.ts`
 
-- [ ] **Step 2: Implement state file shape**
+- [x] **Step 2: Implement state file shape**
 
 `migrations.ts` exports:
 
@@ -391,7 +391,7 @@ export function createEmptyStateFile(projectRoot: string, nowIso: string): Kanba
 export function migrateKanbanStateFile(value: unknown, projectRoot: string): KanbanStateFileV1
 ```
 
-- [ ] **Step 3: Implement atomic mutations**
+- [x] **Step 3: Implement atomic mutations**
 
 `storage.ts` exports `KanbanStorage` with:
 
@@ -413,7 +413,7 @@ Write mutation flow:
 
 Serialize concurrent `mutate()` calls through a per-instance async queue so read-modify-write operations cannot overwrite each other. If JSON parse or migration validation fails, copy the bad file to `backups/<timestamp>-<projectHash>.json` and throw an operator-visible internal error. The route layer must log the detailed backup path server-side and return a generic `Kanban request failed` message to clients for `500` responses so filesystem paths are not exposed.
 
-- [ ] **Step 4: Implement task service**
+- [x] **Step 4: Implement task service**
 
 `taskService.ts` exports `KanbanTaskService` with:
 
@@ -442,7 +442,7 @@ const ALLOWED_STATUS_TRANSITIONS: Record<KanbanStatus, KanbanStatus[]> = {
 
 Use a single timestamp per create/update operation. Status changes that omit `reason` must preserve the existing `blockedReason`; only an explicit `reason` field should update it.
 
-- [ ] **Step 5: Run focused tests and commit**
+- [x] **Step 5: Run focused tests and commit**
 
 Run: `pnpm exec vitest run src/server/kanban/__tests__/storage.test.ts`
 
@@ -464,7 +464,7 @@ git commit -m "feat: persist kanban board state"
 - Modify: `vite.config.ts`
 - Test: `src/server/kanban/__tests__/routes.test.ts`
 
-- [ ] **Step 1: Write route tests**
+- [x] **Step 1: Write route tests**
 
 Use Express request/response tests or direct middleware invocation consistent with existing server tests. Cover:
 
@@ -473,7 +473,7 @@ Use Express request/response tests or direct middleware invocation consistent wi
 - `POST /codex-api/kanban/tasks` creates a task
 - `POST /codex-api/kanban/tasks/:taskId/status` rejects invalid transition with `400`
 
-- [ ] **Step 2: Implement routes**
+- [x] **Step 2: Implement routes**
 
 v0.1 endpoints:
 
@@ -491,7 +491,7 @@ POST   /codex-api/kanban/tasks/:taskId/criteria/replace
 All JSON responses use `{ data: ... }` except errors, which use `{ error: "message" }`.
 The SSE route must use streaming-friendly headers (`Content-Type: text/event-stream`, `Cache-Control: no-store`, `X-Accel-Buffering: no`), clean up subscriptions on write/socket errors, and skip subscribing if the initial ready event write has already failed. The event bus should support normal multi-tab fan-out without Node max-listener warnings.
 
-- [ ] **Step 3: Mount in production before the bridge**
+- [x] **Step 3: Mount in production before the bridge**
 
 In `src/server/httpServer.ts`, import `createKanbanMiddleware` and mount it after auth, before `app.use(bridge)`:
 
@@ -506,11 +506,11 @@ app.use('/codex-api/kanban', kanban)
 app.use(bridge)
 ```
 
-- [ ] **Step 4: Mount in Vite before the dev bridge**
+- [x] **Step 4: Mount in Vite before the dev bridge**
 
 In `vite.config.ts`, create `const kanban = createKanbanMiddleware()` inside `configureServer(server)` and call `server.middlewares.use('/codex-api/kanban', kanban)` before handlers that proxy `/codex-api/*` to the bridge.
 
-- [ ] **Step 5: Run routes test and build smoke**
+- [x] **Step 5: Run routes test and build smoke**
 
 Run:
 
@@ -521,7 +521,7 @@ pnpm run build:frontend
 
 Expected: tests pass and frontend typecheck/build completes.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add src/server/kanban/eventBus.ts src/server/kanban/routes.ts src/server/kanban/index.ts src/server/httpServer.ts vite.config.ts src/server/kanban/__tests__/routes.test.ts
@@ -536,7 +536,7 @@ git commit -m "feat: add kanban HTTP API"
 - Create: `src/composables/useKanbanBoard.ts`
 - Test: `src/composables/useKanbanBoard.test.ts`
 
-- [ ] **Step 1: Write composable tests**
+- [x] **Step 1: Write composable tests**
 
 Cover:
 
@@ -549,7 +549,7 @@ Cover:
 - failed loads clear stale tasks, policy, and selection
 - event subscriptions reload board state when Kanban SSE events arrive
 
-- [ ] **Step 2: Implement gateway**
+- [x] **Step 2: Implement gateway**
 
 Expose:
 
@@ -565,7 +565,7 @@ subscribeKanbanEvents(handler: (event: unknown) => void, options?: { onError?: (
 
 Use `fetch()` and normalize non-2xx JSON errors to `Error(message)`. Archive requests must send an explicit empty JSON body. SSE subscribers must tolerate malformed event payloads, report connection errors through the optional handler, and leave browser-native reconnect behavior intact until teardown closes the source.
 
-- [ ] **Step 3: Implement composable**
+- [x] **Step 3: Implement composable**
 
 Expose:
 
@@ -600,11 +600,11 @@ subscribeToEvents
 Persist only filters to `localStorage` key `codex-web-local.kanban.filters.v1`.
 Exclude archived tasks from status groups, visible filtered groups, counts, selected task resolution, and label filter options. `patchTask()` must reconcile selection after updates so an archived selected task clears `selectedTaskId` and any `#/kanban?task=` sync. `loadBoard()` failure must clear stale in-memory board state. `subscribeToEvents()` should use `subscribeKanbanEvents()` and reload the board on incoming Kanban mutation events while leaving EventSource reconnect behavior to the browser.
 
-- [ ] **Step 4: Run focused tests**
+- [x] **Step 4: Run focused tests**
 
 Run: `pnpm exec vitest run src/composables/useKanbanBoard.test.ts`
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/api/kanbanGateway.ts src/composables/useKanbanBoard.ts src/composables/useKanbanBoard.test.ts
@@ -621,7 +621,7 @@ git commit -m "feat: add kanban frontend state layer"
 - Create: `src/components/kanban/KanbanBoardPage.vue`
 - Create: `src/components/kanban/KanbanEmptyState.vue`
 
-- [ ] **Step 1: Add route**
+- [x] **Step 1: Add route**
 
 Add:
 
@@ -635,7 +635,7 @@ Add:
 
 Place it before the catch-all redirect.
 
-- [ ] **Step 2: Add App shell branch**
+- [x] **Step 2: Add App shell branch**
 
 In `src/App.vue`:
 
@@ -648,7 +648,7 @@ In `src/App.vue`:
 - update `showThreadContextBadge`, route watchers, and terminal toggle predicates so Kanban behaves like Skills and does not require a selected thread
 - ensure `pageTitle` uses `Kanban` on the Kanban route instead of retaining a previously selected thread title
 
-- [ ] **Step 3: Build empty page**
+- [x] **Step 3: Build empty page**
 
 `KanbanBoardPage.vue` should call `useKanbanBoard().loadBoard()` on mount and show:
 
@@ -659,7 +659,7 @@ In `src/App.vue`:
 - selection sync for `#/kanban?task=<id>`: initialize `selectedTaskId` from the query parameter, update the query when selection changes, and remove the query when selection clears or the task is missing/archived after load
 - live event subscription on mount and teardown on unmount, so updates from another tab or local process refresh the board
 
-- [ ] **Step 4: Verify static route behavior**
+- [x] **Step 4: Verify static route behavior**
 
 Run:
 
@@ -675,7 +675,7 @@ Manual check:
 3. Confirm the shell title is `Kanban`, the sidebar nav item is active, and no thread is required.
 4. Switch light/dark/system using Settings and confirm the empty page is legible.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/router/index.ts src/App.vue src/components/icons/IconTablerLayoutKanban.vue src/components/kanban/KanbanBoardPage.vue src/components/kanban/KanbanEmptyState.vue
@@ -693,7 +693,7 @@ git commit -m "feat: add kanban route shell"
 - Create: `src/components/kanban/KanbanTaskCard.vue`
 - Modify: `src/components/kanban/KanbanBoardPage.vue`
 
-- [ ] **Step 1: Build desktop board**
+- [x] **Step 1: Build desktop board**
 
 Desktop layout:
 
@@ -706,7 +706,7 @@ KanbanTaskInspector
 
 Each card shows title, description preview, labels, acceptance progress, status/run badge, and a proposal count badge hidden when zero.
 
-- [ ] **Step 2: Build mobile board**
+- [x] **Step 2: Build mobile board**
 
 Mobile layout:
 
@@ -720,7 +720,7 @@ KanbanTaskSheet when selected
 Do not render a horizontal seven-column board on mobile.
 Mobile status tabs must implement roving tabindex keyboard navigation with ArrowLeft, ArrowRight, Home, and End.
 
-- [ ] **Step 3: Run build and commit**
+- [x] **Step 3: Run build and commit**
 
 Run:
 
@@ -748,12 +748,12 @@ git commit -m "feat: render kanban board shell"
 - Modify: `src/style.css` only for global dark/mobile sheet rules that component styles cannot cover.
 - Modify: `tests.md`
 
-- [ ] **Step 1: Add editors and actions**
+- [x] **Step 1: Add editors and actions**
 
 Implement create/edit/archive, acceptance criteria replace, label editing, and explicit status action buttons using the allowed transition table from Task 2. Label editing must dedupe normalized label ids before saving, and the server parser must generate stable unique label ids for API clients that provide label names without ids. Status updates that omit `reason` must preserve the existing `blockedReason`; only an explicit `reason` field should update it.
 Async mutation failures must be caught and surfaced in the page instead of being discarded. The mobile task sheet must behave as a dialog with `role="dialog"`, `aria-modal="true"`, focus-on-open, Escape close, and backdrop click close.
 
-- [ ] **Step 2: Manual verification**
+- [x] **Step 2: Manual verification**
 
 Run `pnpm run dev -- --host 0.0.0.0 --port 4173`.
 
@@ -768,11 +768,11 @@ Verify:
 7. Switch to dark mode and repeat create/edit/status flow.
 8. Resize to mobile width and confirm status tabs plus full-height sheet behavior, including keyboard navigation and Escape close.
 
-- [ ] **Step 3: Append `tests.md` section**
+- [x] **Step 3: Append `tests.md` section**
 
 Add a section named `Kanban Board v0.1 Manual Verification` with prerequisites, exact steps, expected results, light-theme result, dark-theme result, mobile result, and cleanup notes.
 
-- [ ] **Step 4: Run verification commands and commit**
+- [x] **Step 4: Run verification commands and commit**
 
 Run:
 
@@ -845,7 +845,7 @@ Hash the canonical JSON of the event without `eventHash`.
 
 Add `POST /codex-api/kanban/tasks/:taskId/run`, but it only performs policy preflight and returns a blocked response until Task 10 wires the runner.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/server/kanban/remoteAccess.ts src/server/kanban/csrf.ts src/server/kanban/auditLog.ts src/server/kanban/redaction.ts src/server/kanban/routes.ts src/server/kanban/__tests__/policy.test.ts src/server/kanban/__tests__/auditLog.test.ts
