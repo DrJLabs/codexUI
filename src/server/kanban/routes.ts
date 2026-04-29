@@ -66,6 +66,9 @@ export function createKanbanRouter(options: CreateKanbanRouterOptions = {}): Rou
     worktreeManager,
     bridge: options.bridge,
     auditLog,
+    proposalService: proposals,
+    reviewPacketService: reviewPackets,
+    eventBus,
   }) : null
   const router = express.Router()
 
@@ -228,6 +231,22 @@ export function createKanbanRouter(options: CreateKanbanRouterOptions = {}): Rou
     res.status(200).json({ data: result })
   }))
 
+  router.post('/runs/:runId/complete', asyncHandler(async (req, res) => {
+    if (!policy.executionEnabled) {
+      throw createHttpError(403, 'Kanban execution is disabled')
+    }
+    assertTrustedAccessMutation(req, csrf)
+    if (!runner) {
+      res.status(409).json({ error: 'Kanban runner is not available yet' })
+      return
+    }
+    const result = await runner.completeRun(
+      readRouteParam(req.params.runId, 'runId'),
+      parseCompleteRunInput(req.body),
+    )
+    res.status(200).json({ data: result })
+  }))
+
   router.get('/runs/:runId', asyncHandler(async (req, res) => {
     if (!runner) {
       res.status(404).json({ error: 'Kanban run not found' })
@@ -385,6 +404,14 @@ function readRouteParam(value: string | string[] | undefined, name: string): str
   return resolved
 }
 
+function parseCompleteRunInput(value: unknown): { result: string; error?: string } {
+  if (!isRecord(value) || typeof value.result !== 'string') {
+    throw createHttpError(400, 'Kanban run completion result is required')
+  }
+  const error = typeof value.error === 'string' ? value.error.trim() : ''
+  return error ? { result: value.result, error } : { result: value.result }
+}
+
 function assertTrustedAccessRequest(req: Request): KanbanRemoteAccess {
   const access = classifyKanbanRemoteAccess(req)
   if (!access.trusted) {
@@ -440,6 +467,10 @@ function isActiveRunState(state: string): boolean {
 
 function readString(value: unknown): string {
   return typeof value === 'string' ? value : ''
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
 }
 
 function resolveErrorStatus(error: unknown, message: string): number {

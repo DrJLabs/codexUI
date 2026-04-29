@@ -1,11 +1,14 @@
 import { appendFile, mkdir, readFile } from 'node:fs/promises'
 import { dirname } from 'node:path'
-import type { KanbanRun, KanbanTask, StartKanbanRunResponse, InterruptKanbanRunResponse } from '../../types/kanban'
+import type { KanbanActor, KanbanRun, KanbanTask, StartKanbanRunResponse, InterruptKanbanRunResponse } from '../../types/kanban'
 import type { KanbanAuditSink } from './auditLog'
 import { createKanbanCodexBridgeAdapter, type KanbanCodexBridgeAdapter } from './codexBridgeAdapter'
+import type { KanbanEventBus } from './eventBus'
 import { createKanbanId } from './ids'
 import { resolveProjectRunDir } from './paths'
+import type { KanbanProposalService } from './proposalService'
 import type { KanbanRemoteAccess } from './remoteAccess'
+import type { KanbanReviewPacketService } from './reviewPacketService'
 import type { KanbanStateFileV1 } from './migrations'
 import { KanbanStorage } from './storage'
 import { KanbanTaskQueue } from './taskQueue'
@@ -19,11 +22,26 @@ export type CodexKanbanRunnerOptions = {
   worktreeManager: KanbanWorktreeManager
   bridge: CodexBridgeRuntime
   auditLog: KanbanAuditSink
+  proposalService?: Pick<KanbanProposalService, 'createProposalsFromMarkers'>
+  reviewPacketService?: Pick<KanbanReviewPacketService, 'generateForTask'>
+  eventBus?: KanbanEventBus
 }
 
 export type KanbanRunActorContext = {
   access: KanbanRemoteAccess
   sessionId: string
+}
+
+export type CompleteKanbanRunInput = {
+  result: string
+  error?: string
+}
+
+export type CompleteKanbanRunResponse = {
+  run: KanbanRun
+  task: KanbanTask | null
+  proposalIds: string[]
+  reviewPacketId: string
 }
 
 export class CodexKanbanRunner {
@@ -33,7 +51,11 @@ export class CodexKanbanRunner {
   private readonly worktreeManager: KanbanWorktreeManager
   private readonly bridge: KanbanCodexBridgeAdapter
   private readonly auditLog: KanbanAuditSink
+  private readonly proposalService?: Pick<KanbanProposalService, 'createProposalsFromMarkers'>
+  private readonly reviewPacketService?: Pick<KanbanReviewPacketService, 'generateForTask'>
+  private readonly eventBus?: KanbanEventBus
   private readonly queue = new KanbanTaskQueue()
+  private readonly completingRunIds = new Set<string>()
 
   constructor(options: CodexKanbanRunnerOptions) {
     this.dataDir = options.dataDir
@@ -42,6 +64,10 @@ export class CodexKanbanRunner {
     this.worktreeManager = options.worktreeManager
     this.bridge = createKanbanCodexBridgeAdapter(options.bridge)
     this.auditLog = options.auditLog
+    this.proposalService = options.proposalService
+    this.reviewPacketService = options.reviewPacketService
+    this.eventBus = options.eventBus
+    this.bridge.subscribeNotifications((notification) => this.handleBridgeNotification(notification))
   }
 
   async startTaskRun(taskId: string, actor: KanbanRunActorContext): Promise<StartKanbanRunResponse> {
@@ -134,6 +160,11 @@ export class CodexKanbanRunner {
     return await this.readRun(runId)
   }
 
+  async completeRun(runId: string, input: CompleteKanbanRunInput): Promise<CompleteKanbanRunResponse> {
+    const run = await this.readRun(runId)
+    return await this.completeRunFromText(run, input)
+  }
+
   async readRunLogs(runId: string): Promise<string> {
     const run = await this.readRun(runId)
     return await readOptionalText(run.logPath)
@@ -163,6 +194,136 @@ export class CodexKanbanRunner {
       createdAtIso: now,
       updatedAtIso: now,
     }
+  }
+
+  private async handleBridgeNotification(notification: { method: string; params: unknown }): Promise<void> {
+    if (notification.method !== 'turn/completed') return
+    try {
+      const threadId = extractThreadId(notification.params)
+      const turnId = extractTurnId(notification.params)
+      if (!threadId || !turnId) return
+      const run = await this.findActiveRunForTurn(threadId, turnId)
+      if (!run || this.completingRunIds.has(run.id)) return
+      this.completingRunIds.add(run.id)
+      try {
+        const response = await this.bridge.rpc('thread/read', { threadId, includeTurns: true })
+        const result = extractLatestAssistantMessageText(response)
+        if (!result) return
+        await this.completeRunFromText(run, { result })
+      } finally {
+        this.completingRunIds.delete(run.id)
+      }
+    } catch {
+      // Completion notifications are best-effort; the manual completion route remains available.
+    }
+  }
+
+  private async findActiveRunForTurn(threadId: string, turnId: string): Promise<KanbanRun | null> {
+    const state = await this.storage.load()
+    for (const value of Object.values(state.runs)) {
+      if (!isKanbanRun(value)) continue
+      if (value.threadId !== threadId || value.turnId !== turnId) continue
+      if (!isActiveRunState(value.state)) continue
+      return value
+    }
+    return null
+  }
+
+  private async completeRunFromText(run: KanbanRun, input: CompleteKanbanRunInput): Promise<CompleteKanbanRunResponse> {
+    const currentRun = await this.readRun(run.id)
+    if (!isActiveRunState(currentRun.state)) {
+      return {
+        run: currentRun,
+        task: await this.readTask(currentRun.taskId).catch(() => null),
+        proposalIds: [],
+        reviewPacketId: '',
+      }
+    }
+    if (input.error?.trim()) {
+      return await this.completeFailedRun(currentRun, input)
+    }
+    return await this.completeSucceededRun(currentRun, input.result)
+  }
+
+  private async completeSucceededRun(run: KanbanRun, resultText: string): Promise<CompleteKanbanRunResponse> {
+    if (!this.proposalService) {
+      throw new Error('Kanban proposal service is required to complete a run')
+    }
+    if (!this.reviewPacketService) {
+      throw new Error('Kanban review packet service is required to complete a run')
+    }
+    const proposalResult = await this.proposalService.createProposalsFromMarkers({
+      text: resultText,
+      sourceRunId: run.id,
+      sourceThreadId: run.threadId,
+      proposedBy: run.threadId ? `codex:thread:${run.threadId}` as KanbanActor : 'codex:auto',
+    })
+    const proposalIds = proposalResult.proposals.map((proposal) => proposal.id)
+    const now = new Date().toISOString()
+    const completedRun = { ...run, state: 'succeeded' as const, errorMessage: '', updatedAtIso: now }
+    await this.storage.mutate((state: KanbanStateFileV1) => {
+      const task = state.tasks[run.taskId]
+      if (!task) throw new Error(`Kanban task not found: ${run.taskId}`)
+      state.runs[run.id] = completedRun
+      state.tasks[task.id] = {
+        ...task,
+        status: 'review',
+        runState: 'succeeded',
+        result: proposalResult.cleanText,
+        resultAtIso: now,
+        errorMessage: '',
+        proposalIds: mergeUnique(task.proposalIds, proposalIds),
+        updatedAtIso: now,
+        version: task.version + 1,
+      }
+    })
+    const reviewResult = await this.reviewPacketService.generateForTask(run.taskId)
+    await this.writeRunLog(completedRun, 'Run completed successfully.\n')
+    await this.writeRunEvent(completedRun, {
+      type: 'run.completed',
+      result: 'succeeded',
+      proposalIds,
+      reviewPacketId: reviewResult.packet.id,
+    })
+    this.eventBus?.emit({
+      type: 'task.updated',
+      payload: { taskId: reviewResult.task.id, runId: run.id, proposalIds, reviewPacketId: reviewResult.packet.id },
+    })
+    this.eventBus?.emit({
+      type: 'run.completed',
+      payload: { runId: run.id, taskId: run.taskId, state: 'succeeded', proposalIds, reviewPacketId: reviewResult.packet.id },
+    })
+    this.queue.complete(run.id)
+    return { run: completedRun, task: reviewResult.task, proposalIds, reviewPacketId: reviewResult.packet.id }
+  }
+
+  private async completeFailedRun(run: KanbanRun, input: CompleteKanbanRunInput): Promise<CompleteKanbanRunResponse> {
+    const errorMessage = input.error?.trim() || 'Kanban run failed'
+    const now = new Date().toISOString()
+    const failedRun = { ...run, state: 'failed' as const, errorMessage, updatedAtIso: now }
+    let failedTask: KanbanTask | null = null
+    await this.storage.mutate((state: KanbanStateFileV1) => {
+      const task = state.tasks[run.taskId]
+      if (!task) throw new Error(`Kanban task not found: ${run.taskId}`)
+      state.runs[run.id] = failedRun
+      failedTask = {
+        ...task,
+        status: 'rework',
+        runState: 'failed',
+        result: input.result.trim(),
+        resultAtIso: now,
+        errorMessage,
+        updatedAtIso: now,
+        version: task.version + 1,
+      }
+      state.tasks[task.id] = failedTask
+    })
+    await this.writeRunLog(failedRun, `Run failed: ${errorMessage}\n`)
+    await this.writeRunEvent(failedRun, { type: 'run.completed', result: 'failed', error: errorMessage })
+    this.eventBus?.emit({ type: 'task.updated', payload: { taskId: run.taskId, runId: run.id } })
+    this.eventBus?.emit({ type: 'run.completed', payload: { runId: run.id, taskId: run.taskId, state: 'failed', error: errorMessage } })
+    this.queue.complete(run.id)
+    return { run: failedRun, task: failedTask, proposalIds: [], reviewPacketId: '' }
   }
 
   private async readTask(taskId: string): Promise<KanbanTask> {
@@ -263,6 +424,93 @@ function createAuditActor(actor: KanbanRunActorContext): Record<string, unknown>
 
 function isKanbanRun(value: unknown): value is KanbanRun {
   return value !== null && typeof value === 'object' && typeof (value as { id?: unknown }).id === 'string'
+}
+
+function isActiveRunState(state: string): boolean {
+  return ['queued', 'preparing_worktree', 'starting_codex', 'running', 'waiting_for_approval', 'running_tests', 'collecting_artifacts', 'stopping'].includes(state)
+}
+
+function extractThreadId(params: unknown): string {
+  const record = asRecord(params)
+  if (!record) return ''
+  const directThreadId = readString(record.threadId)
+  if (directThreadId) return directThreadId
+  const thread = asRecord(record.thread)
+  const threadId = readString(thread?.id)
+  if (threadId) return threadId
+  const turn = asRecord(record.turn)
+  return readString(turn?.threadId)
+}
+
+function extractTurnId(params: unknown): string {
+  const record = asRecord(params)
+  if (!record) return ''
+  const directTurnId = readString(record.turnId)
+  if (directTurnId) return directTurnId
+  const turn = asRecord(record.turn)
+  return readString(turn?.id)
+}
+
+function extractLatestAssistantMessageText(payload: unknown): string {
+  const turns = readTurns(payload)
+  for (let turnIndex = turns.length - 1; turnIndex >= 0; turnIndex -= 1) {
+    const turn = asRecord(turns[turnIndex])
+    const items = [...readArray(turn?.items), ...readArray(turn?.messages)]
+    for (let itemIndex = items.length - 1; itemIndex >= 0; itemIndex -= 1) {
+      const item = asRecord(items[itemIndex])
+      if (!isAssistantItem(item)) continue
+      const text = readMessageText(item).trim()
+      if (text) return text
+    }
+  }
+  return ''
+}
+
+function readTurns(payload: unknown): unknown[] {
+  const record = asRecord(payload)
+  const thread = asRecord(record?.thread)
+  const threadTurns = readArray(thread?.turns)
+  if (threadTurns.length > 0) return threadTurns
+  const turns = readArray(record?.turns)
+  if (turns.length > 0) return turns
+  return readArray(record?.data)
+}
+
+function isAssistantItem(item: Record<string, unknown> | null): item is Record<string, unknown> {
+  if (!item) return false
+  const type = readString(item.type)
+  const role = readString(item.role)
+  const author = asRecord(item.author)
+  const authorRole = readString(author?.role)
+  return type === 'agentMessage' || type === 'assistantMessage' || role === 'assistant' || authorRole === 'assistant'
+}
+
+function readMessageText(item: Record<string, unknown>): string {
+  const directText = readString(item.text) || readString(item.message) || readString(item.content)
+  if (directText) return directText
+  const message = asRecord(item.message)
+  const messageText = readString(message?.text) || readString(message?.content)
+  if (messageText) return messageText
+  const blocks = [...readArray(item.content), ...readArray(message?.content)]
+  const parts: string[] = []
+  for (const block of blocks) {
+    const record = asRecord(block)
+    const text = readString(record?.text) || readString(record?.content)
+    if (text.trim()) parts.push(text.trim())
+  }
+  return parts.join('\n')
+}
+
+function mergeUnique(existing: string[], next: string[]): string[] {
+  return Array.from(new Set([...existing, ...next].filter(Boolean)))
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value !== null && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : null
+}
+
+function readArray(value: unknown): unknown[] {
+  return Array.isArray(value) ? value : []
 }
 
 function readString(value: unknown): string {

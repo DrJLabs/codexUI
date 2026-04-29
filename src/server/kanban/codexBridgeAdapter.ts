@@ -3,6 +3,7 @@ import type { CodexBridgeRuntime } from '../codexAppServerBridge'
 export const KANBAN_CODEX_BRIDGE_ALLOWED_METHODS = [
   'thread/start',
   'thread/resume',
+  'thread/read',
   'turn/start',
   'turn/interrupt',
   'review/start',

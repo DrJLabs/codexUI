@@ -24,6 +24,13 @@ describe('createKanbanCodexBridgeAdapter', () => {
     expect(rpcCalls).toEqual([{ method: 'turn/start', params: { threadId: 'thread_1' } }])
   })
 
+  it('allows kanban runner to read completed threads', async () => {
+    const runtime = createRuntime()
+    const adapter = createKanbanCodexBridgeAdapter(runtime)
+
+    await expect(adapter.rpc('thread/read', { threadId: 'thread_1', includeTurns: true })).resolves.toEqual({ ok: true })
+  })
+
   it('rejects shell command RPC even when a caller passes it directly', async () => {
     const rpcCalls: Array<{ method: string; params: unknown }> = []
     const runtime = createRuntime(rpcCalls)

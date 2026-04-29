@@ -7,11 +7,15 @@ import { describe, expect, it, vi } from 'vitest'
 import type { CodexBridgeRuntime } from '../../codexAppServerBridge'
 import { KanbanAuditLog } from '../auditLog'
 import { CodexKanbanRunner } from '../codexKanbanRunner'
+import { KanbanEventBus } from '../eventBus'
+import { KanbanProposalService } from '../proposalService'
+import { KanbanReviewPacketService } from '../reviewPacketService'
 import { KanbanStorage } from '../storage'
 import { KanbanTaskService } from '../taskService'
 import { KanbanWorktreeManager } from '../worktreeManager'
 import type { KanbanRemoteAccess } from '../remoteAccess'
 import type { KanbanExecutionPolicy } from '../../../types/kanban'
+import type { CodexBridgeNotification } from '../../codexAppServerBridge'
 
 const execFileAsync = promisify(execFile)
 
@@ -58,15 +62,43 @@ async function createHarness() {
   await runGit(projectRoot, ['commit', '--allow-empty', '-m', 'initial'])
   const storage = new KanbanStorage({ dataDir, projectRoot })
   const service = new KanbanTaskService({ storage, projectRoot, policy })
+  const eventBus = new KanbanEventBus()
+  const proposalService = new KanbanProposalService({ storage, taskService: service, eventBus })
+  const reviewPacketService = new KanbanReviewPacketService({ storage })
   const rpcCalls: Array<{ method: string; params: unknown }> = []
+  const notificationListeners: Array<(notification: CodexBridgeNotification) => void> = []
   const bridge: CodexBridgeRuntime = {
     rpc: async <T = unknown>(method: string, params?: unknown) => {
       rpcCalls.push({ method, params })
       if (method === 'thread/start') return { threadId: 'thread_1' } as T
       if (method === 'turn/start') return { turnId: 'turn_1' } as T
+      if (method === 'thread/read') {
+        return {
+          thread: {
+            turns: [
+              {
+                id: 'turn_1',
+                items: [
+                  {
+                    type: 'agentMessage',
+                    text: `Normal result text.
+
+\`\`\`kanban:create
+{"title":"Follow-up marker task","priority":"high"}
+\`\`\``,
+                  },
+                ],
+              },
+            ],
+          },
+        } as T
+      }
       return {} as T
     },
-    subscribeNotifications: vi.fn(() => () => {}),
+    subscribeNotifications: vi.fn((listener) => {
+      notificationListeners.push(listener)
+      return () => {}
+    }),
     dispose: vi.fn(),
   }
   const runner = new CodexKanbanRunner({
@@ -76,8 +108,10 @@ async function createHarness() {
     worktreeManager: new KanbanWorktreeManager({ dataDir, projectRoot }),
     bridge,
     auditLog: new KanbanAuditLog({ dataDir, projectRoot }),
+    proposalService,
+    reviewPacketService,
   })
-  return { service, storage, runner, rpcCalls }
+  return { service, storage, runner, rpcCalls, notificationListeners, bridge }
 }
 
 describe('CodexKanbanRunner', () => {
@@ -108,5 +142,67 @@ describe('CodexKanbanRunner', () => {
     expect(result.run.state).toBe('cancelled')
     expect(result.task?.runState).toBe('cancelled')
     expect(rpcCalls.map((call) => call.method)).toContain('turn/interrupt')
+  })
+
+  it('completes a matching active run from a turn completion notification', async () => {
+    const { service, storage, runner, rpcCalls, notificationListeners, bridge } = await createHarness()
+    const task = await service.createTask({ title: 'Completion task' })
+    const started = await runner.startTaskRun(task.id, { access, sessionId: 'session_1' })
+
+    expect(bridge.subscribeNotifications).toHaveBeenCalledOnce()
+    expect(notificationListeners).toHaveLength(1)
+    await Promise.resolve(notificationListeners[0]!({
+      method: 'turn/completed',
+      params: { threadId: 'thread_1', turnId: 'turn_1' },
+      atIso: new Date().toISOString(),
+    }))
+    await Promise.resolve(notificationListeners[0]!({
+      method: 'turn/completed',
+      params: { threadId: 'thread_1', turnId: 'turn_1' },
+      atIso: new Date().toISOString(),
+    }))
+
+    const state = await storage.load()
+    const completedRun = state.runs[started.run.id]
+    const completedTask = state.tasks[task.id]!
+
+    expect(completedRun).toMatchObject({ id: started.run.id, state: 'succeeded' })
+    expect(completedTask.status).toBe('review')
+    expect(completedTask.runState).toBe('succeeded')
+    expect(completedTask.result).toContain('Normal result text.')
+    expect(completedTask.result).not.toContain('kanban:create')
+    expect(completedTask.resultAtIso).toMatch(/^\d{4}-\d{2}-\d{2}T/u)
+    expect(completedTask.proposalIds).toHaveLength(1)
+    expect(completedTask.reviewPacketId).toMatch(/^review_packet_/u)
+    expect(Object.values(state.proposals)).toHaveLength(1)
+    expect(Object.values(state.reviewPackets)).toHaveLength(1)
+    expect(rpcCalls).toContainEqual({
+      method: 'thread/read',
+      params: { threadId: 'thread_1', includeTurns: true },
+    })
+    await expect(runner.readRunEvents(started.run.id)).resolves.toContain('"type":"run.completed"')
+  })
+
+  it('manual completion with an error fails the run without proposals or review packets', async () => {
+    const { service, storage, runner } = await createHarness()
+    const task = await service.createTask({ title: 'Manual failure task' })
+    const started = await runner.startTaskRun(task.id, { access, sessionId: 'session_1' })
+
+    const result = await runner.completeRun(started.run.id, {
+      result: 'Manual failure text',
+      error: 'manual completion failed',
+    })
+    const state = await storage.load()
+    const failedTask = state.tasks[task.id]!
+
+    expect(result.run.state).toBe('failed')
+    expect(result.proposalIds).toEqual([])
+    expect(result.reviewPacketId).toBe('')
+    expect(failedTask.status).toBe('rework')
+    expect(failedTask.runState).toBe('failed')
+    expect(failedTask.result).toBe('Manual failure text')
+    expect(failedTask.errorMessage).toBe('manual completion failed')
+    expect(Object.values(state.proposals)).toHaveLength(0)
+    expect(Object.values(state.reviewPackets)).toHaveLength(0)
   })
 })

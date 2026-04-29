@@ -151,6 +151,37 @@ describe('Kanban execution policy', () => {
     expect(response.body.error).toContain('Invalid Kanban CSRF token')
   })
 
+  it('blocks manual run completion without a CSRF token', async () => {
+    const { baseUrl } = await createTestServer({ policy: enabledPolicy })
+
+    const response = await requestJson<{ error: string }>(
+      `${baseUrl}/codex-api/kanban/runs/run_1/complete`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ result: 'Manual result' }),
+      },
+    )
+
+    expect(response.status).toBe(403)
+    expect(response.body.error).toContain('Invalid Kanban CSRF token')
+  })
+
+  it('blocks manual run completion from forwarded remote clients', async () => {
+    const { baseUrl } = await createTestServer({ policy: enabledPolicy })
+
+    const response = await requestJson<{ error: string }>(
+      `${baseUrl}/codex-api/kanban/runs/run_1/complete`,
+      {
+        method: 'POST',
+        headers: { 'x-forwarded-for': '203.0.113.10' },
+        body: JSON.stringify({ result: 'Manual result' }),
+      },
+    )
+
+    expect(response.status).toBe(403)
+    expect(response.body.error).toContain('Kanban execution requires trusted local or Tailscale access')
+  })
+
   it('fails closed when audit append fails before the runner is wired', async () => {
     const append = vi.fn(async () => {
       throw new Error('audit disk full')
