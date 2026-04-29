@@ -27,7 +27,7 @@
         </button>
       </section>
       <section class="thread-artifact-section-group">
-        <h3>Project</h3>
+        <h3>Workspace</h3>
         <button
           v-for="section in workspaceModel.workspaceSections"
           :key="section.id"

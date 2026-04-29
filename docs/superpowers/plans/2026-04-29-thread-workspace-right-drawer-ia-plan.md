@@ -805,7 +805,7 @@ Append:
 ### Steps
 1. In light theme, open a normal chat thread and click the right drawer icon.
 2. Confirm the drawer opens without hiding the chat composer.
-3. Confirm the drawer shows a compact workspace header, Thread sections, project-scoped sections, and the deferred chat integration marker.
+3. Confirm the drawer shows a compact workspace header, Thread sections, Workspace sections, and the deferred chat integration marker.
 4. Close the drawer and reopen it by dragging from the right screen edge on mobile.
 5. Switch to dark theme and repeat steps 1-4.
 6. Select a different thread and confirm the header and artifact counts refresh.
@@ -814,7 +814,7 @@ Append:
 - The right drawer opens by icon and by right-edge swipe on mobile.
 - Thread sections are disabled when no thread is selected.
 - The drawer remains gated to selected thread routes in this phase.
-- Project-scoped rows render inside the selected-thread drawer; Worktrees switches to the Run tab when enabled.
+- Workspace rows render inside the selected-thread drawer; Worktrees switches to the Run tab when enabled.
 - Actions, Permissions, and Automations are visible but disabled/deferred.
 - The chat composer remains visible after switching threads and after opening/closing the drawer.
 - Light and dark themes have readable surfaces and controls.
