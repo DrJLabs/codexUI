@@ -136,11 +136,11 @@ export async function deleteKanbanTask(taskId: string, version: number): Promise
 
 export async function replaceKanbanAcceptanceCriteria(
   taskId: string,
-  criteria: ReplaceKanbanAcceptanceCriteriaInput['criteria'],
+  input: ReplaceKanbanAcceptanceCriteriaInput,
 ): Promise<KanbanTask> {
   return await requestKanban<KanbanTask>(`/tasks/${encodeURIComponent(taskId)}/criteria/replace`, {
     method: 'POST',
-    body: JSON.stringify({ criteria }),
+    body: JSON.stringify(input),
   })
 }
 

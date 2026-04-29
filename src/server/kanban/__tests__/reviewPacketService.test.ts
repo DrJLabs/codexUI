@@ -85,4 +85,23 @@ describe('KanbanReviewPacketService', () => {
     expect(second.task.reviewPacketId).toBe(second.packet.id)
     expect(second.task.status).toBe('review')
   })
+
+  it('uses the task base branch as the review packet base commit', async () => {
+    const { projectRoot, storage, taskId } = await createHarness()
+    const mainCommit = (await runGit(projectRoot, ['rev-parse', 'HEAD'])).trim()
+    await writeFile(join(projectRoot, 'README.md'), 'initial\ncommitted change\n', 'utf8')
+    await runGit(projectRoot, ['add', 'README.md'])
+    await runGit(projectRoot, ['commit', '-m', 'head change'])
+    const headCommit = (await runGit(projectRoot, ['rev-parse', 'HEAD'])).trim()
+    await storage.mutate((state) => {
+      state.tasks[taskId] = { ...state.tasks[taskId]!, baseBranch: mainCommit }
+    })
+    const service = new KanbanReviewPacketService({ storage })
+
+    const result = await service.generateForTask(taskId)
+
+    expect(result.packet.baseCommit).toBe(mainCommit)
+    expect(result.packet.headCommit).toBe(headCommit)
+    expect(result.packet.baseCommit).not.toBe(result.packet.headCommit)
+  })
 })

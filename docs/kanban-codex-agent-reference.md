@@ -115,7 +115,7 @@ The manual fallback route `POST /codex-api/kanban/runs/:runId/complete` follows 
 All examples assume:
 
 ```bash
-BASE_URL=http://127.0.0.1:4173/codex-api/kanban
+BASE_URL=http://127.0.0.1:5173/codex-api/kanban
 CSRF_TOKEN=$(curl -s "$BASE_URL/csrf" | jq -r '.data.csrfToken')
 ```
 

@@ -106,7 +106,7 @@ describe('createKanbanMiddleware', () => {
       `${baseUrl}/codex-api/kanban/tasks/${created.body.data.id}/criteria/replace`,
       {
         method: 'POST',
-        body: JSON.stringify({}),
+        body: JSON.stringify({ version: created.body.data.version }),
       },
     )
 
@@ -120,6 +120,47 @@ describe('createKanbanMiddleware', () => {
     expect(emptyTitle.body.error).toContain('Task title is required')
     expect(missingCriteria.status).toBe(400)
     expect(missingCriteria.body.error).toContain('Acceptance criteria must be an array')
+  })
+
+  it('returns conflict details for stale acceptance criteria replacement', async () => {
+    const { baseUrl } = await createTestServer()
+    const created = await requestJson<{ data: { id: string; version: number } }>(
+      `${baseUrl}/codex-api/kanban/tasks`,
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          title: 'Criteria route task',
+          acceptanceCriteria: [{ text: 'Original criterion' }],
+        }),
+      },
+    )
+    const fresh = await requestJson<{ data: { version: number; acceptanceCriteria: Array<{ text: string }> } }>(
+      `${baseUrl}/codex-api/kanban/tasks/${created.body.data.id}/criteria/replace`,
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          version: created.body.data.version,
+          criteria: [{ text: 'Fresh criterion', checked: false }],
+        }),
+      },
+    )
+
+    const stale = await requestJson<{ error: string; serverVersion: number; latest: { version: number; acceptanceCriteria: Array<{ text: string }> } }>(
+      `${baseUrl}/codex-api/kanban/tasks/${created.body.data.id}/criteria/replace`,
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          version: created.body.data.version,
+          criteria: [{ text: 'Stale criterion', checked: true }],
+        }),
+      },
+    )
+
+    expect(fresh.status).toBe(200)
+    expect(stale.status).toBe(409)
+    expect(stale.body.error).toBe('version_conflict')
+    expect(stale.body.serverVersion).toBe(fresh.body.data.version)
+    expect(stale.body.latest.acceptanceCriteria[0]?.text).toBe('Fresh criterion')
   })
 
   it('lists tasks with pagination metadata', async () => {

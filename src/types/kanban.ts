@@ -124,6 +124,7 @@ export type KanbanRun = {
   projectRoot: string
   worktreePath: string
   branchName: string
+  baseRef?: string
   threadId: string
   turnId: string
   logPath: string
@@ -331,6 +332,7 @@ export type UpdateKanbanBoardConfigInput = Partial<Omit<KanbanBoardConfig, 'colu
 }
 
 export type ReplaceKanbanAcceptanceCriteriaInput = {
+  version: number
   criteria: Array<{ id?: string; text: string; checked?: boolean }>
 }
 

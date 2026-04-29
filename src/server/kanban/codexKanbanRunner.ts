@@ -95,7 +95,12 @@ export class CodexKanbanRunner {
       const message = error instanceof Error ? error.message : 'Kanban run failed to start'
       const failedRun = { ...run, state: 'failed' as const, errorMessage: message, updatedAtIso: new Date().toISOString() }
       await this.writeRunLog(failedRun, `Run failed: ${message}\n`).catch(() => {})
-      const failedTask = await this.persistRun(failedRun, { runState: 'failed', errorMessage: message })
+      const failedTask = await this.persistRun(failedRun, {
+        runState: 'failed',
+        worktreePath: '',
+        branchName: '',
+        errorMessage: message,
+      })
       return Promise.reject(Object.assign(new Error(message), { run: failedRun, task: failedTask }))
     }
   }
@@ -337,30 +342,36 @@ export class CodexKanbanRunner {
       state: 'starting_codex' as const,
       worktreePath: worktree.worktreePath,
       branchName: worktree.branchName,
+      baseRef: worktree.baseRef,
       updatedAtIso: new Date().toISOString(),
     }
-    await this.writeRunEvent(preparingRun, { type: 'worktree.created', worktreePath: worktree.worktreePath, branchName: worktree.branchName })
-    await this.persistRun(preparingRun, { runState: 'starting_codex', worktreePath: worktree.worktreePath, branchName: worktree.branchName })
+    try {
+      await this.writeRunEvent(preparingRun, { type: 'worktree.created', worktreePath: worktree.worktreePath, branchName: worktree.branchName })
+      await this.persistRun(preparingRun, { runState: 'starting_codex', worktreePath: worktree.worktreePath, branchName: worktree.branchName })
 
-    const threadId = await this.startOrResumeThread(task, preparingRun)
-    const turnId = await this.startTurn(task, { ...preparingRun, threadId })
-    const runningRun = {
-      ...preparingRun,
-      state: 'running' as const,
-      threadId,
-      turnId,
-      updatedAtIso: new Date().toISOString(),
+      const threadId = await this.startOrResumeThread(task, preparingRun)
+      const turnId = await this.startTurn(task, { ...preparingRun, threadId })
+      const runningRun = {
+        ...preparingRun,
+        state: 'running' as const,
+        threadId,
+        turnId,
+        updatedAtIso: new Date().toISOString(),
+      }
+      await this.writeRunLog(runningRun, `Started Codex turn ${turnId || '(unknown turn)'} in ${worktree.worktreePath}\n`)
+      await this.writeRunEvent(runningRun, { type: 'run.started', threadId, turnId })
+      const runningTask = await this.persistRun(runningRun, {
+        status: 'running',
+        runState: 'running',
+        worktreePath: worktree.worktreePath,
+        branchName: worktree.branchName,
+        codexThreadId: threadId,
+      })
+      return { run: runningRun, task: runningTask }
+    } catch (error) {
+      await this.worktreeManager.discardManagedWorktree({ runId: run.id }).catch(() => {})
+      throw error
     }
-    await this.writeRunLog(runningRun, `Started Codex turn ${turnId || '(unknown turn)'} in ${worktree.worktreePath}\n`)
-    await this.writeRunEvent(runningRun, { type: 'run.started', threadId, turnId })
-    const runningTask = await this.persistRun(runningRun, {
-      status: 'running',
-      runState: 'running',
-      worktreePath: worktree.worktreePath,
-      branchName: worktree.branchName,
-      codexThreadId: threadId,
-    })
-    return { run: runningRun, task: runningTask }
   }
 
   private async releaseRunAndStartPromoted(runId: string): Promise<void> {
@@ -394,7 +405,12 @@ export class CodexKanbanRunner {
       const message = error instanceof Error ? error.message : 'Kanban run failed to start'
       const failedRun = { ...run, state: 'failed' as const, errorMessage: message, updatedAtIso: new Date().toISOString() }
       await this.writeRunLog(failedRun, `Run failed: ${message}\n`).catch(() => {})
-      await this.persistRun(failedRun, { runState: 'failed', errorMessage: message })
+      await this.persistRun(failedRun, {
+        runState: 'failed',
+        worktreePath: '',
+        branchName: '',
+        errorMessage: message,
+      })
       await this.releaseRunAndStartPromoted(run.id)
     }
   }

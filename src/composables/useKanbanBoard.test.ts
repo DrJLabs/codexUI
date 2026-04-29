@@ -219,12 +219,17 @@ function createGateway(state: KanbanStateSnapshot): KanbanBoardGateway {
       currentState = { ...currentState, config: updated }
       return updated
     },
-    replaceKanbanAcceptanceCriteria: async (taskId, criteria) => {
+    replaceKanbanAcceptanceCriteria: async (taskId, input) => {
       const task = currentState.tasks.find((item) => item.id === taskId)
       if (!task) throw new Error('missing')
+      if (input.version !== task.version) throw Object.assign(new Error('version_conflict'), {
+        serverVersion: task.version,
+        latest: task,
+      })
       const updated = {
         ...task,
-        acceptanceCriteria: criteria.map((criterion, index) => ({
+        version: task.version + 1,
+        acceptanceCriteria: input.criteria.map((criterion, index) => ({
           id: criterion.id ?? `criterion_${index}`,
           text: criterion.text,
           checked: criterion.checked === true,

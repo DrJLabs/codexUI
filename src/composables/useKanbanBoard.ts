@@ -483,10 +483,10 @@ export function useKanbanBoard(options: UseKanbanBoardOptions = {}) {
   }
 
   async function replaceCriteria(taskId: string, criteria: ReplaceKanbanAcceptanceCriteriaInput['criteria']): Promise<KanbanTask> {
-    const task = await gateway.replaceKanbanAcceptanceCriteria(taskId, criteria)
-    patchTask(task)
-    await refreshTaskList()
-    return task
+    return await mutateCurrentTask(taskId, async (task) => await gateway.replaceKanbanAcceptanceCriteria(taskId, {
+      version: task.version,
+      criteria,
+    }))
   }
 
   async function addAcceptanceCriterion(taskId: string, text: string): Promise<KanbanTask | null> {

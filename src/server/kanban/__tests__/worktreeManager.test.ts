@@ -36,7 +36,7 @@ describe('KanbanWorktreeManager', () => {
     const worktreeList = await runGit(projectRoot, ['worktree', 'list', '--porcelain'])
     const lock = JSON.parse(await readFile(worktree.lockPath, 'utf8')) as { taskId: string; runId: string; pid: number }
 
-    expect(worktree.branchName).toBe('codexui/task/task-123-build-board')
+    expect(worktree.branchName).toBe('codexui/task/task-123-run-1-build-board')
     expect(worktree.worktreePath.startsWith(resolveManagedWorktreeRoot(dataDir, projectRoot))).toBe(true)
     expect(worktreeList).toContain(worktree.worktreePath)
     expect(worktreeList).toContain(`branch refs/heads/${worktree.branchName}`)
@@ -56,6 +56,36 @@ describe('KanbanWorktreeManager', () => {
       taskTitle: 'Two',
       runId: 'run_2',
     })).rejects.toThrow('Active Kanban worktree already exists for task task_123')
+  })
+
+  it('includes the run id in branch names so later runs do not collide with old branches', async () => {
+    const { dataDir, projectRoot } = await createGitRepo()
+    const manager = new KanbanWorktreeManager({ dataDir, projectRoot })
+
+    const first = await manager.createManagedWorktree({ taskId: 'task_123', taskTitle: 'Same title', runId: 'run_1' })
+    await manager.removeManagedWorktree({ runId: 'run_1' })
+    const second = await manager.createManagedWorktree({ taskId: 'task_123', taskTitle: 'Same title', runId: 'run_2' })
+
+    expect(first.branchName).toBe('codexui/task/task-123-run-1-same-title')
+    expect(second.branchName).toBe('codexui/task/task-123-run-2-same-title')
+  })
+
+  it('removes the worktree and branch when lock writing fails', async () => {
+    const { dataDir, projectRoot } = await createGitRepo()
+    const manager = new KanbanWorktreeManager({ dataDir, projectRoot })
+    const worktreeRoot = resolveManagedWorktreeRoot(dataDir, projectRoot)
+    await mkdir(join(worktreeRoot, 'run-1', 'codexui-kanban-worktree.json'), { recursive: true })
+
+    await expect(manager.createManagedWorktree({
+      taskId: 'task_123',
+      taskTitle: 'Lock failure',
+      runId: 'run_1',
+    })).rejects.toThrow()
+
+    const worktreeList = await runGit(projectRoot, ['worktree', 'list', '--porcelain'])
+    const branches = await runGit(projectRoot, ['branch', '--list', 'codexui/task/*'])
+    expect(worktreeList).not.toContain('run-1')
+    expect(branches.trim()).toBe('')
   })
 
   it('refuses to remove dirty managed worktrees', async () => {

@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process'
-import { mkdir, readFile, readdir, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import { basename, join, resolve } from 'node:path'
 import { promisify } from 'node:util'
 import { projectHash } from './paths'
@@ -43,7 +43,7 @@ export class KanbanWorktreeManager {
   async createManagedWorktree(input: CreateManagedWorktreeInput): Promise<ManagedWorktree> {
     const gitRoot = await this.resolveGitRoot()
     await this.assertNoActiveWorktreeForTask(input.taskId)
-    const branchName = createTaskBranchName(input.taskId, input.taskTitle)
+    const branchName = createTaskBranchName(input.taskId, input.taskTitle, input.runId)
     if (branchName === 'main' || branchName === 'master') {
       throw new Error('Kanban worktrees cannot run directly on the default branch')
     }
@@ -54,21 +54,30 @@ export class KanbanWorktreeManager {
     const lockPath = join(worktreeParent, LOCK_FILENAME)
 
     await mkdir(worktreeParent, { recursive: true })
+    let worktreeCreated = false
     await runCommand(gitRoot, ['worktree', 'add', '-b', branchName, worktreePath, baseRef])
+    worktreeCreated = true
     const now = new Date().toISOString()
-    await writeFile(lockPath, `${JSON.stringify({
-      taskId: input.taskId,
-      runId: input.runId,
-      branchName,
-      baseRef,
-      worktreePath,
-      lockPath,
-      projectRoot: gitRoot,
-      pid: process.pid,
-      createdAtIso: now,
-      heartbeatAtIso: now,
-      status: 'active',
-    } satisfies ManagedWorktreeLock, null, 2)}\n`, 'utf8')
+    try {
+      await writeFile(lockPath, `${JSON.stringify({
+        taskId: input.taskId,
+        runId: input.runId,
+        branchName,
+        baseRef,
+        worktreePath,
+        lockPath,
+        projectRoot: gitRoot,
+        pid: process.pid,
+        createdAtIso: now,
+        heartbeatAtIso: now,
+        status: 'active',
+      } satisfies ManagedWorktreeLock, null, 2)}\n`, 'utf8')
+    } catch (error) {
+      if (worktreeCreated) {
+        await cleanupWorktreeAndBranch(gitRoot, worktreePath, branchName)
+      }
+      throw error
+    }
 
     return { taskId: input.taskId, runId: input.runId, branchName, baseRef, worktreePath, lockPath }
   }
@@ -80,6 +89,12 @@ export class KanbanWorktreeManager {
       throw new Error('Refusing to remove dirty Kanban worktree')
     }
     await runCommand(lock.projectRoot, ['worktree', 'remove', lock.worktreePath])
+    await writeFile(lock.lockPath, `${JSON.stringify({ ...lock, status: 'removed' } satisfies ManagedWorktreeLock, null, 2)}\n`, 'utf8')
+  }
+
+  async discardManagedWorktree(input: { runId: string }): Promise<void> {
+    const lock = await this.readLockForRun(input.runId)
+    await cleanupWorktreeAndBranch(lock.projectRoot, lock.worktreePath, lock.branchName)
     await writeFile(lock.lockPath, `${JSON.stringify({ ...lock, status: 'removed' } satisfies ManagedWorktreeLock, null, 2)}\n`, 'utf8')
   }
 
@@ -156,10 +171,11 @@ export function resolveManagedWorktreeRoot(dataDir: string, projectRoot: string)
   return join(resolve(dataDir), 'worktrees', projectHash(projectRoot))
 }
 
-function createTaskBranchName(taskId: string, taskTitle: string): string {
+function createTaskBranchName(taskId: string, taskTitle: string, runId?: string): string {
   const taskSegment = sanitizePathSegment(taskId)
+  const runSegment = runId ? sanitizePathSegment(runId) : ''
   const titleSegment = sanitizePathSegment(taskTitle) || 'task'
-  return `codexui/task/${taskSegment}-${titleSegment}`
+  return `codexui/task/${[taskSegment, runSegment, titleSegment].filter(Boolean).join('-')}`
 }
 
 function sanitizePathSegment(value: string): string {
@@ -196,4 +212,10 @@ async function readGitRef(cwd: string, args: string[]): Promise<string | null> {
 async function runCommand(cwd: string, args: string[]): Promise<string> {
   const { stdout } = await execFileAsync('git', args, { cwd })
   return stdout
+}
+
+async function cleanupWorktreeAndBranch(gitRoot: string, worktreePath: string, branchName: string): Promise<void> {
+  await runCommand(gitRoot, ['worktree', 'remove', '--force', worktreePath]).catch(() => {})
+  await rm(worktreePath, { recursive: true, force: true }).catch(() => {})
+  await runCommand(gitRoot, ['branch', '-D', branchName]).catch(() => {})
 }

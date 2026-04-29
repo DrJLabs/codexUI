@@ -50,8 +50,8 @@
       <option v-if="threadAssignee" :value="threadAssignee" />
       <option v-if="currentThreadAssignee && currentThreadAssignee !== threadAssignee" :value="currentThreadAssignee" />
     </datalist>
-    <p v-if="assigneeError || dueAtIsoError" class="kanban-metadata-editor-error" role="alert">
-      {{ assigneeError || dueAtIsoError }}
+    <p v-if="assigneeError || dueAtIsoError || minutesError" class="kanban-metadata-editor-error" role="alert">
+      {{ assigneeError || dueAtIsoError || minutesError }}
     </p>
   </form>
 </template>
@@ -77,6 +77,7 @@ const estimateMinutes = ref('')
 const actualMinutes = ref('')
 const assigneeError = ref('')
 const dueAtIsoError = ref('')
+const minutesError = ref('')
 
 const threadAssignee = computed<KanbanActor | ''>(() => props.task.codexThreadId
   ? `codex:thread:${props.task.codexThreadId}` as KanbanActor
@@ -95,10 +96,15 @@ watch(() => props.task, (task) => {
   actualMinutes.value = task.actualMinutes === null ? '' : String(task.actualMinutes)
 }, { immediate: true })
 
-function parseMinutes(value: string): number | null {
+function parseMinutes(value: string, label: string): number | null {
   const trimmed = value.trim()
   if (!trimmed) return null
-  return Number(trimmed)
+  const parsed = Number(trimmed)
+  if (!Number.isFinite(parsed) || !Number.isInteger(parsed) || parsed < 0) {
+    minutesError.value = `${label} must be empty or a nonnegative whole number.`
+    return null
+  }
+  return parsed
 }
 
 function readValidAssignee(): KanbanActor | null {
@@ -127,8 +133,11 @@ function readValidDueDate(): KanbanDueDateIso | null {
 function save(): void {
   assigneeError.value = ''
   dueAtIsoError.value = ''
+  minutesError.value = ''
   const nextAssignee = readValidAssignee()
   const nextDueAtIso = readValidDueDate()
+  const nextEstimateMinutes = parseMinutes(estimateMinutes.value, 'Estimate')
+  const nextActualMinutes = parseMinutes(actualMinutes.value, 'Actual')
   if (!nextAssignee) {
     assigneeError.value = 'Assignee must be operator, codex:auto, or codex:thread:<threadId>.'
     return
@@ -137,14 +146,15 @@ function save(): void {
     dueAtIsoError.value = 'Due date must be empty or YYYY-MM-DD.'
     return
   }
+  if (minutesError.value) return
   emit('save', {
     priority: priority.value,
     assignee: nextAssignee,
     model: model.value.trim(),
     thinking: thinking.value,
     dueAtIso: nextDueAtIso,
-    estimateMinutes: parseMinutes(estimateMinutes.value),
-    actualMinutes: parseMinutes(actualMinutes.value),
+    estimateMinutes: nextEstimateMinutes,
+    actualMinutes: nextActualMinutes,
   })
 }
 </script>

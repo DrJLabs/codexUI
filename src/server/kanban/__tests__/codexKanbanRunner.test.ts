@@ -57,6 +57,7 @@ type HarnessOptions = {
   readThreadResponse?: unknown
   reviewPacketService?: Pick<KanbanReviewPacketService, 'generateForTask'>
   proposalService?: Pick<KanbanProposalService, 'createProposalsFromMarkers'>
+  failThreadStart?: boolean
 }
 
 async function createHarness(options: HarnessOptions = {}) {
@@ -79,6 +80,7 @@ async function createHarness(options: HarnessOptions = {}) {
     rpc: async <T = unknown>(method: string, params?: unknown) => {
       rpcCalls.push({ method, params })
       if (method === 'thread/start') {
+        if (options.failThreadStart) throw new Error('thread start failed')
         threadStartCount += 1
         return { threadId: `thread_${threadStartCount}` } as T
       }
@@ -125,7 +127,7 @@ async function createHarness(options: HarnessOptions = {}) {
     proposalService,
     reviewPacketService,
   })
-  return { service, storage, runner, rpcCalls, notificationListeners, bridge }
+  return { projectRoot, service, storage, runner, rpcCalls, notificationListeners, bridge }
 }
 
 describe('CodexKanbanRunner', () => {
@@ -144,6 +146,23 @@ describe('CodexKanbanRunner', () => {
     expect(rpcCalls.map((call) => call.method)).toEqual(['thread/start', 'turn/start'])
     expect(JSON.stringify(rpcCalls)).toContain('workspace-write')
     expect(JSON.stringify(rpcCalls)).not.toContain('thread/shellCommand')
+  })
+
+  it('cleans up the managed worktree when Codex startup fails', async () => {
+    const { projectRoot, service, storage, runner } = await createHarness({ failThreadStart: true })
+    const task = await service.createTask({ title: 'Startup failure task' })
+
+    await expect(runner.startTaskRun(task.id, { access, sessionId: 'session_1' }))
+      .rejects
+      .toThrow('thread start failed')
+
+    const state = await storage.load()
+    const worktreeList = await runGit(projectRoot, ['worktree', 'list', '--porcelain'])
+    const branches = await runGit(projectRoot, ['branch', '--list', 'codexui/task/*'])
+    expect(state.runs[Object.keys(state.runs)[0] ?? '']).toMatchObject({ state: 'failed', worktreePath: '', branchName: '' })
+    expect(state.tasks[task.id]).toMatchObject({ runState: 'failed', worktreePath: '', branchName: '' })
+    expect(worktreeList).not.toContain('startup-failure-task')
+    expect(branches.trim()).toBe('')
   })
 
   it('interrupts a running turn and preserves the managed worktree', async () => {

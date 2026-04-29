@@ -271,7 +271,8 @@ export class KanbanTaskService {
   }
 
   async replaceAcceptanceCriteria(taskId: string, input: ReplaceKanbanAcceptanceCriteriaInput): Promise<KanbanTask> {
-    return await this.updateExistingTaskInternal(taskId, (task, nowIso) => ({
+    const version = readRequiredVersion(input)
+    return await this.updateExistingTaskWithVersion(taskId, version, (task, nowIso) => ({
       ...task,
       acceptanceCriteria: input.criteria.map((criterion) => {
         const trimmedId = criterion.id?.trim() ?? ''

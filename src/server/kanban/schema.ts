@@ -386,5 +386,8 @@ export function parseReplaceAcceptanceCriteriaInput(value: unknown): ReplaceKanb
       checked: itemRecord.checked === true,
     }
   }).filter((item) => item.text)
-  return { criteria }
+  return {
+    version: readRequiredVersion(record),
+    criteria,
+  }
 }

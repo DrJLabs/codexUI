@@ -32,8 +32,9 @@ export class KanbanReviewPacketService {
     const run = await this.readRun(task.currentRunId)
     const snapshot = await buildReviewSnapshot(run.worktreePath || task.worktreePath, 'workspace', 'unstaged')
     const rawDiffPatch = snapshot.files.map((file) => file.diff).filter(Boolean).join('\n')
+    const baseRev = run.baseRef || task.baseBranch || 'HEAD'
     const [baseCommit, headCommit, testResults] = await Promise.all([
-      readGitCommit(run.worktreePath || task.worktreePath, 'HEAD'),
+      readGitCommit(run.worktreePath || task.worktreePath, baseRev),
       readGitCommit(run.worktreePath || task.worktreePath, 'HEAD'),
       this.testRunner.collectResults(),
     ])

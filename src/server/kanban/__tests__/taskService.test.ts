@@ -108,6 +108,34 @@ describe('KanbanTaskService', () => {
       .toThrow('version is required')
   })
 
+  it('rejects stale acceptance criteria replacement with a version conflict code', async () => {
+    const { service } = await createHarness()
+    const task = await service.createTask({
+      title: 'Criteria task',
+      acceptanceCriteria: [{ text: 'Original criterion' }],
+    })
+    await service.replaceAcceptanceCriteria(task.id, {
+      version: task.version,
+      criteria: [{ text: 'Fresh criterion', checked: false }],
+    })
+
+    await expect(service.replaceAcceptanceCriteria(task.id, {
+      version: task.version,
+      criteria: [{ text: 'Stale criterion', checked: true }],
+    }))
+      .rejects
+      .toMatchObject({ code: 'version_conflict' })
+  })
+
+  it('rejects forced unversioned public acceptance criteria replacement at runtime', async () => {
+    const { service } = await createHarness()
+    const task = await service.createTask({ title: 'Criteria task' })
+
+    await expect(service.replaceAcceptanceCriteria(task.id, { criteria: [] } as never))
+      .rejects
+      .toThrow('version is required')
+  })
+
   it('lists matching tasks with total and hasMore metadata', async () => {
     const { service } = await createHarness()
     await service.createTask({ title: 'Deploy production bundle' })

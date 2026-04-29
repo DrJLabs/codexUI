@@ -216,6 +216,7 @@ describe('KanbanStorage', () => {
     const criterion = task.acceptanceCriteria[0]
     if (!criterion) throw new Error('Expected criterion')
     const replaced = await service.replaceAcceptanceCriteria(task.id, {
+      version: task.version,
       criteria: [{ id: ` ${criterion.id} `, text: 'Updated criterion', checked: true }],
     })
 
