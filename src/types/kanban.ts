@@ -240,6 +240,8 @@ export type KanbanTaskListQuery = {
   offset: number
 }
 
+export type ListKanbanTasksParams = Partial<KanbanTaskListQuery>
+
 export type KanbanTaskListResult = {
   items: KanbanTask[]
   total: number

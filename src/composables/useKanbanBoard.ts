@@ -5,14 +5,16 @@ import {
   interruptKanbanRun,
   loadKanbanState,
   loadKanbanRunLogs,
+  listKanbanProposals,
   regenerateKanbanReviewPacket,
   replaceKanbanAcceptanceCriteria,
+  reorderKanbanTask,
   setKanbanTaskStatus,
   startKanbanTaskRun,
   subscribeKanbanEvents,
   updateKanbanTask,
 } from '../api/kanbanGateway'
-import { KANBAN_STATUSES, type CreateKanbanTaskInput, type KanbanExecutionPolicy, type KanbanStateSnapshot, type KanbanStatus, type KanbanTask, type ReplaceKanbanAcceptanceCriteriaInput, type UpdateKanbanTaskInput } from '../types/kanban'
+import { KANBAN_STATUSES, type CreateKanbanTaskInput, type KanbanBoardConfig, type KanbanExecutionPolicy, type KanbanProposal, type KanbanStateSnapshot, type KanbanStatus, type KanbanTask, type KanbanTaskListResult, type ListKanbanTasksParams, type ReorderKanbanTaskInput, type ReplaceKanbanAcceptanceCriteriaInput, type UpdateKanbanTaskInput } from '../types/kanban'
 
 const FILTER_STORAGE_KEY = 'codex-web-local.kanban.filters.v1'
 
@@ -22,11 +24,13 @@ export type KanbanBoardGateway = {
   updateKanbanTask: typeof updateKanbanTask
   setKanbanTaskStatus: typeof setKanbanTaskStatus
   archiveKanbanTask: typeof archiveKanbanTask
+  reorderKanbanTask: typeof reorderKanbanTask
   replaceKanbanAcceptanceCriteria: typeof replaceKanbanAcceptanceCriteria
   startKanbanTaskRun: typeof startKanbanTaskRun
   interruptKanbanRun: typeof interruptKanbanRun
   loadKanbanRunLogs: typeof loadKanbanRunLogs
   regenerateKanbanReviewPacket: typeof regenerateKanbanReviewPacket
+  listKanbanProposals: typeof listKanbanProposals
   subscribeKanbanEvents: typeof subscribeKanbanEvents
 }
 
@@ -48,12 +52,21 @@ const defaultGateway: KanbanBoardGateway = {
   updateKanbanTask,
   setKanbanTaskStatus,
   archiveKanbanTask,
+  reorderKanbanTask,
   replaceKanbanAcceptanceCriteria,
   startKanbanTaskRun,
   interruptKanbanRun,
   loadKanbanRunLogs,
   regenerateKanbanReviewPacket,
+  listKanbanProposals,
   subscribeKanbanEvents,
+}
+
+type KanbanVersionConflictState = {
+  taskId: string
+  message: string
+  serverVersion?: number
+  latest?: KanbanTask
 }
 
 function createEmptyTasksByStatus(): Record<KanbanStatus, KanbanTask[]> {
@@ -93,10 +106,24 @@ function resolveStorage(explicitStorage: KanbanBoardStorage | undefined): Kanban
   return typeof window !== 'undefined' ? window.localStorage : null
 }
 
+function isKanbanTask(value: unknown): value is KanbanTask {
+  return typeof value === 'object'
+    && value !== null
+    && 'id' in value
+    && typeof value.id === 'string'
+    && 'version' in value
+    && typeof value.version === 'number'
+}
+
 export function useKanbanBoard(options: UseKanbanBoardOptions = {}) {
   const gateway = options.gateway ?? defaultGateway
   const storage = resolveStorage(options.storage)
   const tasks: Ref<KanbanTask[]> = ref([])
+  const config: Ref<KanbanBoardConfig | null> = ref(null)
+  const listState: Ref<KanbanTaskListResult | null> = ref(null)
+  const serverQuery: Ref<ListKanbanTasksParams> = ref({ limit: 50, offset: 0 })
+  const versionConflict: Ref<KanbanVersionConflictState | null> = ref(null)
+  const proposals: Ref<KanbanProposal[]> = ref([])
   const executionPolicy = ref<KanbanExecutionPolicy | null>(null)
   const runLogsByRunId = ref<Record<string, string>>({})
   const isLoading = ref(false)
@@ -143,6 +170,14 @@ export function useKanbanBoard(options: UseKanbanBoardOptions = {}) {
 
   function applySnapshot(snapshot: KanbanStateSnapshot): void {
     tasks.value = snapshot.tasks
+    config.value = snapshot.config
+    listState.value = {
+      items: snapshot.tasks,
+      total: snapshot.tasks.length,
+      limit: serverQuery.value.limit ?? snapshot.tasks.length,
+      offset: serverQuery.value.offset ?? 0,
+      hasMore: false,
+    }
     executionPolicy.value = snapshot.policy
     reconcileSelection()
   }
@@ -170,6 +205,8 @@ export function useKanbanBoard(options: UseKanbanBoardOptions = {}) {
       applySnapshot(await gateway.loadKanbanState())
     } catch (error) {
       tasks.value = []
+      config.value = null
+      listState.value = null
       executionPolicy.value = null
       selectedTaskId.value = ''
       errorMessage.value = error instanceof Error ? error.message : 'Failed to load Kanban board'
@@ -185,22 +222,59 @@ export function useKanbanBoard(options: UseKanbanBoardOptions = {}) {
     return task
   }
 
-  async function updateTask(taskId: string, patch: UpdateKanbanTaskInput): Promise<KanbanTask> {
-    const task = await gateway.updateKanbanTask(taskId, patch)
-    patchTask(task)
+  function findCurrentTask(taskId: string): KanbanTask {
+    const task = tasks.value.find((item) => item.id === taskId)
+    if (!task) throw new Error(`Kanban task not found: ${taskId}`)
     return task
+  }
+
+  function captureVersionConflict(taskId: string, error: unknown): void {
+    if (!(error instanceof Error)) return
+    const details = error as Error & { serverVersion?: unknown; latest?: unknown; error?: unknown; code?: unknown }
+    const isConflict = details.message === 'version_conflict'
+      || details.error === 'version_conflict'
+      || details.code === 'version_conflict'
+      || typeof details.serverVersion === 'number'
+    if (!isConflict) return
+    versionConflict.value = {
+      taskId,
+      message: details.message,
+      serverVersion: typeof details.serverVersion === 'number' ? details.serverVersion : undefined,
+      latest: isKanbanTask(details.latest) ? details.latest : undefined,
+    }
+  }
+
+  async function mutateCurrentTask(taskId: string, mutation: (task: KanbanTask) => Promise<KanbanTask>): Promise<KanbanTask> {
+    const current = findCurrentTask(taskId)
+    versionConflict.value = null
+    try {
+      const task = await mutation(current)
+      patchTask(task)
+      return task
+    } catch (error) {
+      captureVersionConflict(taskId, error)
+      throw error
+    }
+  }
+
+  async function updateTask(taskId: string, patch: UpdateKanbanTaskInput): Promise<KanbanTask> {
+    return await mutateCurrentTask(taskId, async (task) => await gateway.updateKanbanTask(taskId, { version: task.version, ...patch }))
   }
 
   async function archiveTask(taskId: string): Promise<KanbanTask> {
-    const task = await gateway.archiveKanbanTask(taskId)
-    patchTask(task)
-    return task
+    return await mutateCurrentTask(taskId, async (task) => await gateway.archiveKanbanTask(taskId, task.version))
   }
 
   async function setTaskStatus(taskId: string, status: KanbanStatus, reason?: string): Promise<KanbanTask> {
-    const task = await gateway.setKanbanTaskStatus(taskId, status, reason)
-    patchTask(task)
-    return task
+    return await mutateCurrentTask(taskId, async (task) => await gateway.setKanbanTaskStatus(taskId, {
+      version: task.version,
+      status,
+      ...(reason === undefined ? {} : { reason }),
+    }))
+  }
+
+  async function reorderTask(taskId: string, input: Omit<ReorderKanbanTaskInput, 'version'>): Promise<KanbanTask> {
+    return await mutateCurrentTask(taskId, async (task) => await gateway.reorderKanbanTask(taskId, { version: task.version, ...input }))
   }
 
   async function replaceCriteria(taskId: string, criteria: ReplaceKanbanAcceptanceCriteriaInput['criteria']): Promise<KanbanTask> {
@@ -315,6 +389,11 @@ export function useKanbanBoard(options: UseKanbanBoardOptions = {}) {
     selectedTaskId,
     selectedTask,
     filters,
+    config,
+    listState,
+    serverQuery,
+    versionConflict,
+    proposals,
     executionPolicy,
     runLogsByRunId,
     isLoading,
@@ -324,6 +403,7 @@ export function useKanbanBoard(options: UseKanbanBoardOptions = {}) {
     updateTask,
     archiveTask,
     setTaskStatus,
+    reorderTask,
     selectTask,
     clearSelection,
     subscribeToEvents,

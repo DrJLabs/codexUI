@@ -1,16 +1,21 @@
 import type {
   CreateKanbanTaskInput,
   KanbanApiResponse,
+  KanbanBoardConfig,
   KanbanStateSnapshot,
   KanbanRun,
   KanbanReviewPacket,
   KanbanProposal,
-  KanbanStatus,
   KanbanTask,
+  KanbanTaskListResult,
+  ListKanbanTasksParams,
   ReplaceKanbanAcceptanceCriteriaInput,
+  ReorderKanbanTaskInput,
   StartKanbanRunResponse,
   InterruptKanbanRunResponse,
-  UpdateKanbanTaskInput,
+  UpdateKanbanBoardConfigInput,
+  VersionedSetKanbanTaskStatusInput,
+  VersionedUpdateKanbanTaskInput,
 } from '../types/kanban'
 
 let csrfToken = ''
@@ -28,7 +33,7 @@ async function requestKanban<T>(path: string, init: RequestInit = {}): Promise<T
     const message = payload && 'error' in payload && typeof payload.error === 'string'
       ? payload.error
       : `Kanban request failed (${response.status})`
-    throw new Error(message)
+    throw Object.assign(new Error(message), payload)
   }
   if (!payload || !('data' in payload)) {
     throw new Error('Kanban response did not include data')
@@ -55,6 +60,30 @@ export async function loadKanbanState(): Promise<KanbanStateSnapshot> {
   return await requestKanban<KanbanStateSnapshot>('/state')
 }
 
+function formatListKanbanTasksQuery(params: ListKanbanTasksParams): string {
+  const query = new URLSearchParams()
+  if (params.q) query.set('q', params.q)
+  if (typeof params.limit === 'number') query.set('limit', String(params.limit))
+  if (typeof params.offset === 'number') query.set('offset', String(params.offset))
+  const encoded = query.toString()
+  return encoded ? `?${encoded}` : ''
+}
+
+export async function listKanbanTasks(params: ListKanbanTasksParams): Promise<KanbanTaskListResult> {
+  return await requestKanban<KanbanTaskListResult>(`/tasks${formatListKanbanTasksQuery(params)}`)
+}
+
+export async function loadKanbanConfig(): Promise<KanbanBoardConfig> {
+  return await requestKanban<KanbanBoardConfig>('/config')
+}
+
+export async function updateKanbanConfig(input: UpdateKanbanBoardConfigInput): Promise<KanbanBoardConfig> {
+  return await requestKanban<KanbanBoardConfig>('/config', {
+    method: 'PUT',
+    body: JSON.stringify(input),
+  })
+}
+
 export async function createKanbanTask(input: CreateKanbanTaskInput): Promise<KanbanTask> {
   return await requestKanban<KanbanTask>('/tasks', {
     method: 'POST',
@@ -62,24 +91,38 @@ export async function createKanbanTask(input: CreateKanbanTaskInput): Promise<Ka
   })
 }
 
-export async function updateKanbanTask(taskId: string, patch: UpdateKanbanTaskInput): Promise<KanbanTask> {
+export async function updateKanbanTask(taskId: string, patch: VersionedUpdateKanbanTaskInput): Promise<KanbanTask> {
   return await requestKanban<KanbanTask>(`/tasks/${encodeURIComponent(taskId)}`, {
     method: 'PATCH',
     body: JSON.stringify(patch),
   })
 }
 
-export async function setKanbanTaskStatus(taskId: string, status: KanbanStatus, reason?: string): Promise<KanbanTask> {
+export async function setKanbanTaskStatus(taskId: string, input: VersionedSetKanbanTaskStatusInput): Promise<KanbanTask> {
   return await requestKanban<KanbanTask>(`/tasks/${encodeURIComponent(taskId)}/status`, {
     method: 'POST',
-    body: JSON.stringify({ status, reason }),
+    body: JSON.stringify(input),
   })
 }
 
-export async function archiveKanbanTask(taskId: string): Promise<KanbanTask> {
+export async function archiveKanbanTask(taskId: string, version: number): Promise<KanbanTask> {
   return await requestKanban<KanbanTask>(`/tasks/${encodeURIComponent(taskId)}/archive`, {
     method: 'POST',
-    body: JSON.stringify({}),
+    body: JSON.stringify({ version }),
+  })
+}
+
+export async function reorderKanbanTask(taskId: string, input: ReorderKanbanTaskInput): Promise<KanbanTask> {
+  return await requestKanban<KanbanTask>(`/tasks/${encodeURIComponent(taskId)}/reorder`, {
+    method: 'POST',
+    body: JSON.stringify(input),
+  })
+}
+
+export async function deleteKanbanTask(taskId: string, version: number): Promise<KanbanTask> {
+  return await requestKanban<KanbanTask>(`/tasks/${encodeURIComponent(taskId)}`, {
+    method: 'DELETE',
+    body: JSON.stringify({ version }),
   })
 }
 

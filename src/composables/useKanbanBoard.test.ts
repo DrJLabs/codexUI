@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { useKanbanBoard, type KanbanBoardGateway } from './useKanbanBoard'
 import type { KanbanBoardConfig, KanbanExecutionPolicy, KanbanStateSnapshot, KanbanTask } from '../types/kanban'
 
@@ -120,10 +120,10 @@ function createGateway(state: KanbanStateSnapshot): KanbanBoardGateway {
       currentState = createState(currentState.tasks.map((item) => item.id === taskId ? updated : item))
       return updated
     },
-    setKanbanTaskStatus: async (taskId, status) => {
+    setKanbanTaskStatus: async (taskId, input) => {
       const task = currentState.tasks.find((item) => item.id === taskId)
       if (!task) throw new Error('missing')
-      const updated = { ...task, status, version: task.version + 1 }
+      const updated = { ...task, status: input.status, version: task.version + 1 }
       currentState = createState(currentState.tasks.map((item) => item.id === taskId ? updated : item))
       return updated
     },
@@ -131,6 +131,13 @@ function createGateway(state: KanbanStateSnapshot): KanbanBoardGateway {
       const task = currentState.tasks.find((item) => item.id === taskId)
       if (!task) throw new Error('missing')
       const updated = { ...task, archived: true, version: task.version + 1 }
+      currentState = createState(currentState.tasks.map((item) => item.id === taskId ? updated : item))
+      return updated
+    },
+    reorderKanbanTask: async (taskId, input) => {
+      const task = currentState.tasks.find((item) => item.id === taskId)
+      if (!task) throw new Error('missing')
+      const updated = { ...task, status: input.status, columnOrder: input.afterTaskId ? 1 : 0, version: task.version + 1 }
       currentState = createState(currentState.tasks.map((item) => item.id === taskId ? updated : item))
       return updated
     },
@@ -217,6 +224,7 @@ function createGateway(state: KanbanStateSnapshot): KanbanBoardGateway {
         task: updated,
       }
     },
+    listKanbanProposals: async () => [],
     subscribeKanbanEvents: () => () => {},
   }
 }
@@ -302,6 +310,85 @@ describe('useKanbanBoard', () => {
     })
     expect(board.selectedTaskId.value).toBe('')
     expect(board.selectedTask.value).toBeNull()
+  })
+
+  it('exposes board config from the loaded snapshot', async () => {
+    const board = useKanbanBoard({
+      gateway: createGateway(createState([createTask({ id: 'task_a' })])),
+      storage: null,
+    })
+
+    await board.loadBoard()
+
+    expect(board.config.value?.proposalPolicy).toBe('confirm')
+  })
+
+  it('submits the current task version when updating a task', async () => {
+    const task = createTask({ id: 'task_a', title: 'Original', version: 7 })
+    const gateway = createGateway(createState([task]))
+    gateway.updateKanbanTask = vi.fn(gateway.updateKanbanTask)
+    const board = useKanbanBoard({ gateway, storage: null })
+
+    await board.loadBoard()
+    await board.updateTask(task.id, { title: 'Renamed' })
+
+    expect(gateway.updateKanbanTask).toHaveBeenCalledWith(task.id, { version: task.version, title: 'Renamed' })
+  })
+
+  it('submits the current task version when setting status and archiving', async () => {
+    const task = createTask({ id: 'task_a', status: 'backlog', version: 3 })
+    const gateway = createGateway(createState([task]))
+    gateway.setKanbanTaskStatus = vi.fn(gateway.setKanbanTaskStatus)
+    gateway.archiveKanbanTask = vi.fn(gateway.archiveKanbanTask)
+    const board = useKanbanBoard({ gateway, storage: null })
+
+    await board.loadBoard()
+    const ready = await board.setTaskStatus(task.id, 'ready', 'Queued')
+    await board.archiveTask(task.id)
+
+    expect(gateway.setKanbanTaskStatus).toHaveBeenCalledWith(task.id, { version: task.version, status: 'ready', reason: 'Queued' })
+    expect(gateway.archiveKanbanTask).toHaveBeenCalledWith(task.id, ready.version)
+  })
+
+  it('reorders a task with its current version and patches local state', async () => {
+    const task = createTask({ id: 'task_a', status: 'backlog', version: 5 })
+    const other = createTask({ id: 'task_b', status: 'ready', version: 2 })
+    const gateway = createGateway(createState([task, other]))
+    gateway.reorderKanbanTask = vi.fn(gateway.reorderKanbanTask)
+    const board = useKanbanBoard({ gateway, storage: null })
+
+    await board.loadBoard()
+    const moved = await board.reorderTask(task.id, { status: 'ready', afterTaskId: other.id })
+
+    expect(moved.status).toBe('ready')
+    expect(board.tasks.value.find((item) => item.id === task.id)?.status).toBe('ready')
+    expect(gateway.reorderKanbanTask).toHaveBeenCalledWith(task.id, { version: task.version, status: 'ready', afterTaskId: other.id })
+  })
+
+  it('captures version conflict errors from mutations for inspection', async () => {
+    const task = createTask({ id: 'task_a', title: 'Original', version: 4 })
+    const conflict = Object.assign(new Error('version_conflict'), {
+      serverVersion: 5,
+      latest: { ...task, title: 'Server title', version: 5 },
+    })
+    const board = useKanbanBoard({
+      gateway: {
+        ...createGateway(createState([task])),
+        updateKanbanTask: async () => {
+          throw conflict
+        },
+      },
+      storage: null,
+    })
+
+    await board.loadBoard()
+    await expect(board.updateTask(task.id, { title: 'Renamed' })).rejects.toThrow('version_conflict')
+
+    expect(board.versionConflict.value).toMatchObject({
+      taskId: task.id,
+      serverVersion: 5,
+      latest: { title: 'Server title', version: 5 },
+    })
   })
 
   it('starts and interrupts task runs while caching run logs', async () => {
