@@ -3872,3 +3872,38 @@ Server-persisted local Kanban board with `#/kanban` route, sidebar navigation, s
 #### Rollback/Cleanup
 - Archive or edit test tasks from the Kanban UI
 - Remove local Kanban data under `${CODEX_HOME:-$HOME/.codex}/codexui-kanban/` if a fully clean board is needed
+
+---
+
+### Kanban v0.2 Execution Safety Gate
+
+#### Feature/Change Name
+Loopback-only execution preflight with per-router CSRF token and append-only audit hash chain.
+
+#### Prerequisites/Setup
+1. Dev server running with `pnpm run dev -- --host 0.0.0.0 --port 4173`
+2. A local Kanban task ID is available from `#/kanban`
+3. Execution remains disabled unless `CODEXUI_KANBAN_EXECUTION_ENABLED=1` is set before starting the server
+4. Light theme and dark theme are both available from Settings
+
+#### Steps
+1. In light theme with execution disabled, send `POST /codex-api/kanban/tasks/<task-id>/run` and confirm it returns `403`
+2. Restart with `CODEXUI_KANBAN_EXECUTION_ENABLED=1`
+3. Fetch `GET /codex-api/kanban/csrf` from `127.0.0.1` and save the returned `csrfToken`
+4. Send `POST /codex-api/kanban/tasks/<task-id>/run` without `x-codexui-kanban-csrf` and confirm it returns `403`
+5. Send the same request with `x-forwarded-for: 100.64.0.10` and confirm it returns `403`
+6. Send the request from loopback with the CSRF header and confirm it returns the temporary runner-not-available response
+7. Inspect `${CODEX_HOME:-$HOME/.codex}/codexui-kanban/audit/` and confirm a JSONL audit event was appended
+8. Switch to dark theme and confirm the Kanban page still renders normally with execution controls unavailable until later v0.2 UI tasks wire them
+
+#### Expected Results
+- Execution start is blocked by default
+- Forwarded, Tailscale, LAN, reverse-proxy, and unknown remote requests cannot start execution
+- Execution mutations require `x-codexui-kanban-csrf`
+- Valid loopback preflight does not start Codex yet and reports that the runner is not available
+- Audit entries include `prevEventHash` and `eventHash`, and secret-shaped fields are redacted
+- Light theme and dark theme remain unchanged by the server-only safety gate
+
+#### Rollback/Cleanup
+- Stop the dev server and restart without `CODEXUI_KANBAN_EXECUTION_ENABLED=1`
+- Remove local test audit data under `${CODEX_HOME:-$HOME/.codex}/codexui-kanban/audit/` if needed

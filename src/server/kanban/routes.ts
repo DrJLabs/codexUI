@@ -1,9 +1,13 @@
 import { isAbsolute, resolve } from 'node:path'
 import express, { type Request, type Response, type Router } from 'express'
 import type { KanbanExecutionPolicy } from '../../types/kanban'
+import { KanbanAuditLog, type KanbanAuditSink } from './auditLog'
 import { resolveKanbanConfig } from './config'
+import { KanbanCsrfProtection } from './csrf'
 import { KanbanEventBus, formatSseEvent } from './eventBus'
+import { createKanbanId } from './ids'
 import { resolveKanbanDataDir } from './paths'
+import { classifyKanbanRemoteAccess, type KanbanRemoteAccess } from './remoteAccess'
 import {
   parseCreateTaskInput,
   parseReplaceAcceptanceCriteriaInput,
@@ -18,6 +22,7 @@ export type CreateKanbanRouterOptions = {
   projectRoot?: string
   policy?: KanbanExecutionPolicy
   eventBus?: KanbanEventBus
+  auditLog?: KanbanAuditSink
 }
 
 type AsyncRouteHandler = (req: Request, res: Response) => Promise<void>
@@ -27,10 +32,14 @@ export function createKanbanRouter(options: CreateKanbanRouterOptions = {}): Rou
   const projectRoot = normalizeProjectRoot(options.projectRoot ?? process.cwd())
   const dataDir = resolveKanbanDataDir(options.dataDir ?? config.dataDir)
   const eventBus = options.eventBus ?? new KanbanEventBus()
+  const auditLog = options.auditLog ?? new KanbanAuditLog({ dataDir, projectRoot })
+  const csrf = new KanbanCsrfProtection()
+  const sessionId = createKanbanId('session')
+  const policy = options.policy ?? config.policy
   const service = new KanbanTaskService({
     storage: new KanbanStorage({ dataDir, projectRoot }),
     projectRoot,
-    policy: options.policy ?? config.policy,
+    policy,
   })
   const router = express.Router()
 
@@ -38,6 +47,11 @@ export function createKanbanRouter(options: CreateKanbanRouterOptions = {}): Rou
 
   router.get('/health', (_req, res) => {
     res.status(200).json({ data: { ok: true } })
+  })
+
+  router.get('/csrf', (req, res) => {
+    assertLoopbackRequest(req)
+    res.status(200).json({ data: { csrfToken: csrf.readToken() } })
   })
 
   router.get('/state', asyncHandler(async (_req, res) => {
@@ -107,6 +121,32 @@ export function createKanbanRouter(options: CreateKanbanRouterOptions = {}): Rou
     res.status(200).json({ data: task })
   }))
 
+  router.post('/tasks/:taskId/run', asyncHandler(async (req, res) => {
+    if (!policy.executionEnabled) {
+      throw createHttpError(403, 'Kanban execution is disabled')
+    }
+    const access = assertLoopbackRequest(req)
+    if (!csrf.verifyRequest(req)) {
+      throw createHttpError(403, 'Invalid Kanban CSRF token')
+    }
+    const taskId = readRouteParam(req.params.taskId, 'taskId')
+    await auditLog.append({
+      eventType: 'run.preflight_blocked',
+      actor: createAuditActor(access, sessionId),
+      task: { taskId },
+      repo: { projectRoot },
+      codex: { runner: 'not_wired' },
+      policy: {
+        executionEnabled: policy.executionEnabled,
+        sandboxMode: policy.sandboxMode,
+        approvalPolicy: policy.approvalPolicy,
+        networkAccess: policy.networkAccess,
+        useThreadShellCommand: policy.useThreadShellCommand,
+      },
+    })
+    res.status(409).json({ error: 'Kanban runner is not available yet' })
+  }))
+
   router.use((error: unknown, _req: Request, res: Response, _next: express.NextFunction) => {
     const message = error instanceof Error && error.message.trim().length > 0 ? error.message : 'Kanban request failed'
     const status = resolveErrorStatus(error, message)
@@ -135,6 +175,30 @@ function readRouteParam(value: string | string[] | undefined, name: string): str
     throw new Error(`Missing route parameter: ${name}`)
   }
   return resolved
+}
+
+function assertLoopbackRequest(req: Request): KanbanRemoteAccess {
+  const access = classifyKanbanRemoteAccess(req)
+  if (!access.loopback) {
+    throw createHttpError(403, 'Kanban execution requires loopback access')
+  }
+  return access
+}
+
+function createAuditActor(access: KanbanRemoteAccess, sessionId: string): Record<string, unknown> {
+  return {
+    type: 'local-browser',
+    sessionId,
+    remoteAddress: access.remoteAddress,
+    loopback: access.loopback,
+    forwarded: access.forwarded,
+  }
+}
+
+function createHttpError(status: number, message: string): Error & { status: number } {
+  const error = new Error(message) as Error & { status: number }
+  error.status = status
+  return error
 }
 
 function resolveErrorStatus(error: unknown, message: string): number {

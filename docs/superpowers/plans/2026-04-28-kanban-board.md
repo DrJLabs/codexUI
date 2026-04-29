@@ -338,7 +338,7 @@ Run: `pnpm exec vitest run src/server/kanban/__tests__/config.test.ts`
 
 Expected: config tests pass.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/types/kanban.ts src/server/kanban/config.ts src/server/kanban/ids.ts src/server/kanban/paths.ts src/server/kanban/__tests__/config.test.ts
@@ -800,7 +800,7 @@ git commit -m "feat: build kanban board CRUD UI"
 - Test: `src/server/kanban/__tests__/policy.test.ts`
 - Test: `src/server/kanban/__tests__/auditLog.test.ts`
 
-- [ ] **Step 1: Write policy tests**
+- [x] **Step 1: Write policy tests**
 
 Cover:
 
@@ -809,7 +809,7 @@ Cover:
 - mutation without CSRF returns `403` after CSRF is enabled.
 - audit append failure prevents a run from starting.
 
-- [ ] **Step 2: Implement remote classification**
+- [x] **Step 2: Implement remote classification**
 
 Loopback addresses are only:
 
@@ -821,7 +821,7 @@ Loopback addresses are only:
 
 Any `x-forwarded-for`, public LAN, Tailscale, Cloudflared, reverse proxy, or unknown remote address disables execution controls.
 
-- [ ] **Step 3: Implement audit hash chain**
+- [x] **Step 3: Implement audit hash chain**
 
 Append JSONL events with:
 
@@ -841,7 +841,7 @@ policy
 
 Hash the canonical JSON of the event without `eventHash`.
 
-- [ ] **Step 4: Add disabled run endpoint**
+- [x] **Step 4: Add disabled run endpoint**
 
 Add `POST /codex-api/kanban/tasks/:taskId/run`, but it only performs policy preflight and returns a blocked response until Task 10 wires the runner.
 
