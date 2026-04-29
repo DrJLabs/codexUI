@@ -67,4 +67,13 @@ describe('KanbanWorktreeManager', () => {
 
     await expect(manager.removeManagedWorktree({ runId: 'run_1' })).rejects.toThrow('Refusing to remove dirty Kanban worktree')
   })
+
+  it('requires typed confirmation and no active run for cleanup', async () => {
+    const { dataDir, projectRoot } = await createGitRepo()
+    const manager = new KanbanWorktreeManager({ dataDir, projectRoot })
+    await manager.createManagedWorktree({ taskId: 'task_123', taskTitle: 'Cleanup', runId: 'run_1' })
+
+    await expect(manager.cleanupManagedWorktree({ runId: 'run_1', confirmation: 'remove run_2' })).rejects.toThrow('Cleanup confirmation must equal')
+    await expect(manager.cleanupManagedWorktree({ runId: 'run_1', confirmation: 'remove run_1', activeRunIds: ['run_1'] })).rejects.toThrow('Cannot clean up active Kanban run')
+  })
 })

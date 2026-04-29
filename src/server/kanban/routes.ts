@@ -50,11 +50,12 @@ export function createKanbanRouter(options: CreateKanbanRouterOptions = {}): Rou
   })
   const reviewPackets = new KanbanReviewPacketService({ storage })
   const proposals = new KanbanProposalService({ storage, taskService: service })
+  const worktreeManager = new KanbanWorktreeManager({ dataDir, projectRoot })
   const runner = options.bridge ? new CodexKanbanRunner({
     dataDir,
     projectRoot,
     storage,
-    worktreeManager: new KanbanWorktreeManager({ dataDir, projectRoot }),
+    worktreeManager,
     bridge: options.bridge,
     auditLog,
   }) : null
@@ -215,6 +216,29 @@ export function createKanbanRouter(options: CreateKanbanRouterOptions = {}): Rou
     res.status(200).type('application/x-ndjson').send(await runner.readRunEvents(readRouteParam(req.params.runId, 'runId')))
   }))
 
+  router.post('/runs/:runId/worktree/cleanup', asyncHandler(async (req, res) => {
+    assertLoopbackMutation(req, csrf)
+    const runId = readRouteParam(req.params.runId, 'runId')
+    const runState = await readStoredRunState(storage, runId)
+    if (isActiveRunState(runState)) {
+      throw createHttpError(409, `Cannot clean up active Kanban run ${runId}`)
+    }
+    await auditLog.append({
+      eventType: 'worktree.cleanup_requested',
+      actor: createAuditActor(classifyKanbanRemoteAccess(req), sessionId),
+      task: { runId },
+      repo: { projectRoot },
+      codex: {},
+      policy: { requiresConfirmation: true },
+    })
+    await worktreeManager.cleanupManagedWorktree({
+      runId,
+      confirmation: readString(req.body?.confirmation),
+      activeRunIds: [],
+    })
+    res.status(200).json({ data: { ok: true } })
+  }))
+
   router.get('/tasks/:taskId/review-packet', asyncHandler(async (req, res) => {
     const packet = await reviewPackets.getPacketForTask(readRouteParam(req.params.taskId, 'taskId'))
     if (!packet) {
@@ -329,6 +353,20 @@ function createHttpError(status: number, message: string): Error & { status: num
   const error = new Error(message) as Error & { status: number }
   error.status = status
   return error
+}
+
+async function readStoredRunState(storage: KanbanStorage, runId: string): Promise<string> {
+  const state = await storage.load()
+  const run = state.runs[runId]
+  return run && typeof run === 'object' && 'state' in run && typeof run.state === 'string' ? run.state : ''
+}
+
+function isActiveRunState(state: string): boolean {
+  return ['queued', 'preparing_worktree', 'starting_codex', 'running', 'waiting_for_approval', 'running_tests', 'collecting_artifacts', 'stopping'].includes(state)
+}
+
+function readString(value: unknown): string {
+  return typeof value === 'string' ? value : ''
 }
 
 function resolveErrorStatus(error: unknown, message: string): number {

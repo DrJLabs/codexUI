@@ -1079,7 +1079,7 @@ git commit -m "feat: add kanban review packets and proposals"
 - Modify: `src/style.css`
 - Modify: `tests.md`
 
-- [ ] **Step 1: Add command risk classifier**
+- [x] **Step 1: Add command risk classifier**
 
 Flag these command patterns:
 
@@ -1101,19 +1101,19 @@ wget ... | sh
 npm publish
 ```
 
-- [ ] **Step 2: Add startup recovery**
+- [x] **Step 2: Add startup recovery**
 
 On server start, classify active records as still running, crashed cleanly, crashed with changes, orphaned process, awaiting approval, or stuck. Never auto-delete dirty worktrees.
 
-- [ ] **Step 3: Add cleanup confirmation**
+- [x] **Step 3: Add cleanup confirmation**
 
 Worktree cleanup requires local loopback, CSRF, typed confirmation, clean worktree, audit event, and no active run.
 
-- [ ] **Step 4: Append `tests.md` v0.2 section**
+- [x] **Step 4: Append `tests.md` v0.2 section**
 
 Add `Kanban Safe Execution v0.2 Manual Verification` with exact local-only setup, dark/light UI checks, remote-blocking check, interrupt check, review packet check, and cleanup notes.
 
-- [ ] **Step 5: Full verification**
+- [x] **Step 5: Full verification**
 
 Run:
 
@@ -1124,7 +1124,7 @@ pnpm run build
 
 Manual UI verification is required in both light and dark theme. Playwright screenshots are required only if the user explicitly asks for Playwright/browser automation.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add src/server/kanban/commandRisk.ts src/server/kanban/recoveryService.ts src/server/kanban/worktreeManager.ts src/server/kanban/routes.ts src/style.css tests.md

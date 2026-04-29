@@ -83,6 +83,16 @@ export class KanbanWorktreeManager {
     await writeFile(lock.lockPath, `${JSON.stringify({ ...lock, status: 'removed' } satisfies ManagedWorktreeLock, null, 2)}\n`, 'utf8')
   }
 
+  async cleanupManagedWorktree(input: { runId: string; confirmation: string; activeRunIds?: string[] }): Promise<void> {
+    if (input.confirmation !== `remove ${input.runId}`) {
+      throw new Error(`Cleanup confirmation must equal: remove ${input.runId}`)
+    }
+    if (input.activeRunIds?.includes(input.runId)) {
+      throw new Error(`Cannot clean up active Kanban run ${input.runId}`)
+    }
+    await this.removeManagedWorktree({ runId: input.runId })
+  }
+
   private async resolveGitRoot(): Promise<string> {
     return resolve((await runCommand(this.projectRoot, ['rev-parse', '--show-toplevel'])).trim())
   }

@@ -4038,3 +4038,47 @@ Review packet generation from managed worktree diffs, review approve/reject rout
 #### Rollback/Cleanup
 - Move test tasks back to the intended status or archive them
 - Remove clean test worktrees and branches after review verification
+
+---
+
+### Kanban Safe Execution v0.2 Manual Verification
+
+#### Feature/Change Name
+End-to-end safe execution hardening for Kanban runs: loopback gating, CSRF, managed worktrees, interrupt, review packet, proposals, command risk classification, and cleanup confirmation.
+
+#### Prerequisites/Setup
+1. Use a local browser on the same machine as the dev server
+2. Start from a Git-backed project with a clean committed `main` or `master` branch
+3. Start the dev server with `CODEXUI_KANBAN_EXECUTION_ENABLED=1 pnpm run dev -- --host 0.0.0.0 --port 4173`
+4. Open `http://127.0.0.1:4173/#/kanban`
+5. Light theme and dark theme are both available from Settings
+
+#### Steps
+1. In light theme, create a Kanban task with acceptance criteria
+2. Click `Run` and confirm the request succeeds only from loopback
+3. From a forwarded/remote context, send a run request with `x-forwarded-for` and confirm it returns `403`
+4. Confirm the run creates a worktree under `${CODEX_HOME:-$HOME/.codex}/codexui-kanban/worktrees/`
+5. Click `Stop` while a run is active and confirm the run becomes `cancelled`
+6. Make an uncommitted change in the managed worktree and confirm cleanup is refused
+7. Clean the worktree, send cleanup with confirmation `remove <run-id>`, and confirm cleanup succeeds
+8. Generate a review packet and confirm it includes a hash, diff summary, and raw patch
+9. Approve a review task and confirm it moves to `done` without merge, push, or PR creation
+10. Reject a review task and confirm it moves to `rework`
+11. Confirm risky commands such as `rm -rf`, `git reset --hard`, `curl ... | sh`, and `npm publish` are flagged by unit coverage
+12. Switch to dark theme and repeat inspection of run controls, logs, review packet panel, and proposal panel
+
+#### Expected Results
+- Execution remains disabled unless explicitly enabled with `CODEXUI_KANBAN_EXECUTION_ENABLED=1`
+- Non-loopback, forwarded, LAN, Tailscale, and tunnel requests cannot start runs or cleanup worktrees
+- CSRF is required for execution, interrupt, cleanup, review, and proposal mutations
+- Runs use managed worktrees and never run directly on `main`
+- Interrupt preserves the worktree
+- Dirty worktrees are never deleted automatically
+- Review approval only marks done; it does not merge, push, or create PRs
+- Light theme and dark theme remain readable
+
+#### Rollback/Cleanup
+- Stop the dev server and restart without `CODEXUI_KANBAN_EXECUTION_ENABLED=1`
+- Remove clean test worktrees with `git -C <repo-root> worktree remove <worktree-path>`
+- Remove test branches with `git -C <repo-root> branch -D <branch-name>` after worktree removal
+- Archive or delete temporary Kanban tasks from local state

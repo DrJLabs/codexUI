@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { classifyRecoveredRunState } from '../recoveryService'
+import { classifyRecoveredRunState, classifyStartupRecovery } from '../recoveryService'
 import { KanbanTaskQueue } from '../taskQueue'
 
 describe('KanbanTaskQueue', () => {
@@ -44,5 +44,13 @@ describe('classifyRecoveredRunState', () => {
     expect(classifyRecoveredRunState('collecting_artifacts')).toBe('needs_recovery')
     expect(classifyRecoveredRunState('stopping')).toBe('cancelled')
     expect(classifyRecoveredRunState('succeeded')).toBe('succeeded')
+  })
+
+  it('classifies startup recovery without deleting dirty worktrees', () => {
+    expect(classifyStartupRecovery('running', { liveCodexTurnProven: true })).toBe('still_running')
+    expect(classifyStartupRecovery('running', { processAlive: false })).toBe('orphaned_process')
+    expect(classifyStartupRecovery('collecting_artifacts', { worktreeDirty: true })).toBe('crashed_with_changes')
+    expect(classifyStartupRecovery('waiting_for_approval')).toBe('awaiting_approval')
+    expect(classifyStartupRecovery('succeeded')).toBe('terminal')
   })
 })
