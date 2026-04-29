@@ -59,6 +59,7 @@ type HarnessOptions = {
   reviewPacketService?: Pick<KanbanReviewPacketService, 'generateForTask'>
   proposalService?: Pick<KanbanProposalService, 'createProposalsFromMarkers'>
   failThreadStart?: boolean
+  failThreadRead?: boolean
   queueLimits?: Partial<KanbanTaskQueueLimits>
 }
 
@@ -91,6 +92,7 @@ async function createHarness(options: HarnessOptions = {}) {
         return { turnId: `turn_${turnStartCount}` } as T
       }
       if (method === 'thread/read') {
+        if (options.failThreadRead) throw new Error('thread read failed')
         return (options.readThreadResponse ?? {
           thread: {
             turns: [
@@ -520,5 +522,29 @@ describe('CodexKanbanRunner', () => {
     expect(state.runs[started.run.id]).toMatchObject({ state: 'running' })
     expect(state.tasks[task.id]!.result).toBe('')
     expect(state.tasks[task.id]!.status).toBe('running')
+  })
+
+  it('logs notification completion failures without failing the listener', async () => {
+    const consoleWarn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    try {
+      const { service, storage, runner, notificationListeners } = await createHarness({ failThreadRead: true })
+      const task = await service.createTask({ title: 'Notification failure task' })
+      const started = await runner.startTaskRun(task.id, { access, sessionId: 'session_1' })
+
+      await expect(Promise.resolve(notificationListeners[0]!({
+        method: 'turn/completed',
+        params: { threadId: 'thread_1', turnId: 'turn_1' },
+        atIso: new Date().toISOString(),
+      }))).resolves.toBeUndefined()
+
+      const state = await storage.load()
+      expect(state.runs[started.run.id]).toMatchObject({ state: 'running' })
+      expect(consoleWarn).toHaveBeenCalledWith(
+        'Kanban turn completion notification failed:',
+        expect.objectContaining({ message: 'thread read failed' }),
+      )
+    } finally {
+      consoleWarn.mockRestore()
+    }
   })
 })

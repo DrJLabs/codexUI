@@ -42,7 +42,21 @@ describe('classifyKanbanRemoteAccessFromParts', () => {
       loopback: false,
       tailscale: false,
       forwarded: true,
-      forwardedFor: '203.0.113.10',
+      forwardedFor: '100.100.100.100, 203.0.113.10',
+      reason: 'untrusted_forwarded',
+    })
+  })
+
+  it('rejects spoofed right-most forwarded Tailscale addresses', () => {
+    expect(classifyKanbanRemoteAccessFromParts({
+      remoteAddress: '127.0.0.1',
+      forwardedFor: '203.0.113.10, 100.100.100.100',
+    })).toMatchObject({
+      trusted: false,
+      loopback: false,
+      tailscale: false,
+      forwarded: true,
+      forwardedFor: '203.0.113.10, 100.100.100.100',
       reason: 'untrusted_forwarded',
     })
   })

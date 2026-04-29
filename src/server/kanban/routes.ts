@@ -92,7 +92,7 @@ export function createKanbanRouter(options: CreateKanbanRouterOptions = {}): Rou
   })
 
   router.get('/csrf', (req, res) => {
-    assertTrustedAccessRequest(req)
+    assertTrustedAccessRequest(req, policy)
     res.status(200).json({ data: { csrfToken: csrf.readToken() } })
   })
 

@@ -122,6 +122,23 @@ describe('Kanban execution policy', () => {
     expect(csrf.body.data.csrfToken).toMatch(/^[A-Za-z0-9_-]{43}$/)
   })
 
+  it('allows CSRF tokens when execution policy does not require trusted access', async () => {
+    const { baseUrl } = await createTestServer({
+      policy: {
+        ...enabledPolicy,
+        requireTrustedAccessForExecution: false,
+      },
+    })
+
+    const csrf = await requestJson<{ data: { csrfToken: string } }>(
+      `${baseUrl}/codex-api/kanban/csrf`,
+      { headers: { 'x-forwarded-for': '203.0.113.10' } },
+    )
+
+    expect(csrf.status).toBe(200)
+    expect(csrf.body.data.csrfToken).toMatch(/^[A-Za-z0-9_-]{43}$/)
+  })
+
   it('allows Tailscale Serve forwarded clients to pass execution access checks', async () => {
     const { baseUrl } = await createTestServer({ policy: enabledPolicy })
     const forwardedHeaders = { 'x-forwarded-for': '100.100.100.100' }

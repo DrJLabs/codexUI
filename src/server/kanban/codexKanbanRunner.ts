@@ -194,7 +194,8 @@ export class CodexKanbanRunner {
       const result = extractLatestAssistantMessageText(response, turnId)
       if (!result) return
       await this.completeRun(run.id, { result })
-    } catch {
+    } catch (error) {
+      console.warn('Kanban turn completion notification failed:', error)
       // Completion notifications are best-effort; the manual completion route remains available.
     }
   }
