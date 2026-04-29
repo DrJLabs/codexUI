@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { useKanbanBoard, type KanbanBoardGateway } from './useKanbanBoard'
-import type { KanbanBoardConfig, KanbanExecutionPolicy, KanbanStateSnapshot, KanbanTask } from '../types/kanban'
+import type { KanbanBoardConfig, KanbanExecutionPolicy, KanbanProposal, KanbanStateSnapshot, KanbanTask, KanbanTaskListResult, ListKanbanTasksParams } from '../types/kanban'
 
 const policy: KanbanExecutionPolicy = {
   enabled: true,
@@ -104,10 +104,57 @@ function createState(tasks: KanbanTask[]): KanbanStateSnapshot {
   }
 }
 
+function createListResult(items: KanbanTask[], overrides: Partial<KanbanTaskListResult> = {}): KanbanTaskListResult {
+  return {
+    items,
+    total: items.length,
+    limit: 50,
+    offset: 0,
+    hasMore: false,
+    ...overrides,
+  }
+}
+
+function createProposal(overrides: Partial<KanbanProposal> = {}): KanbanProposal {
+  return {
+    id: 'proposal_1',
+    title: 'Proposal',
+    description: '',
+    status: 'pending',
+    createdAtIso: '2026-04-28T00:00:00.000Z',
+    updatedAtIso: '2026-04-28T00:00:00.000Z',
+    ...overrides,
+  }
+}
+
+async function flushBoardRefresh(): Promise<void> {
+  await Promise.resolve()
+  await Promise.resolve()
+}
+
 function createGateway(state: KanbanStateSnapshot): KanbanBoardGateway {
   let currentState = state
   return {
     loadKanbanState: async () => currentState,
+    listKanbanTasks: async (params) => {
+      const query = params.q?.trim().toLowerCase() ?? ''
+      const matchingTasks = currentState.tasks.filter((task) => {
+        if (task.archived) return false
+        if (!query) return true
+        return [task.title, task.description, ...task.labels.map((label) => label.name)]
+          .join('\n')
+          .toLowerCase()
+          .includes(query)
+      })
+      const limit = params.limit ?? 50
+      const offset = params.offset ?? 0
+      return createListResult(matchingTasks.slice(offset, offset + limit), {
+        total: matchingTasks.length,
+        limit,
+        offset,
+        hasMore: offset + limit < matchingTasks.length,
+      })
+    },
     createKanbanTask: async (input) => {
       const task = createTask({ id: 'task_created', title: input.title, description: input.description ?? '' })
       currentState = createState([...currentState.tasks, task])
@@ -229,6 +276,16 @@ function createGateway(state: KanbanStateSnapshot): KanbanBoardGateway {
   }
 }
 
+type TestKanbanBoardGateway = KanbanBoardGateway & {
+  listKanbanTasks: ReturnType<typeof vi.fn<(params: ListKanbanTasksParams) => Promise<KanbanTaskListResult>>>
+}
+
+function withTaskListGateway(gateway: KanbanBoardGateway, handler: (params: ListKanbanTasksParams) => Promise<KanbanTaskListResult>): TestKanbanBoardGateway {
+  return Object.assign(gateway, {
+    listKanbanTasks: vi.fn(handler),
+  }) as TestKanbanBoardGateway
+}
+
 describe('useKanbanBoard', () => {
   it('loads state and groups tasks by every visible status', async () => {
     const board = useKanbanBoard({
@@ -323,6 +380,72 @@ describe('useKanbanBoard', () => {
     expect(board.config.value?.proposalPolicy).toBe('confirm')
   })
 
+  it('loads list state from the task list endpoint using the current server query', async () => {
+    const snapshotTask = createTask({ id: 'task_snapshot', title: 'Snapshot only', archived: true })
+    const listedTask = createTask({ id: 'task_listed', title: 'Listed deploy task' })
+    const gateway = withTaskListGateway(createGateway(createState([snapshotTask])), async (params) => createListResult([listedTask], {
+      total: 7,
+      limit: params.limit ?? 50,
+      offset: params.offset ?? 0,
+      hasMore: true,
+    }))
+    const board = useKanbanBoard({ gateway, storage: null })
+
+    board.serverQuery.value = { q: 'deploy', limit: 1, offset: 2 }
+    await board.loadBoard()
+
+    expect(gateway.listKanbanTasks).toHaveBeenCalledWith({ q: 'deploy', limit: 1, offset: 2 })
+    expect(board.listState.value).toMatchObject({
+      items: [listedTask],
+      total: 7,
+      limit: 1,
+      offset: 2,
+      hasMore: true,
+    })
+  })
+
+  it('refreshes the task list after task mutations', async () => {
+    const activeTask = createTask({ id: 'task_a', title: 'Active' })
+    let listItems = [activeTask]
+    const gateway = withTaskListGateway(createGateway(createState([activeTask])), async () => createListResult(listItems.filter((task) => !task.archived)))
+    const archiveKanbanTask = gateway.archiveKanbanTask
+    gateway.archiveKanbanTask = async (taskId, version) => {
+      const task = await archiveKanbanTask(taskId, version)
+      listItems = listItems.map((item) => item.id === task.id ? task : item)
+      return task
+    }
+    const board = useKanbanBoard({ gateway, storage: null })
+
+    await board.loadBoard()
+    await board.archiveTask('task_a')
+
+    expect(gateway.listKanbanTasks).toHaveBeenCalledTimes(2)
+    expect(board.listState.value?.items).toEqual([])
+  })
+
+  it('loads proposals with the board and event refreshes', async () => {
+    let emitEvent: (event: unknown) => void = () => {}
+    let proposals = [createProposal({ id: 'proposal_initial', title: 'Initial' })]
+    const gateway = withTaskListGateway(createGateway(createState([createTask({ id: 'task_a' })])), async () => createListResult([]))
+    gateway.listKanbanProposals = vi.fn(async () => proposals)
+    gateway.subscribeKanbanEvents = (nextHandler) => {
+      emitEvent = nextHandler
+      return () => {}
+    }
+    const board = useKanbanBoard({ gateway, storage: null })
+
+    await board.loadBoard()
+    expect(board.proposals.value.map((proposal) => proposal.id)).toEqual(['proposal_initial'])
+
+    const stop = board.subscribeToEvents()
+    proposals = [createProposal({ id: 'proposal_refreshed', title: 'Refreshed' })]
+    emitEvent({ type: 'task.updated' })
+    await flushBoardRefresh()
+
+    expect(board.proposals.value.map((proposal) => proposal.id)).toEqual(['proposal_refreshed'])
+    stop()
+  })
+
   it('submits the current task version when updating a task', async () => {
     const task = createTask({ id: 'task_a', title: 'Original', version: 7 })
     const gateway = createGateway(createState([task]))
@@ -391,6 +514,28 @@ describe('useKanbanBoard', () => {
     })
   })
 
+  it('clears stale version conflicts after a successful board refresh', async () => {
+    const task = createTask({ id: 'task_a', title: 'Original', version: 4 })
+    const conflict = Object.assign(new Error('version_conflict'), {
+      serverVersion: 5,
+      latest: { ...task, title: 'Server title', version: 5 },
+    })
+    let shouldConflict = true
+    const gateway = withTaskListGateway(createGateway(createState([task])), async () => createListResult([task]))
+    gateway.updateKanbanTask = async (taskId, patch) => {
+      if (shouldConflict) throw conflict
+      return createTask({ id: taskId, title: patch.title ?? task.title, version: 6 })
+    }
+    const board = useKanbanBoard({ gateway, storage: null })
+
+    await board.loadBoard()
+    await expect(board.updateTask(task.id, { title: 'Renamed' })).rejects.toThrow('version_conflict')
+    shouldConflict = false
+    await board.loadBoard()
+
+    expect(board.versionConflict.value).toBeNull()
+  })
+
   it('starts and interrupts task runs while caching run logs', async () => {
     const board = useKanbanBoard({
       gateway: createGateway(createState([createTask({ id: 'task_a', title: 'Runnable' })])),
@@ -457,7 +602,7 @@ describe('useKanbanBoard', () => {
     const stop = board.subscribeToEvents()
     currentState = createState([createTask({ id: 'task_a', title: 'Updated' })])
     emitEvent({ type: 'task.updated' })
-    await Promise.resolve()
+    await flushBoardRefresh()
 
     expect(board.tasks.value[0]?.title).toBe('Updated')
     stop()

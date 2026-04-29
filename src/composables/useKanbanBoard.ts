@@ -6,6 +6,7 @@ import {
   loadKanbanState,
   loadKanbanRunLogs,
   listKanbanProposals,
+  listKanbanTasks,
   regenerateKanbanReviewPacket,
   replaceKanbanAcceptanceCriteria,
   reorderKanbanTask,
@@ -20,6 +21,7 @@ const FILTER_STORAGE_KEY = 'codex-web-local.kanban.filters.v1'
 
 export type KanbanBoardGateway = {
   loadKanbanState: typeof loadKanbanState
+  listKanbanTasks: typeof listKanbanTasks
   createKanbanTask: typeof createKanbanTask
   updateKanbanTask: typeof updateKanbanTask
   setKanbanTaskStatus: typeof setKanbanTaskStatus
@@ -48,6 +50,7 @@ type UseKanbanBoardOptions = {
 
 const defaultGateway: KanbanBoardGateway = {
   loadKanbanState,
+  listKanbanTasks,
   createKanbanTask,
   updateKanbanTask,
   setKanbanTaskStatus,
@@ -171,13 +174,6 @@ export function useKanbanBoard(options: UseKanbanBoardOptions = {}) {
   function applySnapshot(snapshot: KanbanStateSnapshot): void {
     tasks.value = snapshot.tasks
     config.value = snapshot.config
-    listState.value = {
-      items: snapshot.tasks,
-      total: snapshot.tasks.length,
-      limit: serverQuery.value.limit ?? snapshot.tasks.length,
-      offset: serverQuery.value.offset ?? 0,
-      hasMore: false,
-    }
     executionPolicy.value = snapshot.policy
     reconcileSelection()
   }
@@ -202,7 +198,15 @@ export function useKanbanBoard(options: UseKanbanBoardOptions = {}) {
     isLoading.value = true
     errorMessage.value = ''
     try {
-      applySnapshot(await gateway.loadKanbanState())
+      const [snapshot, taskList, nextProposals] = await Promise.all([
+        gateway.loadKanbanState(),
+        gateway.listKanbanTasks(serverQuery.value),
+        gateway.listKanbanProposals(),
+      ])
+      applySnapshot(snapshot)
+      listState.value = taskList
+      proposals.value = nextProposals
+      versionConflict.value = null
     } catch (error) {
       tasks.value = []
       config.value = null
@@ -215,9 +219,22 @@ export function useKanbanBoard(options: UseKanbanBoardOptions = {}) {
     }
   }
 
+  async function refreshTaskList(): Promise<KanbanTaskListResult> {
+    const taskList = await gateway.listKanbanTasks(serverQuery.value)
+    listState.value = taskList
+    return taskList
+  }
+
+  async function refreshProposals(): Promise<KanbanProposal[]> {
+    const nextProposals = await gateway.listKanbanProposals()
+    proposals.value = nextProposals
+    return nextProposals
+  }
+
   async function createTask(input: CreateKanbanTaskInput): Promise<KanbanTask> {
     const task = await gateway.createKanbanTask(input)
     patchTask(task)
+    await refreshTaskList()
     selectedTaskId.value = task.id
     return task
   }
@@ -250,6 +267,7 @@ export function useKanbanBoard(options: UseKanbanBoardOptions = {}) {
     try {
       const task = await mutation(current)
       patchTask(task)
+      await refreshTaskList()
       return task
     } catch (error) {
       captureVersionConflict(taskId, error)
@@ -280,6 +298,7 @@ export function useKanbanBoard(options: UseKanbanBoardOptions = {}) {
   async function replaceCriteria(taskId: string, criteria: ReplaceKanbanAcceptanceCriteriaInput['criteria']): Promise<KanbanTask> {
     const task = await gateway.replaceKanbanAcceptanceCriteria(taskId, criteria)
     patchTask(task)
+    await refreshTaskList()
     return task
   }
 
@@ -312,6 +331,7 @@ export function useKanbanBoard(options: UseKanbanBoardOptions = {}) {
   async function startTaskRun(taskId: string): Promise<KanbanTask> {
     const result = await gateway.startKanbanTaskRun(taskId)
     patchTask(result.task)
+    await refreshTaskList()
     await refreshRunLog(result.run.id)
     return result.task
   }
@@ -320,6 +340,7 @@ export function useKanbanBoard(options: UseKanbanBoardOptions = {}) {
     const result = await gateway.interruptKanbanRun(runId)
     if (result.task) {
       patchTask(result.task)
+      await refreshTaskList()
     }
     await refreshRunLog(result.run.id)
     return result.task
@@ -335,6 +356,7 @@ export function useKanbanBoard(options: UseKanbanBoardOptions = {}) {
   async function regenerateReviewPacket(taskId: string): Promise<KanbanTask> {
     const result = await gateway.regenerateKanbanReviewPacket(taskId)
     patchTask(result.task)
+    await refreshTaskList()
     return result.task
   }
 
@@ -399,6 +421,8 @@ export function useKanbanBoard(options: UseKanbanBoardOptions = {}) {
     isLoading,
     errorMessage,
     loadBoard,
+    refreshTaskList,
+    refreshProposals,
     createTask,
     updateTask,
     archiveTask,
