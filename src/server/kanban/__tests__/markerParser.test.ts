@@ -52,4 +52,18 @@ Done.`
     expect(result.cleanText).toContain('{"title":')
     expect(result.cleanText).toContain('Done.')
   })
+
+  it('leaves no-op update marker blocks in clean text', () => {
+    const text = `Keep this output.
+
+\`\`\`kanban:update
+{"taskId":"task_123","patch":{"unknown":"ignored"}}
+\`\`\``
+
+    const result = parseKanbanMarkers(text)
+
+    expect(result.markers).toEqual([])
+    expect(result.cleanText).toContain('```kanban:update')
+    expect(result.cleanText).toContain('"unknown":"ignored"')
+  })
 })

@@ -114,6 +114,43 @@ describe('KanbanProposalService', () => {
     })
   })
 
+  it('rejects update proposals without a recognized patch field', async () => {
+    const { proposalService, taskService } = await createHarness()
+    const task = await taskService.createTask({ title: 'No-op target' })
+
+    await expect(proposalService.createProposal({
+      type: 'update',
+      payload: {
+        taskId: task.id,
+        patch: { unknown: 'ignored' },
+      },
+      sourceRunId: 'run_noop',
+      sourceThreadId: 'thread_noop',
+      proposedBy: 'operator',
+    } as never)).rejects.toThrow('Kanban proposal patch must include at least one update field')
+  })
+
+  it('serializes concurrent approvals so side effects run once', async () => {
+    const { proposalService, taskService } = await createHarness()
+    const proposal = await proposalService.createProposal({
+      type: 'create',
+      payload: { title: 'Approve once' },
+      sourceRunId: 'run_once',
+      sourceThreadId: 'thread_once',
+      proposedBy: 'operator',
+    })
+
+    const results = await Promise.allSettled([
+      proposalService.approveProposal(proposal.id, { resolvedBy: 'operator' }),
+      proposalService.approveProposal(proposal.id, { resolvedBy: 'operator' }),
+    ])
+    const tasks = await taskService.listTasks({ q: 'Approve once', limit: 20, offset: 0 })
+
+    expect(results.filter((result) => result.status === 'fulfilled')).toHaveLength(1)
+    expect(results.filter((result) => result.status === 'rejected')).toHaveLength(1)
+    expect(tasks.items).toHaveLength(1)
+  })
+
   it('records rejection metadata and filters proposal lists by status', async () => {
     const { proposalService } = await createHarness()
     const rejectedProposal = await proposalService.createProposal({

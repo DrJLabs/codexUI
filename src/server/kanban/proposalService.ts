@@ -12,6 +12,7 @@ import { KanbanInvalidProposalError, KanbanNotFoundError } from './errors'
 import { createKanbanId } from './ids'
 import { parseCreateProposalInput } from './schema'
 import { parseKanbanMarkers } from './markerParser'
+import type { KanbanEventBus } from './eventBus'
 import type { KanbanStateFileV1 } from './migrations'
 import { KanbanStorage } from './storage'
 import { KanbanTaskService } from './taskService'
@@ -24,7 +25,9 @@ export type CreateProposalsFromMarkersInput = {
 }
 
 export class KanbanProposalService {
-  constructor(private readonly options: { storage: KanbanStorage; taskService: KanbanTaskService }) {}
+  private readonly proposalLocks = new Map<string, Promise<void>>()
+
+  constructor(private readonly options: { storage: KanbanStorage; taskService: KanbanTaskService; eventBus?: KanbanEventBus }) {}
 
   async listProposals(query: KanbanProposalListQuery = {}): Promise<KanbanProposal[]> {
     const state = await this.options.storage.load()
@@ -60,6 +63,7 @@ export class KanbanProposalService {
     const state = await this.options.storage.mutate((current: KanbanStateFileV1) => {
       current.proposals[proposal.id] = proposal
     })
+    this.options.eventBus?.emit({ type: 'proposal.created', payload: { proposalId: proposal.id, status: proposal.status } })
     if (options.approveIfPolicyAuto && state.settings.kanbanConfig.proposalPolicy === 'auto') {
       return await this.approveProposal(proposal.id, { resolvedBy: proposal.proposedBy, reason: 'Auto-approved by proposal policy' })
     }
@@ -85,12 +89,14 @@ export class KanbanProposalService {
   }
 
   async approveProposal(proposalId: string, resolution: ResolveKanbanProposalInput = {}): Promise<KanbanProposal> {
-    const proposal = await this.getProposal(proposalId)
-    assertPendingProposal(proposal)
-    const resultTaskId = proposal.type === 'create'
-      ? (await this.options.taskService.createTask(proposal.payload)).id
-      : await this.applyUpdateProposal(proposal.payload)
-    return await this.resolveProposal(proposalId, 'approved', resultTaskId, resolution)
+    return await this.withProposalLock(proposalId, async () => {
+      const proposal = await this.getProposal(proposalId)
+      assertPendingProposal(proposal)
+      const resultTaskId = proposal.type === 'create'
+        ? (await this.options.taskService.createTask(proposal.payload)).id
+        : await this.applyUpdateProposal(proposal.payload)
+      return await this.resolveProposal(proposalId, 'approved', resultTaskId, resolution)
+    })
   }
 
   async acceptProposal(proposalId: string, resolution: ResolveKanbanProposalInput = {}): Promise<KanbanProposal> {
@@ -98,9 +104,30 @@ export class KanbanProposalService {
   }
 
   async rejectProposal(proposalId: string, resolution: ResolveKanbanProposalInput = {}): Promise<KanbanProposal> {
-    const proposal = await this.getProposal(proposalId)
-    assertPendingProposal(proposal)
-    return await this.resolveProposal(proposalId, 'rejected', proposal.resultTaskId, resolution)
+    return await this.withProposalLock(proposalId, async () => {
+      const proposal = await this.getProposal(proposalId)
+      assertPendingProposal(proposal)
+      return await this.resolveProposal(proposalId, 'rejected', proposal.resultTaskId, resolution)
+    })
+  }
+
+  private async withProposalLock<T>(proposalId: string, operation: () => Promise<T>): Promise<T> {
+    const previous = this.proposalLocks.get(proposalId) ?? Promise.resolve()
+    let release: () => void = () => {}
+    const gate = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const next = previous.catch(() => {}).then(() => gate)
+    this.proposalLocks.set(proposalId, next)
+    await previous.catch(() => {})
+    try {
+      return await operation()
+    } finally {
+      release()
+      if (this.proposalLocks.get(proposalId) === next) {
+        this.proposalLocks.delete(proposalId)
+      }
+    }
   }
 
   private async getProposal(proposalId: string): Promise<KanbanProposal> {
@@ -133,7 +160,16 @@ export class KanbanProposalService {
       state.proposals[proposalId] = updated
     })
     if (!updated) throw new KanbanNotFoundError(`Kanban proposal not found: ${proposalId}`)
-    return updated
+    const resolvedProposal = updated as KanbanProposal
+    this.options.eventBus?.emit({
+      type: 'proposal.resolved',
+      payload: {
+        proposalId: resolvedProposal.id,
+        status: resolvedProposal.status,
+        resultTaskId: resolvedProposal.resultTaskId,
+      },
+    })
+    return resolvedProposal
   }
 
   private async applyUpdateProposal(payload: KanbanUpdateProposalPayload): Promise<string> {

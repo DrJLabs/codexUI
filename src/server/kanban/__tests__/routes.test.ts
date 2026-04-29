@@ -5,16 +5,17 @@ import { join } from 'node:path'
 import express from 'express'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { KANBAN_CSRF_HEADER } from '../csrf'
+import { KanbanEventBus } from '../eventBus'
 import { createKanbanMiddleware } from '../index'
 import { resolveProjectStatePath } from '../paths'
 
 const servers: Server[] = []
 
-async function createTestServer() {
+async function createTestServer(options: { eventBus?: KanbanEventBus } = {}) {
   const dataDir = await mkdtemp(join(tmpdir(), 'codexui-kanban-routes-'))
   const projectRoot = join(dataDir, 'project')
   const app = express()
-  app.use('/codex-api/kanban', createKanbanMiddleware({ dataDir, projectRoot }))
+  app.use('/codex-api/kanban', createKanbanMiddleware({ dataDir, projectRoot, eventBus: options.eventBus }))
   const server = createServer(app)
   servers.push(server)
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
@@ -354,7 +355,10 @@ describe('createKanbanMiddleware', () => {
   })
 
   it('creates, filters, approves, and rejects V2 proposals over HTTP', async () => {
-    const { baseUrl } = await createTestServer()
+    const eventBus = new KanbanEventBus()
+    const events: string[] = []
+    const unsubscribe = eventBus.subscribe((event) => events.push(event.type))
+    const { baseUrl } = await createTestServer({ eventBus })
     const csrf = await requestJson<{ data: { csrfToken: string } }>(`${baseUrl}/codex-api/kanban/csrf`)
     const csrfHeaders = { [KANBAN_CSRF_HEADER]: csrf.body.data.csrfToken }
     const task = await requestJson<{ data: { id: string; version: number } }>(
@@ -441,6 +445,74 @@ describe('createKanbanMiddleware', () => {
     expect(updatedTask.body.data.version).toBe(task.body.data.version + 1)
     expect(rejected.status).toBe(200)
     expect(rejected.body.data).toMatchObject({ status: 'rejected', reason: 'No longer needed' })
+    unsubscribe()
+    expect(events).toContain('proposal.created')
+    expect(events.filter((event) => event === 'proposal.resolved')).toHaveLength(2)
+  })
+
+  it('rejects no-op update proposals and maps already-resolved proposals to conflict', async () => {
+    const { baseUrl } = await createTestServer()
+    const csrf = await requestJson<{ data: { csrfToken: string } }>(`${baseUrl}/codex-api/kanban/csrf`)
+    const csrfHeaders = { [KANBAN_CSRF_HEADER]: csrf.body.data.csrfToken }
+    const task = await requestJson<{ data: { id: string } }>(
+      `${baseUrl}/codex-api/kanban/tasks`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ title: 'Route no-op target' }),
+      },
+    )
+    const noOp = await requestJson<{ error: string }>(
+      `${baseUrl}/codex-api/kanban/proposals`,
+      {
+        method: 'POST',
+        headers: csrfHeaders,
+        body: JSON.stringify({
+          type: 'update',
+          payload: {
+            taskId: task.body.data.id,
+            patch: { unknown: 'ignored' },
+          },
+          sourceRunId: 'run_noop',
+          sourceThreadId: 'thread_noop',
+          proposedBy: 'operator',
+        }),
+      },
+    )
+    const proposal = await requestJson<{ data: { id: string } }>(
+      `${baseUrl}/codex-api/kanban/proposals`,
+      {
+        method: 'POST',
+        headers: csrfHeaders,
+        body: JSON.stringify({
+          type: 'create',
+          payload: { title: 'Resolve once' },
+          sourceRunId: 'run_once',
+          sourceThreadId: 'thread_once',
+          proposedBy: 'operator',
+        }),
+      },
+    )
+    await requestJson<{ data: unknown }>(
+      `${baseUrl}/codex-api/kanban/proposals/${proposal.body.data.id}/reject`,
+      {
+        method: 'POST',
+        headers: csrfHeaders,
+        body: JSON.stringify({ resolvedBy: 'operator' }),
+      },
+    )
+    const duplicateReject = await requestJson<{ error: string }>(
+      `${baseUrl}/codex-api/kanban/proposals/${proposal.body.data.id}/reject`,
+      {
+        method: 'POST',
+        headers: csrfHeaders,
+        body: JSON.stringify({ resolvedBy: 'operator' }),
+      },
+    )
+
+    expect(noOp.status).toBe(400)
+    expect(noOp.body.error).toContain('Kanban proposal patch must include at least one update field')
+    expect(duplicateReject.status).toBe(409)
+    expect(duplicateReject.body.error).toContain('Kanban proposal is already rejected')
   })
 
   it('reorders a task into a new status over HTTP', async () => {

@@ -1,5 +1,5 @@
 import type { CreateKanbanTaskInput, UpdateKanbanTaskInput } from '../../types/kanban'
-import { parseCreateTaskInput, parseUpdateTaskInput } from './schema'
+import { parseCreateTaskInput, parseUpdateProposalPayload } from './schema'
 
 export type KanbanMarker =
   | { type: 'create'; payload: CreateKanbanTaskInput }
@@ -64,13 +64,5 @@ function parseMarker(type: string | undefined, rawJson: string): KanbanMarker | 
 }
 
 function parseUpdatePayload(value: unknown): { taskId: string; patch: UpdateKanbanTaskInput } {
-  const record = value !== null && typeof value === 'object' && !Array.isArray(value)
-    ? value as Record<string, unknown>
-    : {}
-  const taskId = typeof record.taskId === 'string' ? record.taskId.trim() : ''
-  if (!taskId) throw new Error('Kanban update marker taskId is required')
-  return {
-    taskId,
-    patch: parseUpdateTaskInput(record.patch),
-  }
+  return parseUpdateProposalPayload(value)
 }

@@ -27,6 +27,19 @@ const STATUS_IDS = new Set(KANBAN_STATUSES.map((status) => status.id))
 const PRIORITY_IDS = new Set(['critical', 'high', 'normal', 'low'])
 const THINKING_IDS = new Set(['off', 'low', 'medium', 'high'])
 const PROPOSAL_STATUSES = new Set(['pending', 'approved', 'rejected'])
+const UPDATE_TASK_KEYS = [
+  'title',
+  'description',
+  'blockedReason',
+  'labels',
+  'priority',
+  'assignee',
+  'model',
+  'thinking',
+  'dueAtIso',
+  'estimateMinutes',
+  'actualMinutes',
+] as const
 
 function asRecord(value: unknown): Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}
@@ -274,14 +287,19 @@ export function parseProposalResolutionInput(value: unknown): ResolveKanbanPropo
   }
 }
 
-function parseUpdateProposalPayload(value: unknown): { taskId: string; patch: UpdateKanbanTaskInput } {
+export function parseUpdateProposalPayload(value: unknown): { taskId: string; patch: UpdateKanbanTaskInput } {
   const record = asRecord(value)
   const taskId = readString(record.taskId)
   if (!taskId) throw new Error('Kanban proposal taskId is required')
   if (!('patch' in record)) throw new Error('Kanban proposal patch is required')
+  if (asRecord(record.patch) !== record.patch) throw new Error('Kanban proposal patch must be an object')
+  const patchRecord = asRecord(record.patch)
+  if (!UPDATE_TASK_KEYS.some((key) => key in patchRecord)) {
+    throw new Error('Kanban proposal patch must include at least one update field')
+  }
   return {
     taskId,
-    patch: parseUpdateTaskInput(record.patch),
+    patch: parseUpdateTaskInput(patchRecord),
   }
 }
 

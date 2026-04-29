@@ -23,7 +23,7 @@ import {
   parseStatusInput,
   parseVersionedUpdateTaskInput,
 } from './schema'
-import { KanbanInvalidTransitionError, KanbanNotFoundError, KanbanVersionConflictError } from './errors'
+import { KanbanInvalidProposalError, KanbanInvalidTransitionError, KanbanNotFoundError, KanbanVersionConflictError } from './errors'
 import { KanbanProposalService } from './proposalService'
 import { KanbanReviewPacketService } from './reviewPacketService'
 import { KanbanStorage } from './storage'
@@ -57,7 +57,7 @@ export function createKanbanRouter(options: CreateKanbanRouterOptions = {}): Rou
     policy,
   })
   const reviewPackets = new KanbanReviewPacketService({ storage })
-  const proposals = new KanbanProposalService({ storage, taskService: service })
+  const proposals = new KanbanProposalService({ storage, taskService: service, eventBus })
   const worktreeManager = new KanbanWorktreeManager({ dataDir, projectRoot })
   const runner = options.bridge ? new CodexKanbanRunner({
     dataDir,
@@ -445,6 +445,7 @@ function readString(value: unknown): string {
 function resolveErrorStatus(error: unknown, message: string): number {
   if (isHttpStatusError(error)) return error.status
   if (error instanceof KanbanNotFoundError) return 404
+  if (error instanceof KanbanInvalidProposalError) return 409
   if (error instanceof KanbanInvalidTransitionError) return 409
   const lowerMessage = message.toLowerCase()
   if (lowerMessage.includes('not found')) return 404
@@ -463,6 +464,8 @@ function resolveErrorStatus(error: unknown, message: string): number {
     || lowerMessage.startsWith('invalid kanban proposal')
     || lowerMessage.startsWith('kanban proposal taskid is required')
     || lowerMessage.startsWith('kanban proposal patch is required')
+    || lowerMessage.startsWith('kanban proposal patch must be an object')
+    || lowerMessage.startsWith('kanban proposal patch must include at least one update field')
     || lowerMessage.startsWith('invalid kanban proposal type')
     || lowerMessage.startsWith('invalid kanban proposal status')
     || lowerMessage.startsWith('invalid proposal policy')

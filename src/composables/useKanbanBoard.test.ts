@@ -587,7 +587,7 @@ describe('useKanbanBoard', () => {
 
     const stop = board.subscribeToEvents()
     proposals = [createProposal({ id: 'proposal_refreshed', payload: { title: 'Refreshed' } })]
-    emitEvent({ type: 'task.updated' })
+    emitEvent({ type: 'proposal.created' })
     await flushBoardRefresh()
 
     expect(board.proposals.value.map((proposal) => proposal.id)).toEqual(['proposal_refreshed'])
