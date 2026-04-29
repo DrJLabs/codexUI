@@ -8,6 +8,8 @@ import { KANBAN_CSRF_HEADER } from '../csrf'
 import { KanbanEventBus } from '../eventBus'
 import { createKanbanMiddleware } from '../index'
 import { resolveProjectStatePath } from '../paths'
+import type { KanbanReviewPacket, KanbanRun } from '../../../types/kanban'
+import { KanbanStorage } from '../storage'
 
 const servers: Server[] = []
 
@@ -39,6 +41,21 @@ async function requestJson<T>(url: string, init?: RequestInit): Promise<{ status
   return {
     status: response.status,
     body: await response.json() as T,
+  }
+}
+
+async function readCsrfHeaders(baseUrl: string): Promise<Record<string, string>> {
+  const csrf = await requestJson<{ data: { csrfToken: string } }>(`${baseUrl}/codex-api/kanban/csrf`)
+  return { [KANBAN_CSRF_HEADER]: csrf.body.data.csrfToken }
+}
+
+async function withCsrf(baseUrl: string, init: RequestInit = {}): Promise<RequestInit> {
+  return {
+    ...init,
+    headers: {
+      ...await readCsrfHeaders(baseUrl),
+      ...init.headers,
+    },
   }
 }
 
@@ -79,35 +96,35 @@ describe('createKanbanMiddleware', () => {
 
     const created = await requestJson<{ data: { id: string; title: string; status: string; version: number; labels: Array<{ id: string; name: string }> } }>(
       `${baseUrl}/codex-api/kanban/tasks`,
-      {
+      await withCsrf(baseUrl, {
         method: 'POST',
         body: JSON.stringify({
           title: 'Route task',
           description: 'Created over HTTP',
           labels: [{ name: 'Bug' }, { name: 'bug' }],
         }),
-      },
+      }),
     )
     const invalidTransition = await requestJson<{ error: string }>(
       `${baseUrl}/codex-api/kanban/tasks/${created.body.data.id}/status`,
-      {
+      await withCsrf(baseUrl, {
         method: 'POST',
         body: JSON.stringify({ version: created.body.data.version, status: 'done' }),
-      },
+      }),
     )
     const emptyTitle = await requestJson<{ error: string }>(
       `${baseUrl}/codex-api/kanban/tasks/${created.body.data.id}`,
-      {
+      await withCsrf(baseUrl, {
         method: 'PATCH',
         body: JSON.stringify({ title: '   ' }),
-      },
+      }),
     )
     const missingCriteria = await requestJson<{ error: string }>(
       `${baseUrl}/codex-api/kanban/tasks/${created.body.data.id}/criteria/replace`,
-      {
+      await withCsrf(baseUrl, {
         method: 'POST',
         body: JSON.stringify({ version: created.body.data.version }),
-      },
+      }),
     )
 
     expect(created.status).toBe(201)
@@ -122,38 +139,77 @@ describe('createKanbanMiddleware', () => {
     expect(missingCriteria.body.error).toContain('Acceptance criteria must be an array')
   })
 
+  it('requires CSRF on core mutating task and config routes', async () => {
+    const { baseUrl } = await createTestServer()
+
+    const createWithoutCsrf = await requestJson<{ error: string }>(
+      `${baseUrl}/codex-api/kanban/tasks`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ title: 'Blocked without CSRF' }),
+      },
+    )
+    const createWithCsrf = await requestJson<{ data: { id: string; version: number } }>(
+      `${baseUrl}/codex-api/kanban/tasks`,
+      await withCsrf(baseUrl, {
+        method: 'POST',
+        body: JSON.stringify({ title: 'Allowed with CSRF' }),
+      }),
+    )
+    const patchWithoutCsrf = await requestJson<{ error: string }>(
+      `${baseUrl}/codex-api/kanban/tasks/${createWithCsrf.body.data.id}`,
+      {
+        method: 'PATCH',
+        body: JSON.stringify({ version: createWithCsrf.body.data.version, title: 'Blocked patch' }),
+      },
+    )
+    const configWithoutCsrf = await requestJson<{ error: string }>(
+      `${baseUrl}/codex-api/kanban/config`,
+      {
+        method: 'PUT',
+        body: JSON.stringify({ quickViewLimit: 12 }),
+      },
+    )
+
+    expect(createWithoutCsrf.status).toBe(403)
+    expect(createWithoutCsrf.body.error).toContain('Invalid Kanban CSRF token')
+    expect(createWithCsrf.status).toBe(201)
+    expect(patchWithoutCsrf.status).toBe(403)
+    expect(configWithoutCsrf.status).toBe(403)
+  })
+
   it('returns conflict details for stale acceptance criteria replacement', async () => {
     const { baseUrl } = await createTestServer()
     const created = await requestJson<{ data: { id: string; version: number } }>(
       `${baseUrl}/codex-api/kanban/tasks`,
-      {
+      await withCsrf(baseUrl, {
         method: 'POST',
         body: JSON.stringify({
           title: 'Criteria route task',
           acceptanceCriteria: [{ text: 'Original criterion' }],
         }),
-      },
+      }),
     )
     const fresh = await requestJson<{ data: { version: number; acceptanceCriteria: Array<{ text: string }> } }>(
       `${baseUrl}/codex-api/kanban/tasks/${created.body.data.id}/criteria/replace`,
-      {
+      await withCsrf(baseUrl, {
         method: 'POST',
         body: JSON.stringify({
           version: created.body.data.version,
           criteria: [{ text: 'Fresh criterion', checked: false }],
         }),
-      },
+      }),
     )
 
     const stale = await requestJson<{ error: string; serverVersion: number; latest: { version: number; acceptanceCriteria: Array<{ text: string }> } }>(
       `${baseUrl}/codex-api/kanban/tasks/${created.body.data.id}/criteria/replace`,
-      {
+      await withCsrf(baseUrl, {
         method: 'POST',
         body: JSON.stringify({
           version: created.body.data.version,
           criteria: [{ text: 'Stale criterion', checked: true }],
         }),
-      },
+      }),
     )
 
     expect(fresh.status).toBe(200)
@@ -165,10 +221,10 @@ describe('createKanbanMiddleware', () => {
 
   it('lists tasks with pagination metadata', async () => {
     const { baseUrl } = await createTestServer()
-    await requestJson<{ data: unknown }>(`${baseUrl}/codex-api/kanban/tasks`, {
+    await requestJson<{ data: unknown }>(`${baseUrl}/codex-api/kanban/tasks`, await withCsrf(baseUrl, {
       method: 'POST',
       body: JSON.stringify({ title: 'Deploy dashboard' }),
-    })
+    }))
 
     const listed = await requestJson<{
       data: { items: Array<{ title: string }>; total: number; limit: number; offset: number; hasMore: boolean }
@@ -186,34 +242,34 @@ describe('createKanbanMiddleware', () => {
     const { baseUrl } = await createTestServer()
     const high = await requestJson<{ data: { id: string; version: number } }>(
       `${baseUrl}/codex-api/kanban/tasks`,
-      {
+      await withCsrf(baseUrl, {
         method: 'POST',
         body: JSON.stringify({
           title: 'High deploy',
           labels: [{ name: 'Ops' }],
         }),
-      },
+      }),
     )
     await requestJson<{ data: unknown }>(
       `${baseUrl}/codex-api/kanban/tasks`,
-      {
+      await withCsrf(baseUrl, {
         method: 'POST',
         body: JSON.stringify({
           title: 'Normal docs',
           labels: [{ name: 'Docs' }],
         }),
-      },
+      }),
     )
     await requestJson<{ data: unknown }>(
       `${baseUrl}/codex-api/kanban/tasks/${high.body.data.id}`,
-      {
+      await withCsrf(baseUrl, {
         method: 'PATCH',
         body: JSON.stringify({
           version: high.body.data.version,
           priority: 'high',
           assignee: 'codex:auto',
         }),
-      },
+      }),
     )
 
     const listed = await requestJson<{
@@ -235,10 +291,10 @@ describe('createKanbanMiddleware', () => {
     const { baseUrl } = await createTestServer()
     const created = await requestJson<{ data: { id: string; version: number } }>(
       `${baseUrl}/codex-api/kanban/tasks`,
-      {
+      await withCsrf(baseUrl, {
         method: 'POST',
         body: JSON.stringify({ title: 'Metadata task' }),
-      },
+      }),
     )
 
     const updated = await requestJson<{
@@ -254,7 +310,7 @@ describe('createKanbanMiddleware', () => {
       }
     }>(
       `${baseUrl}/codex-api/kanban/tasks/${created.body.data.id}`,
-      {
+      await withCsrf(baseUrl, {
         method: 'PATCH',
         body: JSON.stringify({
           version: created.body.data.version,
@@ -266,21 +322,21 @@ describe('createKanbanMiddleware', () => {
           estimateMinutes: 90,
           actualMinutes: null,
         }),
-      },
+      }),
     )
     const invalidActor = await requestJson<{ error: string }>(
       `${baseUrl}/codex-api/kanban/tasks/${created.body.data.id}`,
-      {
+      await withCsrf(baseUrl, {
         method: 'PATCH',
         body: JSON.stringify({ version: updated.body.data.version, assignee: 'codex:thread:' }),
-      },
+      }),
     )
     const invalidMinutes = await requestJson<{ error: string }>(
       `${baseUrl}/codex-api/kanban/tasks/${created.body.data.id}`,
-      {
+      await withCsrf(baseUrl, {
         method: 'PATCH',
         body: JSON.stringify({ version: updated.body.data.version, estimateMinutes: -1 }),
-      },
+      }),
     )
 
     expect(updated.status).toBe(200)
@@ -303,31 +359,31 @@ describe('createKanbanMiddleware', () => {
     const { baseUrl } = await createTestServer()
     const created = await requestJson<{ data: { id: string; version: number } }>(
       `${baseUrl}/codex-api/kanban/tasks`,
-      {
+      await withCsrf(baseUrl, {
         method: 'POST',
         body: JSON.stringify({ title: 'Due date task' }),
-      },
+      }),
     )
     const invalid = await requestJson<{ error: string }>(
       `${baseUrl}/codex-api/kanban/tasks/${created.body.data.id}`,
-      {
+      await withCsrf(baseUrl, {
         method: 'PATCH',
         body: JSON.stringify({ version: created.body.data.version, dueAtIso: 'tomorrow' }),
-      },
+      }),
     )
     const setDate = await requestJson<{ data: { version: number; dueAtIso: string } }>(
       `${baseUrl}/codex-api/kanban/tasks/${created.body.data.id}`,
-      {
+      await withCsrf(baseUrl, {
         method: 'PATCH',
         body: JSON.stringify({ version: created.body.data.version, dueAtIso: '2026-05-04' }),
-      },
+      }),
     )
     const cleared = await requestJson<{ data: { dueAtIso: string } }>(
       `${baseUrl}/codex-api/kanban/tasks/${created.body.data.id}`,
-      {
+      await withCsrf(baseUrl, {
         method: 'PATCH',
         body: JSON.stringify({ version: setDate.body.data.version, dueAtIso: '' }),
-      },
+      }),
     )
 
     expect(invalid.status).toBe(400)
@@ -342,25 +398,25 @@ describe('createKanbanMiddleware', () => {
     const { baseUrl } = await createTestServer()
     const created = await requestJson<{ data: { id: string; version: number; title: string } }>(
       `${baseUrl}/codex-api/kanban/tasks`,
-      {
+      await withCsrf(baseUrl, {
         method: 'POST',
         body: JSON.stringify({ title: 'Original task' }),
-      },
+      }),
     )
     const fresh = await requestJson<{ data: { version: number; title: string } }>(
       `${baseUrl}/codex-api/kanban/tasks/${created.body.data.id}`,
-      {
+      await withCsrf(baseUrl, {
         method: 'PATCH',
         body: JSON.stringify({ version: created.body.data.version, title: 'Fresh task' }),
-      },
+      }),
     )
 
     const stale = await requestJson<{ error: string; serverVersion: number; latest: { title: string; version: number } }>(
       `${baseUrl}/codex-api/kanban/tasks/${created.body.data.id}`,
-      {
+      await withCsrf(baseUrl, {
         method: 'PATCH',
         body: JSON.stringify({ version: created.body.data.version, title: 'Stale task' }),
-      },
+      }),
     )
 
     expect(fresh.status).toBe(200)
@@ -379,20 +435,116 @@ describe('createKanbanMiddleware', () => {
     )
     const updated = await requestJson<{ data: { columns: Array<{ key: string; wipLimit: number | null }> } }>(
       `${baseUrl}/codex-api/kanban/config`,
-      {
+      await withCsrf(baseUrl, {
         method: 'PUT',
         body: JSON.stringify({
           columns: initial.body.data.columns.map((column) => (
             column.key === 'ready' ? { ...column, wipLimit: 3 } : column
           )),
         }),
-      },
+      }),
     )
 
     expect(initial.status).toBe(200)
     expect(initial.body.data.columns.find((column) => column.key === 'ready')?.wipLimit).toBeNull()
     expect(updated.status).toBe(200)
     expect(updated.body.data.columns.find((column) => column.key === 'ready')?.wipLimit).toBe(3)
+  })
+
+  it('requires a current review packet before approving a task', async () => {
+    const { baseUrl, dataDir, projectRoot } = await createTestServer()
+    const storage = new KanbanStorage({ dataDir, projectRoot })
+    const created = await requestJson<{ data: { id: string; version: number; createdAtIso: string; updatedAtIso: string } }>(
+      `${baseUrl}/codex-api/kanban/tasks`,
+      await withCsrf(baseUrl, {
+        method: 'POST',
+        body: JSON.stringify({ title: 'Approval target' }),
+      }),
+    )
+    const run: KanbanRun = {
+      id: 'run_route_review',
+      taskId: created.body.data.id,
+      state: 'succeeded',
+      projectRoot,
+      worktreePath: projectRoot,
+      branchName: 'codexui/task/route-review',
+      threadId: 'thread_route',
+      turnId: 'turn_route',
+      logPath: join(dataDir, 'logs.txt'),
+      eventsPath: join(dataDir, 'events.jsonl'),
+      errorMessage: '',
+      createdAtIso: created.body.data.createdAtIso,
+      updatedAtIso: created.body.data.updatedAtIso,
+    }
+
+    await storage.mutate((state) => {
+      state.runs[run.id] = run
+      state.tasks[created.body.data.id] = {
+        ...state.tasks[created.body.data.id]!,
+        status: 'review',
+        currentRunId: run.id,
+        reviewPacketId: '',
+        version: created.body.data.version + 1,
+      }
+    })
+    const withoutPacket = await requestJson<{ error: string }>(
+      `${baseUrl}/codex-api/kanban/tasks/${created.body.data.id}/review/approve`,
+      await withCsrf(baseUrl, {
+        method: 'POST',
+        body: JSON.stringify({ version: created.body.data.version + 1 }),
+      }),
+    )
+    const packet: KanbanReviewPacket = {
+      id: 'review_packet_route',
+      taskId: created.body.data.id,
+      runId: run.id,
+      packetHash: 'hash',
+      generatedAtIso: new Date().toISOString(),
+      baseCommit: 'base',
+      headCommit: 'head',
+      rawDiffPatch: 'diff',
+      summary: { fileCount: 1, addedLineCount: 1, removedLineCount: 0 },
+      testResults: [],
+      unresolvedProposalIds: ['proposal_pending'],
+    }
+    await storage.mutate((state) => {
+      state.reviewPackets[packet.id] = packet
+      state.tasks[created.body.data.id] = {
+        ...state.tasks[created.body.data.id]!,
+        reviewPacketId: packet.id,
+        proposalIds: ['proposal_pending'],
+        version: created.body.data.version + 2,
+      }
+    })
+    const unresolved = await requestJson<{ error: string }>(
+      `${baseUrl}/codex-api/kanban/tasks/${created.body.data.id}/review/approve`,
+      await withCsrf(baseUrl, {
+        method: 'POST',
+        body: JSON.stringify({ version: created.body.data.version + 2 }),
+      }),
+    )
+    await storage.mutate((state) => {
+      state.reviewPackets[packet.id] = { ...packet, unresolvedProposalIds: [] }
+      state.tasks[created.body.data.id] = {
+        ...state.tasks[created.body.data.id]!,
+        proposalIds: [],
+        version: created.body.data.version + 3,
+      }
+    })
+    const approved = await requestJson<{ data: { status: string } }>(
+      `${baseUrl}/codex-api/kanban/tasks/${created.body.data.id}/review/approve`,
+      await withCsrf(baseUrl, {
+        method: 'POST',
+        body: JSON.stringify({ version: created.body.data.version + 3 }),
+      }),
+    )
+
+    expect(withoutPacket.status).toBe(409)
+    expect(withoutPacket.body.error).toContain('valid review packet')
+    expect(unresolved.status).toBe(409)
+    expect(unresolved.body.error).toContain('unresolved proposals')
+    expect(approved.status).toBe(200)
+    expect(approved.body.data.status).toBe('done')
   })
 
   it('creates, filters, approves, and rejects V2 proposals over HTTP', async () => {
@@ -406,6 +558,7 @@ describe('createKanbanMiddleware', () => {
       `${baseUrl}/codex-api/kanban/tasks`,
       {
         method: 'POST',
+        headers: csrfHeaders,
         body: JSON.stringify({ title: 'Route proposal target' }),
       },
     )
@@ -499,6 +652,7 @@ describe('createKanbanMiddleware', () => {
       `${baseUrl}/codex-api/kanban/tasks`,
       {
         method: 'POST',
+        headers: csrfHeaders,
         body: JSON.stringify({ title: 'Route no-op target' }),
       },
     )
@@ -560,36 +714,36 @@ describe('createKanbanMiddleware', () => {
     const { baseUrl } = await createTestServer()
     const anchor = await requestJson<{ data: { id: string; version: number; columnOrder: number } }>(
       `${baseUrl}/codex-api/kanban/tasks`,
-      {
+      await withCsrf(baseUrl, {
         method: 'POST',
         body: JSON.stringify({ title: 'Ready anchor' }),
-      },
+      }),
     )
     const moving = await requestJson<{ data: { id: string; version: number } }>(
       `${baseUrl}/codex-api/kanban/tasks`,
-      {
+      await withCsrf(baseUrl, {
         method: 'POST',
         body: JSON.stringify({ title: 'Move over HTTP' }),
-      },
+      }),
     )
     const readyAnchor = await requestJson<{ data: { id: string; version: number; columnOrder: number } }>(
       `${baseUrl}/codex-api/kanban/tasks/${anchor.body.data.id}/reorder`,
-      {
+      await withCsrf(baseUrl, {
         method: 'POST',
         body: JSON.stringify({ version: anchor.body.data.version, status: 'ready' }),
-      },
+      }),
     )
 
     const moved = await requestJson<{ data: { id: string; status: string; columnOrder: number } }>(
       `${baseUrl}/codex-api/kanban/tasks/${moving.body.data.id}/reorder`,
-      {
+      await withCsrf(baseUrl, {
         method: 'POST',
         body: JSON.stringify({
           version: moving.body.data.version,
           status: 'ready',
           afterTaskId: readyAnchor.body.data.id,
         }),
-      },
+      }),
     )
 
     expect(moved.status).toBe(200)
@@ -602,10 +756,10 @@ describe('createKanbanMiddleware', () => {
 
     const response = await requestJson<{ error: string }>(
       `${baseUrl}/codex-api/kanban/tasks`,
-      {
+      await withCsrf(baseUrl, {
         method: 'POST',
         body: '{ invalid json',
-      },
+      }),
     )
 
     expect(response.status).toBe(400)

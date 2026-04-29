@@ -72,6 +72,9 @@ export class CodexKanbanRunner {
 
   async startTaskRun(taskId: string, actor: KanbanRunActorContext): Promise<StartKanbanRunResponse> {
     const task = await this.readTask(taskId)
+    if (task.archived) {
+      throw new Error('Cannot start a Kanban run for an archived task')
+    }
     const run = this.createRun(task)
     await this.auditLog.append({
       eventType: 'run.queued',
@@ -93,12 +96,13 @@ export class CodexKanbanRunner {
     } catch (error) {
       await this.releaseRunAndStartPromoted(run.id)
       const message = error instanceof Error ? error.message : 'Kanban run failed to start'
-      const failedRun = { ...run, state: 'failed' as const, errorMessage: message, updatedAtIso: new Date().toISOString() }
+      const latestRun = await this.readRun(run.id).catch(() => run)
+      const failedRun = { ...latestRun, state: 'failed' as const, errorMessage: message, updatedAtIso: new Date().toISOString() }
       await this.writeRunLog(failedRun, `Run failed: ${message}\n`).catch(() => {})
       const failedTask = await this.persistRun(failedRun, {
         runState: 'failed',
-        worktreePath: '',
-        branchName: '',
+        worktreePath: failedRun.worktreePath,
+        branchName: failedRun.branchName,
         errorMessage: message,
       })
       return Promise.reject(Object.assign(new Error(message), { run: failedRun, task: failedTask }))
@@ -346,8 +350,8 @@ export class CodexKanbanRunner {
       updatedAtIso: new Date().toISOString(),
     }
     try {
-      await this.writeRunEvent(preparingRun, { type: 'worktree.created', worktreePath: worktree.worktreePath, branchName: worktree.branchName })
       await this.persistRun(preparingRun, { runState: 'starting_codex', worktreePath: worktree.worktreePath, branchName: worktree.branchName })
+      await this.writeRunEvent(preparingRun, { type: 'worktree.created', worktreePath: worktree.worktreePath, branchName: worktree.branchName })
 
       const threadId = await this.startOrResumeThread(task, preparingRun)
       const turnId = await this.startTurn(task, { ...preparingRun, threadId })
@@ -369,7 +373,15 @@ export class CodexKanbanRunner {
       })
       return { run: runningRun, task: runningTask }
     } catch (error) {
-      await this.worktreeManager.discardManagedWorktree({ runId: run.id }).catch(() => {})
+      await this.writeRunLog(
+        preparingRun,
+        'Run startup failed; managed worktree preserved for manual cleanup.\n',
+      ).catch(() => {})
+      await this.writeRunEvent(preparingRun, {
+        type: 'worktree.cleanup_required',
+        reason: 'startup_failed',
+        message: 'Run startup failed; managed worktree preserved for manual cleanup.',
+      }).catch(() => {})
       throw error
     }
   }
@@ -403,12 +415,13 @@ export class CodexKanbanRunner {
       await this.startActiveRun(run, task)
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Kanban run failed to start'
-      const failedRun = { ...run, state: 'failed' as const, errorMessage: message, updatedAtIso: new Date().toISOString() }
+      const latestRun = await this.readRun(run.id).catch(() => run)
+      const failedRun = { ...latestRun, state: 'failed' as const, errorMessage: message, updatedAtIso: new Date().toISOString() }
       await this.writeRunLog(failedRun, `Run failed: ${message}\n`).catch(() => {})
       await this.persistRun(failedRun, {
         runState: 'failed',
-        worktreePath: '',
-        branchName: '',
+        worktreePath: failedRun.worktreePath,
+        branchName: failedRun.branchName,
         errorMessage: message,
       })
       await this.releaseRunAndStartPromoted(run.id)

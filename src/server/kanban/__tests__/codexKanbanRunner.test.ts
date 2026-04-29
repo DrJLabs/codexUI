@@ -148,7 +148,7 @@ describe('CodexKanbanRunner', () => {
     expect(JSON.stringify(rpcCalls)).not.toContain('thread/shellCommand')
   })
 
-  it('cleans up the managed worktree when Codex startup fails', async () => {
+  it('preserves the managed worktree when Codex startup fails', async () => {
     const { projectRoot, service, storage, runner } = await createHarness({ failThreadStart: true })
     const task = await service.createTask({ title: 'Startup failure task' })
 
@@ -159,10 +159,24 @@ describe('CodexKanbanRunner', () => {
     const state = await storage.load()
     const worktreeList = await runGit(projectRoot, ['worktree', 'list', '--porcelain'])
     const branches = await runGit(projectRoot, ['branch', '--list', 'codexui/task/*'])
-    expect(state.runs[Object.keys(state.runs)[0] ?? '']).toMatchObject({ state: 'failed', worktreePath: '', branchName: '' })
-    expect(state.tasks[task.id]).toMatchObject({ runState: 'failed', worktreePath: '', branchName: '' })
-    expect(worktreeList).not.toContain('startup-failure-task')
-    expect(branches.trim()).toBe('')
+    const failedRun = state.runs[Object.keys(state.runs)[0] ?? '']
+    expect(failedRun).toMatchObject({ state: 'failed' })
+    expect(state.tasks[task.id]).toMatchObject({ runState: 'failed' })
+    expect(state.tasks[task.id]?.worktreePath).toContain('/worktrees/')
+    expect(state.tasks[task.id]?.branchName).toContain('startup-failure-task')
+    expect(worktreeList).toContain(state.tasks[task.id]?.worktreePath)
+    expect(branches).toContain(state.tasks[task.id]?.branchName)
+    await expect(runner.readRunEvents(Object.keys(state.runs)[0] ?? '')).resolves.toContain('manual cleanup')
+  })
+
+  it('refuses to start runs for archived tasks', async () => {
+    const { service, runner } = await createHarness()
+    const task = await service.createTask({ title: 'Archived run task' })
+    await service.archiveTask(task.id, { version: task.version })
+
+    await expect(runner.startTaskRun(task.id, { access, sessionId: 'session_1' }))
+      .rejects
+      .toThrow('Cannot start a Kanban run for an archived task')
   })
 
   it('interrupts a running turn and preserves the managed worktree', async () => {

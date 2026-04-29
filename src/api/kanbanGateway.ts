@@ -23,6 +23,8 @@ import type {
 
 let csrfToken = ''
 
+type KanbanRequestError = Error & { status?: number; error?: string }
+
 async function requestKanban<T>(path: string, init: RequestInit = {}): Promise<T> {
   const response = await fetch(`/codex-api/kanban${path}`, {
     ...init,
@@ -36,7 +38,7 @@ async function requestKanban<T>(path: string, init: RequestInit = {}): Promise<T
     const message = payload && 'error' in payload && typeof payload.error === 'string'
       ? payload.error
       : `Kanban request failed (${response.status})`
-    throw Object.assign(new Error(message), payload)
+    throw Object.assign(new Error(message), payload, { status: response.status }) as KanbanRequestError
   }
   if (!payload || !('data' in payload)) {
     throw new Error('Kanban response did not include data')
@@ -57,6 +59,25 @@ async function readCsrfToken(): Promise<string> {
   const response = await requestKanban<{ csrfToken: string }>('/csrf')
   csrfToken = response.csrfToken
   return csrfToken
+}
+
+async function requestProtectedKanban<T>(path: string, init: RequestInit = {}, retried = false): Promise<T> {
+  const token = await readCsrfToken()
+  try {
+    return await requestKanban<T>(path, {
+      ...init,
+      headers: {
+        ...init.headers,
+        'x-codexui-kanban-csrf': token,
+      },
+    })
+  } catch (error) {
+    if (!retried && isStaleCsrfError(error)) {
+      csrfToken = ''
+      return await requestProtectedKanban<T>(path, init, true)
+    }
+    throw error
+  }
 }
 
 export async function loadKanbanState(): Promise<KanbanStateSnapshot> {
@@ -86,49 +107,49 @@ export async function loadKanbanConfig(): Promise<KanbanBoardConfig> {
 }
 
 export async function updateKanbanConfig(input: UpdateKanbanBoardConfigInput): Promise<KanbanBoardConfig> {
-  return await requestKanban<KanbanBoardConfig>('/config', {
+  return await requestProtectedKanban<KanbanBoardConfig>('/config', {
     method: 'PUT',
     body: JSON.stringify(input),
   })
 }
 
 export async function createKanbanTask(input: CreateKanbanTaskInput): Promise<KanbanTask> {
-  return await requestKanban<KanbanTask>('/tasks', {
+  return await requestProtectedKanban<KanbanTask>('/tasks', {
     method: 'POST',
     body: JSON.stringify(input),
   })
 }
 
 export async function updateKanbanTask(taskId: string, patch: VersionedUpdateKanbanTaskInput): Promise<KanbanTask> {
-  return await requestKanban<KanbanTask>(`/tasks/${encodeURIComponent(taskId)}`, {
+  return await requestProtectedKanban<KanbanTask>(`/tasks/${encodeURIComponent(taskId)}`, {
     method: 'PATCH',
     body: JSON.stringify(patch),
   })
 }
 
 export async function setKanbanTaskStatus(taskId: string, input: VersionedSetKanbanTaskStatusInput): Promise<KanbanTask> {
-  return await requestKanban<KanbanTask>(`/tasks/${encodeURIComponent(taskId)}/status`, {
+  return await requestProtectedKanban<KanbanTask>(`/tasks/${encodeURIComponent(taskId)}/status`, {
     method: 'POST',
     body: JSON.stringify(input),
   })
 }
 
 export async function archiveKanbanTask(taskId: string, version: number): Promise<KanbanTask> {
-  return await requestKanban<KanbanTask>(`/tasks/${encodeURIComponent(taskId)}/archive`, {
+  return await requestProtectedKanban<KanbanTask>(`/tasks/${encodeURIComponent(taskId)}/archive`, {
     method: 'POST',
     body: JSON.stringify({ version }),
   })
 }
 
 export async function reorderKanbanTask(taskId: string, input: ReorderKanbanTaskInput): Promise<KanbanTask> {
-  return await requestKanban<KanbanTask>(`/tasks/${encodeURIComponent(taskId)}/reorder`, {
+  return await requestProtectedKanban<KanbanTask>(`/tasks/${encodeURIComponent(taskId)}/reorder`, {
     method: 'POST',
     body: JSON.stringify(input),
   })
 }
 
 export async function deleteKanbanTask(taskId: string, version: number): Promise<KanbanTask> {
-  return await requestKanban<KanbanTask>(`/tasks/${encodeURIComponent(taskId)}`, {
+  return await requestProtectedKanban<KanbanTask>(`/tasks/${encodeURIComponent(taskId)}`, {
     method: 'DELETE',
     body: JSON.stringify({ version }),
   })
@@ -138,26 +159,22 @@ export async function replaceKanbanAcceptanceCriteria(
   taskId: string,
   input: ReplaceKanbanAcceptanceCriteriaInput,
 ): Promise<KanbanTask> {
-  return await requestKanban<KanbanTask>(`/tasks/${encodeURIComponent(taskId)}/criteria/replace`, {
+  return await requestProtectedKanban<KanbanTask>(`/tasks/${encodeURIComponent(taskId)}/criteria/replace`, {
     method: 'POST',
     body: JSON.stringify(input),
   })
 }
 
 export async function startKanbanTaskRun(taskId: string): Promise<StartKanbanRunResponse> {
-  const token = await readCsrfToken()
-  return await requestKanban<StartKanbanRunResponse>(`/tasks/${encodeURIComponent(taskId)}/run`, {
+  return await requestProtectedKanban<StartKanbanRunResponse>(`/tasks/${encodeURIComponent(taskId)}/run`, {
     method: 'POST',
-    headers: { 'x-codexui-kanban-csrf': token },
     body: JSON.stringify({}),
   })
 }
 
 export async function interruptKanbanRun(runId: string): Promise<InterruptKanbanRunResponse> {
-  const token = await readCsrfToken()
-  return await requestKanban<InterruptKanbanRunResponse>(`/runs/${encodeURIComponent(runId)}/interrupt`, {
+  return await requestProtectedKanban<InterruptKanbanRunResponse>(`/runs/${encodeURIComponent(runId)}/interrupt`, {
     method: 'POST',
-    headers: { 'x-codexui-kanban-csrf': token },
     body: JSON.stringify({}),
   })
 }
@@ -175,10 +192,8 @@ export async function loadKanbanRunEvents(runId: string): Promise<string> {
 }
 
 export async function regenerateKanbanReviewPacket(taskId: string): Promise<{ packet: KanbanReviewPacket; task: KanbanTask }> {
-  const token = await readCsrfToken()
-  return await requestKanban<{ packet: KanbanReviewPacket; task: KanbanTask }>(`/tasks/${encodeURIComponent(taskId)}/review-packet/regenerate`, {
+  return await requestProtectedKanban<{ packet: KanbanReviewPacket; task: KanbanTask }>(`/tasks/${encodeURIComponent(taskId)}/review-packet/regenerate`, {
     method: 'POST',
-    headers: { 'x-codexui-kanban-csrf': token },
     body: JSON.stringify({}),
   })
 }
@@ -191,30 +206,30 @@ export async function listKanbanProposals(status?: KanbanProposalStatus): Promis
 }
 
 export async function createKanbanProposal(input: CreateKanbanProposalInput): Promise<KanbanProposal> {
-  const token = await readCsrfToken()
-  return await requestKanban<KanbanProposal>('/proposals', {
+  return await requestProtectedKanban<KanbanProposal>('/proposals', {
     method: 'POST',
-    headers: { 'x-codexui-kanban-csrf': token },
     body: JSON.stringify(input),
   })
 }
 
 export async function approveKanbanProposal(proposalId: string, input: ResolveKanbanProposalInput = {}): Promise<KanbanProposal> {
-  const token = await readCsrfToken()
-  return await requestKanban<KanbanProposal>(`/proposals/${encodeURIComponent(proposalId)}/approve`, {
+  return await requestProtectedKanban<KanbanProposal>(`/proposals/${encodeURIComponent(proposalId)}/approve`, {
     method: 'POST',
-    headers: { 'x-codexui-kanban-csrf': token },
     body: JSON.stringify(input),
   })
 }
 
 export async function rejectKanbanProposal(proposalId: string, input: ResolveKanbanProposalInput = {}): Promise<KanbanProposal> {
-  const token = await readCsrfToken()
-  return await requestKanban<KanbanProposal>(`/proposals/${encodeURIComponent(proposalId)}/reject`, {
+  return await requestProtectedKanban<KanbanProposal>(`/proposals/${encodeURIComponent(proposalId)}/reject`, {
     method: 'POST',
-    headers: { 'x-codexui-kanban-csrf': token },
     body: JSON.stringify(input),
   })
+}
+
+function isStaleCsrfError(error: unknown): error is KanbanRequestError {
+  return error instanceof Error
+    && (error as KanbanRequestError).status === 403
+    && error.message.toLowerCase().includes('csrf')
 }
 
 type KanbanEventSubscriptionOptions = {

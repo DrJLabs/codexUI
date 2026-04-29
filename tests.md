@@ -4317,3 +4317,35 @@ Final verification for the CodexUI Kanban parity implementation.
 #### Rollback/Cleanup
 - Stop the port `5173` dev server if it was only started for verification.
 - Archive or delete temporary Kanban tasks and proposals created during smoke testing.
+
+---
+
+### Kanban Review Hardening
+
+#### Feature/Change Name
+Kanban CSRF coverage, review approval validation, startup recovery, and failed-start worktree preservation.
+
+#### Prerequisites/Setup
+1. Use the `feature/kanban-board-dev` worktree.
+2. Start the dev server with `CODEXUI_KANBAN_EXECUTION_ENABLED=1 pnpm run dev -- --host 0.0.0.0 --port 5173`.
+3. Open `http://127.0.0.1:5173/#/kanban` locally, or the configured Tailscale Serve host from a phone.
+
+#### Steps
+1. Run `pnpm vitest run src/api/kanbanGateway.test.ts src/server/kanban/__tests__/routes.test.ts src/server/kanban/__tests__/codexKanbanRunner.test.ts src/server/kanban/__tests__/reviewPacketService.test.ts src/server/kanban/__tests__/startupRecovery.test.ts src/server/kanban/__tests__/recoveryService.test.ts`.
+2. Run `pnpm run build`.
+3. In light theme, create and edit a Kanban task and confirm the board uses CSRF-protected mutations without forcing loopback-only access.
+4. In dark theme, repeat task create/edit/archive and confirm the board remains readable.
+5. Attempt to approve a task in review without a current review packet and confirm approval is rejected.
+6. Generate or load a valid review packet with no unresolved proposals and confirm approval moves the task to `done`.
+
+#### Expected Results
+- All core mutating routes require trusted access plus a current CSRF token.
+- Stale CSRF tokens are refreshed once by the browser gateway and retried.
+- Review approval requires the task's current review packet and rejects unresolved proposals.
+- Restart recovery marks persisted active/queued runs as `needs_recovery` without deleting worktrees.
+- Failed Codex startup preserves the managed worktree for explicit cleanup.
+- Phone-over-Tailscale access remains supported for guarded board mutations.
+
+#### Rollback/Cleanup
+- Archive or delete temporary Kanban tasks created during testing.
+- Use the explicit worktree cleanup action for preserved failed-start worktrees after inspecting them.

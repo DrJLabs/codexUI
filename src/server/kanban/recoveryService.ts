@@ -57,9 +57,9 @@ export function classifyStartupRecovery(
   }
   if (state === 'queued') return 'restore_queue'
   if (state === 'waiting_for_approval') return 'awaiting_approval'
-  if (state === 'running' && options.liveCodexTurnProven) return 'still_running'
   if (state === 'running' && options.processAlive === false) return 'orphaned_process'
   if (options.worktreeDirty) return 'crashed_with_changes'
+  if (state === 'running' && options.liveCodexTurnProven) return 'still_running'
   if (state === 'preparing_worktree' || state === 'starting_codex' || state === 'running_tests' || state === 'collecting_artifacts') {
     return 'crashed_cleanly'
   }

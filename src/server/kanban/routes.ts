@@ -1,6 +1,6 @@
 import { isAbsolute, resolve } from 'node:path'
 import express, { type Request, type Response, type Router } from 'express'
-import type { KanbanExecutionPolicy, KanbanProposal } from '../../types/kanban'
+import type { KanbanExecutionPolicy, KanbanProposal, KanbanReviewPacket } from '../../types/kanban'
 import type { CodexBridgeRuntime } from '../codexAppServerBridge'
 import { KanbanAuditLog, type KanbanAuditSink } from './auditLog'
 import { resolveKanbanConfig } from './config'
@@ -29,6 +29,7 @@ import { KanbanReviewPacketService } from './reviewPacketService'
 import { KanbanStorage } from './storage'
 import { KanbanTaskService } from './taskService'
 import { KanbanWorktreeManager } from './worktreeManager'
+import { recoverStaleKanbanRuns } from './startupRecovery'
 
 export type CreateKanbanRouterOptions = {
   dataDir?: string
@@ -71,8 +72,15 @@ export function createKanbanRouter(options: CreateKanbanRouterOptions = {}): Rou
     eventBus,
   }) : null
   const router = express.Router()
+  const startupRecovery = recoverStaleKanbanRuns(storage).catch((error) => {
+    console.error('Kanban startup recovery failed:', error)
+  })
 
   router.use(express.json({ limit: '1mb' }))
+  router.use((async (_req, _res, next) => {
+    await startupRecovery
+    next()
+  }) as express.RequestHandler)
 
   router.get('/health', (_req, res) => {
     res.status(200).json({ data: { ok: true } })
@@ -96,6 +104,7 @@ export function createKanbanRouter(options: CreateKanbanRouterOptions = {}): Rou
   }))
 
   router.put('/config', asyncHandler(async (req, res) => {
+    assertTrustedAccessMutation(req, csrf)
     res.status(200).json({ data: await service.updateConfig(parseBoardConfigInput(req.body)) })
   }))
 
@@ -133,6 +142,7 @@ export function createKanbanRouter(options: CreateKanbanRouterOptions = {}): Rou
   })
 
   router.post('/tasks', asyncHandler(async (req, res) => {
+    assertTrustedAccessMutation(req, csrf)
     const task = await service.createTask(parseCreateTaskInput(req.body))
     eventBus.emit({ type: 'task.created', payload: { taskId: task.id } })
     res.status(201).json({ data: task })
@@ -143,36 +153,42 @@ export function createKanbanRouter(options: CreateKanbanRouterOptions = {}): Rou
   }))
 
   router.patch('/tasks/:taskId', asyncHandler(async (req, res) => {
+    assertTrustedAccessMutation(req, csrf)
     const task = await service.updateTask(readRouteParam(req.params.taskId, 'taskId'), parseVersionedUpdateTaskInput(req.body))
     eventBus.emit({ type: 'task.updated', payload: { taskId: task.id } })
     res.status(200).json({ data: task })
   }))
 
   router.delete('/tasks/:taskId', asyncHandler(async (req, res) => {
+    assertTrustedAccessMutation(req, csrf)
     const task = await service.deleteTask(readRouteParam(req.params.taskId, 'taskId'), parseDeleteTaskInput({ ...req.query, ...req.body }))
     eventBus.emit({ type: 'task.updated', payload: { taskId: task.id, archived: true } })
     res.status(200).json({ data: task })
   }))
 
   router.post('/tasks/:taskId/status', asyncHandler(async (req, res) => {
+    assertTrustedAccessMutation(req, csrf)
     const task = await service.setTaskStatus(readRouteParam(req.params.taskId, 'taskId'), parseStatusInput(req.body))
     eventBus.emit({ type: 'task.status_changed', payload: { taskId: task.id, status: task.status } })
     res.status(200).json({ data: task })
   }))
 
   router.post('/tasks/:taskId/archive', asyncHandler(async (req, res) => {
+    assertTrustedAccessMutation(req, csrf)
     const task = await service.archiveTask(readRouteParam(req.params.taskId, 'taskId'), parseDeleteTaskInput(req.body))
     eventBus.emit({ type: 'task.updated', payload: { taskId: task.id, archived: true } })
     res.status(200).json({ data: task })
   }))
 
   router.post('/tasks/:taskId/reorder', asyncHandler(async (req, res) => {
+    assertTrustedAccessMutation(req, csrf)
     const task = await service.reorderTask(readRouteParam(req.params.taskId, 'taskId'), parseReorderTaskInput(req.body))
     eventBus.emit({ type: 'task.updated', payload: { taskId: task.id, status: task.status } })
     res.status(200).json({ data: task })
   }))
 
   router.post('/tasks/:taskId/criteria/replace', asyncHandler(async (req, res) => {
+    assertTrustedAccessMutation(req, csrf)
     const task = await service.replaceAcceptanceCriteria(readRouteParam(req.params.taskId, 'taskId'), parseReplaceAcceptanceCriteriaInput(req.body))
     eventBus.emit({ type: 'task.updated', payload: { taskId: task.id } })
     res.status(200).json({ data: task })
@@ -319,7 +335,9 @@ export function createKanbanRouter(options: CreateKanbanRouterOptions = {}): Rou
 
   router.post('/tasks/:taskId/review/approve', asyncHandler(async (req, res) => {
     assertTrustedAccessMutation(req, csrf)
-    const task = await service.setTaskStatus(readRouteParam(req.params.taskId, 'taskId'), { ...parseDeleteTaskInput(req.body), status: 'done' })
+    const taskId = readRouteParam(req.params.taskId, 'taskId')
+    await assertTaskHasCurrentReviewPacket(storage, taskId)
+    const task = await service.setTaskStatus(taskId, { ...parseDeleteTaskInput(req.body), status: 'done' })
     eventBus.emit({ type: 'task.status_changed', payload: { taskId: task.id, status: task.status } })
     res.status(200).json({ data: task })
   }))
@@ -467,6 +485,34 @@ async function readStoredRunState(storage: KanbanStorage, runId: string): Promis
 
 function isActiveRunState(state: string): boolean {
   return ['queued', 'preparing_worktree', 'starting_codex', 'running', 'waiting_for_approval', 'running_tests', 'collecting_artifacts', 'stopping'].includes(state)
+}
+
+async function assertTaskHasCurrentReviewPacket(storage: KanbanStorage, taskId: string): Promise<void> {
+  const state = await storage.load()
+  const task = state.tasks[taskId]
+  if (!task) throw new KanbanNotFoundError(`Kanban task not found: ${taskId}`)
+  if (task.status !== 'review') {
+    throw createHttpError(409, 'Kanban task must be in review before approval')
+  }
+  if (!task.reviewPacketId) {
+    throw createHttpError(409, 'Kanban task requires a current valid review packet before approval')
+  }
+  const packet = state.reviewPackets[task.reviewPacketId]
+  if (!isReviewPacket(packet) || packet.taskId !== task.id || packet.runId !== task.currentRunId) {
+    throw createHttpError(409, 'Kanban task requires a current valid review packet before approval')
+  }
+  if (packet.unresolvedProposalIds.length > 0) {
+    throw createHttpError(409, 'Kanban task has unresolved proposals and cannot be approved')
+  }
+}
+
+function isReviewPacket(value: unknown): value is KanbanReviewPacket {
+  return value !== null
+    && typeof value === 'object'
+    && typeof (value as { id?: unknown }).id === 'string'
+    && typeof (value as { taskId?: unknown }).taskId === 'string'
+    && typeof (value as { runId?: unknown }).runId === 'string'
+    && Array.isArray((value as { unresolvedProposalIds?: unknown }).unresolvedProposalIds)
 }
 
 function readString(value: unknown): string {

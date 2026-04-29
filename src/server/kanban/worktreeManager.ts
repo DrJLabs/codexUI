@@ -92,12 +92,6 @@ export class KanbanWorktreeManager {
     await writeFile(lock.lockPath, `${JSON.stringify({ ...lock, status: 'removed' } satisfies ManagedWorktreeLock, null, 2)}\n`, 'utf8')
   }
 
-  async discardManagedWorktree(input: { runId: string }): Promise<void> {
-    const lock = await this.readLockForRun(input.runId)
-    await cleanupWorktreeAndBranch(lock.projectRoot, lock.worktreePath, lock.branchName)
-    await writeFile(lock.lockPath, `${JSON.stringify({ ...lock, status: 'removed' } satisfies ManagedWorktreeLock, null, 2)}\n`, 'utf8')
-  }
-
   async cleanupManagedWorktree(input: { runId: string; confirmation: string; activeRunIds?: string[] }): Promise<void> {
     if (input.confirmation !== `remove ${input.runId}`) {
       throw new Error(`Cleanup confirmation must equal: remove ${input.runId}`)

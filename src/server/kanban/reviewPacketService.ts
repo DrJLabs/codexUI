@@ -30,14 +30,18 @@ export class KanbanReviewPacketService {
   async generateForTask(taskId: string): Promise<{ packet: KanbanReviewPacket; task: KanbanTask }> {
     let task = await this.readTask(taskId)
     const run = await this.readRun(task.currentRunId)
-    const snapshot = await buildReviewSnapshot(run.worktreePath || task.worktreePath, 'workspace', 'unstaged')
-    const rawDiffPatch = snapshot.files.map((file) => file.diff).filter(Boolean).join('\n')
+    const worktreePath = run.worktreePath || task.worktreePath
+    if (!worktreePath) {
+      throw new Error(`Kanban task ${taskId} has no worktree path for review packet generation`)
+    }
     const baseRev = run.baseRef || task.baseBranch || 'HEAD'
     const [baseCommit, headCommit, testResults] = await Promise.all([
-      readGitCommit(run.worktreePath || task.worktreePath, baseRev),
-      readGitCommit(run.worktreePath || task.worktreePath, 'HEAD'),
+      readGitCommit(worktreePath, baseRev),
+      readGitCommit(worktreePath, 'HEAD'),
       this.testRunner.collectResults(),
     ])
+    const snapshot = await buildPacketSnapshot(worktreePath, baseRev, baseCommit, headCommit)
+    const rawDiffPatch = snapshot.files.map((file) => file.diff).filter(Boolean).join('\n')
     const packetBase = {
       taskUpdatedAtIso: task.updatedAtIso,
       runId: run.id,
@@ -103,4 +107,16 @@ async function readGitCommit(cwd: string, rev: string): Promise<string> {
   if (!cwd) return ''
   const { stdout } = await execFileAsync('git', ['rev-parse', rev], { cwd })
   return stdout.trim()
+}
+
+async function buildPacketSnapshot(
+  worktreePath: string,
+  baseRev: string,
+  baseCommit: string,
+  headCommit: string,
+): Promise<Awaited<ReturnType<typeof buildReviewSnapshot>>> {
+  if (baseCommit && headCommit && baseCommit !== headCommit) {
+    return await buildReviewSnapshot(worktreePath, 'baseBranch', 'unstaged', baseRev)
+  }
+  return await buildReviewSnapshot(worktreePath, 'workspace', 'unstaged')
 }

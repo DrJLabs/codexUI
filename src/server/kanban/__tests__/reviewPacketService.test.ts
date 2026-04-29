@@ -103,5 +103,22 @@ describe('KanbanReviewPacketService', () => {
     expect(result.packet.baseCommit).toBe(mainCommit)
     expect(result.packet.headCommit).toBe(headCommit)
     expect(result.packet.baseCommit).not.toBe(result.packet.headCommit)
+    expect(result.packet.rawDiffPatch).toContain('committed change')
+    expect(result.packet.summary.fileCount).toBe(1)
+  })
+
+  it('rejects review packet generation when no worktree path is available', async () => {
+    const { storage, taskId } = await createHarness()
+    await storage.mutate((state) => {
+      const task = state.tasks[taskId]!
+      const run = state.runs[task.currentRunId] as KanbanRun
+      state.runs[task.currentRunId] = { ...run, worktreePath: '' }
+      state.tasks[taskId] = { ...task, worktreePath: '' }
+    })
+    const service = new KanbanReviewPacketService({ storage })
+
+    await expect(service.generateForTask(taskId))
+      .rejects
+      .toThrow('has no worktree path')
   })
 })
