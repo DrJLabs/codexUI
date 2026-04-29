@@ -42,6 +42,7 @@ export class KanbanTaskService {
       schemaVersion: 1,
       board,
       tasks: Object.values(state.tasks),
+      config: state.settings.kanbanConfig,
       policy: this.policy,
       generatedAtIso: new Date().toISOString(),
     }
@@ -54,12 +55,16 @@ export class KanbanTaskService {
       const board = Object.values(state.boards)[0]
       if (!board) throw new Error('Kanban board is missing')
       const taskId = createKanbanId('task')
+      const nextBacklogColumnOrder = Object.values(state.tasks)
+        .filter((task) => task.status === 'backlog')
+        .reduce((nextOrder, task) => Math.max(nextOrder, task.columnOrder + 1), 0)
       createdTask = {
         id: taskId,
         boardId: board.id,
         title: input.title.trim(),
         description: input.description?.trim() ?? '',
         status: 'backlog',
+        priority: 'normal',
         runState: 'idle',
         labels: input.labels ?? [],
         acceptanceCriteria: (input.acceptanceCriteria ?? []).map((criterion) => ({
@@ -76,10 +81,22 @@ export class KanbanTaskService {
         worktreeId: '',
         worktreePath: '',
         codexThreadId: '',
+        createdBy: 'operator',
+        sourceSessionKey: '',
+        assignee: 'codex:auto',
+        columnOrder: nextBacklogColumnOrder,
         currentRunId: '',
         runIds: [],
         reviewPacketId: '',
         proposalIds: [],
+        result: '',
+        resultAtIso: '',
+        model: '',
+        thinking: 'medium',
+        dueAtIso: '',
+        estimateMinutes: null,
+        actualMinutes: null,
+        feedback: [],
         blockedReason: '',
         errorMessage: '',
         archived: false,

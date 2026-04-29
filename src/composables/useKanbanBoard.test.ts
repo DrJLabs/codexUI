@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { useKanbanBoard, type KanbanBoardGateway } from './useKanbanBoard'
-import type { KanbanExecutionPolicy, KanbanStateSnapshot, KanbanTask } from '../types/kanban'
+import type { KanbanBoardConfig, KanbanExecutionPolicy, KanbanStateSnapshot, KanbanTask } from '../types/kanban'
 
 const policy: KanbanExecutionPolicy = {
   enabled: true,
@@ -21,6 +21,28 @@ const policy: KanbanExecutionPolicy = {
   maxActiveRunsPerTask: 1,
 }
 
+const boardConfig: KanbanBoardConfig = {
+  columns: [
+    { key: 'backlog', title: 'Backlog', visible: true, wipLimit: null },
+    { key: 'ready', title: 'Ready', visible: true, wipLimit: null },
+    { key: 'running', title: 'Running', visible: true, wipLimit: null },
+    { key: 'review', title: 'Review', visible: true, wipLimit: null },
+    { key: 'rework', title: 'Rework', visible: true, wipLimit: null },
+    { key: 'done', title: 'Done', visible: true, wipLimit: null },
+    { key: 'cancelled', title: 'Cancelled', visible: true, wipLimit: null },
+  ],
+  defaults: {
+    status: 'backlog',
+    priority: 'normal',
+  },
+  reviewRequired: true,
+  allowDoneDragBypass: false,
+  quickViewLimit: 20,
+  proposalPolicy: 'confirm',
+  defaultModel: '',
+  defaultThinking: 'medium',
+}
+
 function createTask(overrides: Partial<KanbanTask>): KanbanTask {
   return {
     id: 'task_1',
@@ -28,6 +50,7 @@ function createTask(overrides: Partial<KanbanTask>): KanbanTask {
     title: 'Task',
     description: '',
     status: 'backlog',
+    priority: 'normal',
     runState: 'idle',
     labels: [],
     acceptanceCriteria: [],
@@ -38,10 +61,22 @@ function createTask(overrides: Partial<KanbanTask>): KanbanTask {
     worktreeId: '',
     worktreePath: '',
     codexThreadId: '',
+    createdBy: 'operator',
+    sourceSessionKey: '',
+    assignee: 'codex:auto',
+    columnOrder: 0,
     currentRunId: '',
     runIds: [],
     reviewPacketId: '',
     proposalIds: [],
+    result: '',
+    resultAtIso: '',
+    model: '',
+    thinking: 'medium',
+    dueAtIso: '',
+    estimateMinutes: null,
+    actualMinutes: null,
+    feedback: [],
     blockedReason: '',
     errorMessage: '',
     archived: false,
@@ -63,6 +98,7 @@ function createState(tasks: KanbanTask[]): KanbanStateSnapshot {
       updatedAtIso: '2026-04-28T00:00:00.000Z',
     },
     tasks,
+    config: boardConfig,
     policy,
     generatedAtIso: '2026-04-28T00:00:00.000Z',
   }

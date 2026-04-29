@@ -10,6 +10,40 @@ export const KANBAN_STATUSES = [
 
 export type KanbanStatus = typeof KANBAN_STATUSES[number]['id']
 
+export type KanbanPriority = 'critical' | 'high' | 'normal' | 'low'
+
+export type KanbanActor = 'operator' | 'codex:auto' | `codex:thread:${string}`
+
+export type KanbanThinkingLevel = 'off' | 'low' | 'medium' | 'high'
+
+export type KanbanTaskFeedback = {
+  id: string
+  atIso: string
+  by: KanbanActor
+  note: string
+}
+
+export type KanbanBoardColumn = {
+  key: KanbanStatus
+  title: string
+  visible: boolean
+  wipLimit: number | null
+}
+
+export type KanbanBoardConfig = {
+  columns: KanbanBoardColumn[]
+  defaults: {
+    status: KanbanStatus
+    priority: KanbanPriority
+  }
+  reviewRequired: boolean
+  allowDoneDragBypass: boolean
+  quickViewLimit: number
+  proposalPolicy: 'confirm' | 'auto'
+  defaultModel: string
+  defaultThinking: KanbanThinkingLevel
+}
+
 export type KanbanRunState =
   | 'idle'
   | 'queued'
@@ -46,6 +80,7 @@ export type KanbanTask = {
   title: string
   description: string
   status: KanbanStatus
+  priority: KanbanPriority
   runState: KanbanRunState
   labels: KanbanTaskLabel[]
   acceptanceCriteria: KanbanAcceptanceCriterion[]
@@ -56,10 +91,22 @@ export type KanbanTask = {
   worktreeId: string
   worktreePath: string
   codexThreadId: string
+  createdBy: KanbanActor
+  sourceSessionKey: string
+  assignee: KanbanActor
+  columnOrder: number
   currentRunId: string
   runIds: string[]
   reviewPacketId: string
   proposalIds: string[]
+  result: string
+  resultAtIso: string
+  model: string
+  thinking: KanbanThinkingLevel
+  dueAtIso: string
+  estimateMinutes: number | null
+  actualMinutes: number | null
+  feedback: KanbanTaskFeedback[]
   blockedReason: string
   errorMessage: string
   archived: boolean
@@ -115,6 +162,7 @@ export type KanbanStateSnapshot = {
   schemaVersion: 1
   board: KanbanBoard
   tasks: KanbanTask[]
+  config: KanbanBoardConfig
   policy: KanbanExecutionPolicy
   generatedAtIso: string
 }

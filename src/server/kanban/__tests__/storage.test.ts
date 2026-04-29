@@ -47,6 +47,120 @@ describe('KanbanStorage', () => {
     expect(boards).toHaveLength(1)
     expect(boards[0]?.title).toBe('Kanban')
     expect(state.tasks).toEqual({})
+    expect(state.settings.kanbanConfig).toMatchObject({
+      defaults: { status: 'backlog', priority: 'normal' },
+      proposalPolicy: 'confirm',
+    })
+  })
+
+  it('backfills parity metadata and stable column order for legacy tasks', async () => {
+    const { dataDir, projectRoot, storage } = await createHarness()
+    await storage.load()
+    const statePath = resolveProjectStatePath(dataDir, projectRoot)
+    await writeFile(
+      statePath,
+      JSON.stringify({
+        schemaVersion: 1,
+        projectRoot,
+        createdAtIso: '2026-04-01T00:00:00.000Z',
+        updatedAtIso: '2026-04-01T00:00:00.000Z',
+        boards: {
+          board_legacy: {
+            id: 'board_legacy',
+            title: 'Kanban',
+            projectRoot,
+            createdAtIso: '2026-04-01T00:00:00.000Z',
+            updatedAtIso: '2026-04-01T00:00:00.000Z',
+          },
+        },
+        tasks: {
+          task_first: {
+            id: 'task_first',
+            boardId: 'board_legacy',
+            title: 'First legacy task',
+            description: '',
+            status: 'backlog',
+            runState: 'idle',
+            labels: [],
+            acceptanceCriteria: [],
+            projectRoot,
+            cwd: projectRoot,
+            baseBranch: '',
+            branchName: '',
+            worktreeId: '',
+            worktreePath: '',
+            codexThreadId: '',
+            currentRunId: '',
+            runIds: [],
+            reviewPacketId: '',
+            proposalIds: [],
+            blockedReason: '',
+            errorMessage: '',
+            archived: false,
+            createdAtIso: '2026-04-01T00:00:00.000Z',
+            updatedAtIso: '2026-04-01T00:00:00.000Z',
+            version: 1,
+          },
+          task_second: {
+            id: 'task_second',
+            boardId: 'board_legacy',
+            title: 'Second legacy task',
+            description: '',
+            status: 'backlog',
+            runState: 'idle',
+            labels: [],
+            acceptanceCriteria: [],
+            projectRoot,
+            cwd: projectRoot,
+            baseBranch: '',
+            branchName: '',
+            worktreeId: '',
+            worktreePath: '',
+            codexThreadId: '',
+            currentRunId: '',
+            runIds: [],
+            reviewPacketId: '',
+            proposalIds: [],
+            blockedReason: '',
+            errorMessage: '',
+            archived: false,
+            createdAtIso: '2026-04-01T00:00:00.000Z',
+            updatedAtIso: '2026-04-01T00:00:00.000Z',
+            version: 1,
+          },
+        },
+        runs: {},
+        worktrees: {},
+        reviewPackets: {},
+        proposals: {},
+        approvals: {},
+        settings: {},
+      }),
+      'utf8',
+    )
+
+    const state = await storage.load()
+    const firstTask = state.tasks.task_first
+    const secondTask = state.tasks.task_second
+
+    expect(firstTask?.priority).toBe('normal')
+    expect(firstTask?.createdBy).toBe('operator')
+    expect(firstTask?.sourceSessionKey).toBe('')
+    expect(firstTask?.assignee).toBe('codex:auto')
+    expect(firstTask?.columnOrder).toBeGreaterThanOrEqual(0)
+    expect(firstTask?.result).toBe('')
+    expect(firstTask?.resultAtIso).toBe('')
+    expect(firstTask?.model).toBe('')
+    expect(firstTask?.thinking).toBe('medium')
+    expect(firstTask?.dueAtIso).toBe('')
+    expect(firstTask?.estimateMinutes).toBeNull()
+    expect(firstTask?.actualMinutes).toBeNull()
+    expect(firstTask?.feedback).toEqual([])
+    expect(secondTask?.columnOrder).toBeGreaterThan(firstTask?.columnOrder ?? -1)
+    expect(state.settings.kanbanConfig).toMatchObject({
+      defaults: { status: 'backlog', priority: 'normal' },
+      proposalPolicy: 'confirm',
+    })
   })
 
   it('persists task creation across storage instances', async () => {
