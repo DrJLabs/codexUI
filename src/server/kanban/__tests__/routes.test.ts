@@ -256,6 +256,45 @@ describe('createKanbanMiddleware', () => {
     expect(invalidMinutes.body.error).toContain('estimateMinutes must be null or a nonnegative integer')
   })
 
+  it('rejects invalid metadata due dates and allows date clearing over HTTP', async () => {
+    const { baseUrl } = await createTestServer()
+    const created = await requestJson<{ data: { id: string; version: number } }>(
+      `${baseUrl}/codex-api/kanban/tasks`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ title: 'Due date task' }),
+      },
+    )
+    const invalid = await requestJson<{ error: string }>(
+      `${baseUrl}/codex-api/kanban/tasks/${created.body.data.id}`,
+      {
+        method: 'PATCH',
+        body: JSON.stringify({ version: created.body.data.version, dueAtIso: 'tomorrow' }),
+      },
+    )
+    const setDate = await requestJson<{ data: { version: number; dueAtIso: string } }>(
+      `${baseUrl}/codex-api/kanban/tasks/${created.body.data.id}`,
+      {
+        method: 'PATCH',
+        body: JSON.stringify({ version: created.body.data.version, dueAtIso: '2026-05-04' }),
+      },
+    )
+    const cleared = await requestJson<{ data: { dueAtIso: string } }>(
+      `${baseUrl}/codex-api/kanban/tasks/${created.body.data.id}`,
+      {
+        method: 'PATCH',
+        body: JSON.stringify({ version: setDate.body.data.version, dueAtIso: '' }),
+      },
+    )
+
+    expect(invalid.status).toBe(400)
+    expect(invalid.body.error).toContain('dueAtIso must be empty or YYYY-MM-DD')
+    expect(setDate.status).toBe(200)
+    expect(setDate.body.data.dueAtIso).toBe('2026-05-04')
+    expect(cleared.status).toBe(200)
+    expect(cleared.body.data.dueAtIso).toBe('')
+  })
+
   it('returns conflict details for stale task patches', async () => {
     const { baseUrl } = await createTestServer()
     const created = await requestJson<{ data: { id: string; version: number; title: string } }>(

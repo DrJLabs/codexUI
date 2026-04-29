@@ -3,6 +3,7 @@ import type {
   CreateKanbanTaskInput,
   KanbanActor,
   KanbanBoardColumn,
+  KanbanDueDateIso,
   KanbanPriority,
   KanbanStatus,
   KanbanTaskLabel,
@@ -75,6 +76,19 @@ function readNullableNonnegativeInteger(value: unknown, name: string): number | 
   const numberValue = readInteger(value, name)
   if (numberValue < 0) throw new Error(`${name} must be null or a nonnegative integer`)
   return numberValue
+}
+
+function readDueDateIso(value: unknown): KanbanDueDateIso {
+  const dueAtIso = readString(value)
+  if (!dueAtIso) return ''
+  if (!/^\d{4}-\d{2}-\d{2}$/u.test(dueAtIso)) {
+    throw new Error('dueAtIso must be empty or YYYY-MM-DD')
+  }
+  const timestamp = Date.parse(`${dueAtIso}T00:00:00.000Z`)
+  if (!Number.isFinite(timestamp) || new Date(timestamp).toISOString().slice(0, 10) !== dueAtIso) {
+    throw new Error('dueAtIso must be empty or YYYY-MM-DD')
+  }
+  return dueAtIso as KanbanDueDateIso
 }
 
 function labelIdFromName(name: string): string {
@@ -155,7 +169,7 @@ export function parseUpdateTaskInput(value: unknown): UpdateKanbanTaskInput {
     if (!THINKING_IDS.has(thinking)) throw new Error('Invalid Kanban thinking')
     patch.thinking = thinking as KanbanThinkingLevel
   }
-  if ('dueAtIso' in record) patch.dueAtIso = readString(record.dueAtIso)
+  if ('dueAtIso' in record) patch.dueAtIso = readDueDateIso(record.dueAtIso)
   if ('estimateMinutes' in record) patch.estimateMinutes = readNullableNonnegativeInteger(record.estimateMinutes, 'estimateMinutes')
   if ('actualMinutes' in record) patch.actualMinutes = readNullableNonnegativeInteger(record.actualMinutes, 'actualMinutes')
   return patch

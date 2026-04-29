@@ -195,6 +195,15 @@ export function useKanbanBoard(options: UseKanbanBoardOptions = {}) {
     KANBAN_STATUSES.map((status) => [status.id, tasksByStatus.value[status.id].length]),
   ) as Record<KanbanStatus, number>)
 
+  const assigneeFilterOptions = computed<KanbanActor[]>(() => {
+    const options = new Set<KanbanActor>(['operator', 'codex:auto'])
+    for (const task of tasks.value) {
+      if (task.archived) continue
+      if (isKanbanActor(task.assignee)) options.add(task.assignee)
+    }
+    return Array.from(options)
+  })
+
   const selectedTask = computed(() => tasks.value.find((task) => task.id === selectedTaskId.value && !task.archived) ?? null)
 
   function applySnapshot(snapshot: KanbanStateSnapshot): void {
@@ -462,6 +471,7 @@ export function useKanbanBoard(options: UseKanbanBoardOptions = {}) {
     tasksByStatus,
     visibleTasksByStatus,
     countsByStatus,
+    assigneeFilterOptions,
     selectedTaskId,
     selectedTask,
     filters,

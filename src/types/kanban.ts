@@ -16,6 +16,8 @@ export type KanbanActor = 'operator' | 'codex:auto' | `codex:thread:${string}`
 
 export type KanbanThinkingLevel = 'off' | 'low' | 'medium' | 'high'
 
+export type KanbanDueDateIso = '' | `${number}${number}${number}${number}-${number}${number}-${number}${number}`
+
 export type KanbanTaskFeedback = {
   id: string
   atIso: string
@@ -103,7 +105,7 @@ export type KanbanTask = {
   resultAtIso: string
   model: string
   thinking: KanbanThinkingLevel
-  dueAtIso: string
+  dueAtIso: KanbanDueDateIso
   estimateMinutes: number | null
   actualMinutes: number | null
   feedback: KanbanTaskFeedback[]

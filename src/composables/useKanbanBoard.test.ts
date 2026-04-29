@@ -423,6 +423,25 @@ describe('useKanbanBoard', () => {
     }))
   })
 
+  it('derives assignee filter options from active tasks with defaults first', async () => {
+    const board = useKanbanBoard({
+      gateway: createGateway(createState([
+        createTask({ id: 'task_operator', assignee: 'operator' }),
+        createTask({ id: 'task_thread', assignee: 'codex:thread:019e-active' }),
+        createTask({ id: 'task_archived_thread', assignee: 'codex:thread:019e-archived', archived: true }),
+      ])),
+      storage: null,
+    })
+
+    await board.loadBoard()
+
+    expect(board.assigneeFilterOptions.value).toEqual([
+      'operator',
+      'codex:auto',
+      'codex:thread:019e-active',
+    ])
+  })
+
   it('refreshes the task list after task mutations', async () => {
     const activeTask = createTask({ id: 'task_a', title: 'Active' })
     let listItems = [activeTask]

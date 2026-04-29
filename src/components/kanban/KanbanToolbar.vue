@@ -32,8 +32,9 @@
             @change="onAssigneeChange(($event.target as HTMLSelectElement).value)"
           >
             <option value="">All</option>
-            <option value="operator">Operator</option>
-            <option value="codex:auto">Codex auto</option>
+            <option v-for="assignee in assigneeOptions" :key="assignee" :value="assignee">
+              {{ formatAssignee(assignee) }}
+            </option>
           </select>
         </label>
       </div>
@@ -75,6 +76,7 @@ defineProps<{
   activeLabels: string[]
   priorityFilter: KanbanPriority[]
   assigneeFilter: KanbanActor | ''
+  assigneeOptions: KanbanActor[]
 }>()
 
 const emit = defineEmits<{
@@ -92,6 +94,12 @@ function onPriorityChange(value: string): void {
 
 function onAssigneeChange(value: string): void {
   emit('update:assigneeFilter', value as KanbanActor | '')
+}
+
+function formatAssignee(assignee: KanbanActor): string {
+  if (assignee === 'operator') return 'Operator'
+  if (assignee === 'codex:auto') return 'Codex auto'
+  return assignee.replace('codex:thread:', 'Thread ')
 }
 </script>
 

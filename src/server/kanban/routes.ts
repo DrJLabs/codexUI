@@ -426,6 +426,7 @@ function resolveErrorStatus(error: unknown, message: string): number {
     || lowerMessage.startsWith('invalid kanban priority')
     || lowerMessage.startsWith('invalid kanban actor')
     || lowerMessage.startsWith('invalid kanban thinking')
+    || lowerMessage.startsWith('dueatiso must be empty or yyyy-mm-dd')
     || lowerMessage.startsWith('invalid proposal policy')
     || lowerMessage.startsWith('invalid default thinking')
     || lowerMessage.startsWith('defaults must be an object')

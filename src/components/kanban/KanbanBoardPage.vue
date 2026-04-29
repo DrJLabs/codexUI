@@ -25,6 +25,7 @@
         :active-labels="filters.labelNames"
         :priority-filter="filters.priorities"
         :assignee-filter="filters.assignee"
+        :assignee-options="assigneeFilterOptions"
         @update:search-query="setSearchQuery"
         @update:priority-filter="setBoardPriorityFilter"
         @update:assignee-filter="setBoardAssigneeFilter"
@@ -105,6 +106,7 @@ const {
   tasks,
   visibleTasksByStatus,
   countsByStatus,
+  assigneeFilterOptions,
   selectedTaskId,
   selectedTask,
   filters,

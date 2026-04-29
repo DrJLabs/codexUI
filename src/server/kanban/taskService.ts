@@ -158,7 +158,7 @@ export class KanbanTaskService {
       assignee: input.assignee ?? task.assignee,
       model: input.model !== undefined ? input.model.trim() : task.model,
       thinking: input.thinking ?? task.thinking,
-      dueAtIso: input.dueAtIso !== undefined ? input.dueAtIso.trim() : task.dueAtIso,
+      dueAtIso: input.dueAtIso !== undefined ? input.dueAtIso : task.dueAtIso,
       estimateMinutes: input.estimateMinutes !== undefined ? input.estimateMinutes : task.estimateMinutes,
       actualMinutes: input.actualMinutes !== undefined ? input.actualMinutes : task.actualMinutes,
       updatedAtIso: nowIso,

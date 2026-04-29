@@ -16,7 +16,7 @@
       </label>
       <label>
         <span>Assignee</span>
-        <input v-model="assignee" list="kanban-assignee-options" />
+        <input v-model="assignee" list="kanban-assignee-options" :aria-invalid="assigneeError ? 'true' : undefined" />
       </label>
       <label>
         <span>Model</span>
@@ -33,7 +33,7 @@
       </label>
       <label>
         <span>Due date</span>
-        <input v-model="dueAtIso" type="date" />
+        <input v-model="dueAtIso" type="date" :aria-invalid="dueAtIsoError ? 'true' : undefined" />
       </label>
       <label>
         <span>Estimate</span>
@@ -47,14 +47,17 @@
     <datalist id="kanban-assignee-options">
       <option value="operator" />
       <option value="codex:auto" />
-      <option :value="threadAssignee" />
+      <option v-if="threadAssignee" :value="threadAssignee" />
     </datalist>
+    <p v-if="assigneeError || dueAtIsoError" class="kanban-metadata-editor-error" role="alert">
+      {{ assigneeError || dueAtIsoError }}
+    </p>
   </form>
 </template>
 
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
-import type { KanbanActor, KanbanMetadataPatch, KanbanPriority, KanbanTask, KanbanThinkingLevel } from '../../types/kanban'
+import type { KanbanActor, KanbanDueDateIso, KanbanMetadataPatch, KanbanPriority, KanbanTask, KanbanThinkingLevel } from '../../types/kanban'
 
 const props = defineProps<{
   task: KanbanTask
@@ -65,14 +68,18 @@ const emit = defineEmits<{
 }>()
 
 const priority = ref<KanbanPriority>('normal')
-const assignee = ref<KanbanActor>('codex:auto')
+const assignee = ref('codex:auto')
 const model = ref('')
 const thinking = ref<KanbanThinkingLevel>('medium')
 const dueAtIso = ref('')
 const estimateMinutes = ref('')
 const actualMinutes = ref('')
+const assigneeError = ref('')
+const dueAtIsoError = ref('')
 
-const threadAssignee = computed(() => `codex:thread:${props.task.codexThreadId || 'threadId'}`)
+const threadAssignee = computed<KanbanActor | ''>(() => props.task.codexThreadId
+  ? `codex:thread:${props.task.codexThreadId}` as KanbanActor
+  : '')
 
 watch(() => props.task, (task) => {
   priority.value = task.priority
@@ -90,13 +97,42 @@ function parseMinutes(value: string): number | null {
   return Number(trimmed)
 }
 
+function readValidAssignee(): KanbanActor | null {
+  const value = assignee.value.trim()
+  if (value === 'operator' || value === 'codex:auto' || (threadAssignee.value && value === threadAssignee.value)) {
+    return value as KanbanActor
+  }
+  return null
+}
+
+function readValidDueDate(): KanbanDueDateIso | null {
+  const value = dueAtIso.value.trim()
+  if (!value) return ''
+  if (!/^\d{4}-\d{2}-\d{2}$/u.test(value)) return null
+  const timestamp = Date.parse(`${value}T00:00:00.000Z`)
+  if (!Number.isFinite(timestamp) || new Date(timestamp).toISOString().slice(0, 10) !== value) return null
+  return value as KanbanDueDateIso
+}
+
 function save(): void {
+  assigneeError.value = ''
+  dueAtIsoError.value = ''
+  const nextAssignee = readValidAssignee()
+  const nextDueAtIso = readValidDueDate()
+  if (!nextAssignee) {
+    assigneeError.value = 'Assignee must be operator, codex:auto, or the current task thread.'
+    return
+  }
+  if (nextDueAtIso === null) {
+    dueAtIsoError.value = 'Due date must be empty or YYYY-MM-DD.'
+    return
+  }
   emit('save', {
     priority: priority.value,
-    assignee: assignee.value,
+    assignee: nextAssignee,
     model: model.value.trim(),
     thinking: thinking.value,
-    dueAtIso: dueAtIso.value,
+    dueAtIso: nextDueAtIso,
     estimateMinutes: parseMinutes(estimateMinutes.value),
     actualMinutes: parseMinutes(actualMinutes.value),
   })
@@ -153,6 +189,17 @@ function save(): void {
   color: #18181b;
 }
 
+.kanban-metadata-editor-grid input[aria-invalid="true"] {
+  border-color: #dc2626;
+}
+
+.kanban-metadata-editor-error {
+  margin: 0;
+  color: #b91c1c;
+  font-size: 12px;
+  font-weight: 700;
+}
+
 .kanban-metadata-editor-save {
   min-height: 32px;
   border: 1px solid #18181b;
@@ -176,6 +223,10 @@ function save(): void {
   border-color: #3f3f46;
   background: #18181b;
   color: #f4f4f5;
+}
+
+:global(:root.dark) .kanban-metadata-editor-error {
+  color: #fca5a5;
 }
 
 :global(:root.dark) .kanban-metadata-editor-save {
