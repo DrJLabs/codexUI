@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { useKanbanBoard, type KanbanBoardGateway } from './useKanbanBoard'
-import type { KanbanBoardConfig, KanbanExecutionPolicy, KanbanProposal, KanbanStateSnapshot, KanbanTask, KanbanTaskListResult, ListKanbanTasksParams } from '../types/kanban'
+import type { KanbanBoardConfig, KanbanExecutionPolicy, KanbanProposal, KanbanStateSnapshot, KanbanTask, KanbanTaskListResult, ListKanbanTasksParams, UpdateKanbanBoardConfigInput } from '../types/kanban'
 
 const policy: KanbanExecutionPolicy = {
   enabled: true,
@@ -186,6 +186,19 @@ function createGateway(state: KanbanStateSnapshot): KanbanBoardGateway {
       if (!task) throw new Error('missing')
       const updated = { ...task, status: input.status, columnOrder: input.afterTaskId ? 1 : 0, version: task.version + 1 }
       currentState = createState(currentState.tasks.map((item) => item.id === taskId ? updated : item))
+      return updated
+    },
+    updateKanbanConfig: async (input) => {
+      const updated: KanbanBoardConfig = {
+        ...currentState.config,
+        ...input,
+        defaults: {
+          ...currentState.config.defaults,
+          ...input.defaults,
+        },
+        columns: input.columns ?? currentState.config.columns,
+      }
+      currentState = { ...currentState, config: updated }
       return updated
     },
     replaceKanbanAcceptanceCriteria: async (taskId, criteria) => {
@@ -378,6 +391,71 @@ describe('useKanbanBoard', () => {
     await board.loadBoard()
 
     expect(board.config.value?.proposalPolicy).toBe('confirm')
+  })
+
+  it('derives visible statuses from board config and falls back to all statuses without config', async () => {
+    const board = useKanbanBoard({
+      gateway: createGateway(createState([
+        createTask({ id: 'task_backlog', status: 'backlog' }),
+        createTask({ id: 'task_ready', status: 'ready' }),
+      ])),
+      storage: null,
+    })
+
+    expect(board.visibleStatuses.value.map((status) => status.id)).toEqual([
+      'backlog',
+      'ready',
+      'running',
+      'review',
+      'rework',
+      'done',
+      'cancelled',
+    ])
+
+    await board.loadBoard()
+
+    board.config.value = {
+      ...boardConfig,
+      columns: boardConfig.columns.map((column) => ({
+        ...column,
+        visible: column.key === 'backlog' || column.key === 'running',
+      })),
+    }
+
+    expect(board.visibleStatuses.value.map((status) => status.id)).toEqual(['backlog', 'running'])
+  })
+
+  it('updates board config through the gateway and patches local config state', async () => {
+    const nextConfig: KanbanBoardConfig = {
+      ...boardConfig,
+      columns: boardConfig.columns.map((column) => column.key === 'running'
+        ? { ...column, wipLimit: 2 }
+        : column),
+      defaults: {
+        status: 'ready',
+        priority: 'high',
+      },
+      proposalPolicy: 'auto',
+    }
+    const gateway = Object.assign(createGateway(createState([createTask({ id: 'task_a' })])), {
+      updateKanbanConfig: vi.fn(async (_input: UpdateKanbanBoardConfigInput) => nextConfig),
+    })
+    const board = useKanbanBoard({ gateway, storage: null })
+
+    await board.loadBoard()
+    const updated = await board.updateConfig({
+      columns: nextConfig.columns,
+      defaults: nextConfig.defaults,
+      proposalPolicy: nextConfig.proposalPolicy,
+    })
+
+    expect(updated).toEqual(nextConfig)
+    expect(board.config.value).toEqual(nextConfig)
+    expect(gateway.updateKanbanConfig).toHaveBeenCalledWith({
+      columns: nextConfig.columns,
+      defaults: nextConfig.defaults,
+      proposalPolicy: 'auto',
+    })
   })
 
   it('loads list state from the task list endpoint using the current server query', async () => {

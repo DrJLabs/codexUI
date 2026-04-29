@@ -1,5 +1,13 @@
 <template>
-  <button class="kanban-task-card" :class="{ 'is-selected': selected }" type="button" @click="$emit('select', task.id)">
+  <button
+    class="kanban-task-card"
+    :class="{ 'is-selected': selected }"
+    type="button"
+    draggable="true"
+    :data-kanban-task-id="task.id"
+    @click="emit('select', task.id)"
+    @dragstart="onDragStart"
+  >
     <span class="kanban-task-card-title">{{ task.title }}</span>
     <span v-if="task.description" class="kanban-task-card-description">{{ task.description }}</span>
     <span class="kanban-task-card-meta">
@@ -25,11 +33,21 @@ const props = defineProps<{
   selected: boolean
 }>()
 
-defineEmits<{
+const emit = defineEmits<{
   select: [taskId: string]
+  'drag-start': [taskId: string]
 }>()
 
 const checkedCriteria = computed(() => props.task.acceptanceCriteria.filter((criterion) => criterion.checked).length)
+
+function onDragStart(event: DragEvent): void {
+  event.dataTransfer?.setData('text/plain', props.task.id)
+  event.dataTransfer?.setData('application/x-kanban-task-id', props.task.id)
+  if (event.dataTransfer) {
+    event.dataTransfer.effectAllowed = 'move'
+  }
+  emit('drag-start', props.task.id)
+}
 </script>
 
 <style scoped>

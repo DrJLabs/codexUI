@@ -21,10 +21,12 @@
 
 <script setup lang="ts">
 import { nextTick, ref } from 'vue'
-import type { KANBAN_STATUSES, KanbanStatus } from '../../types/kanban'
+import type { KanbanStatus } from '../../types/kanban'
+
+type KanbanStatusOption = { id: KanbanStatus; title: string }
 
 const props = defineProps<{
-  statuses: typeof KANBAN_STATUSES
+  statuses: KanbanStatusOption[]
   modelValue: KanbanStatus
   countsByStatus: Record<KanbanStatus, number>
 }>()

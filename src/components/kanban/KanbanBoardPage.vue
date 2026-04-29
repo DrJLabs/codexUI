@@ -42,32 +42,41 @@
       />
       <div v-else class="kanban-page-layout">
         <KanbanBoardViewport
-          :statuses="KANBAN_STATUSES"
+          :statuses="visibleStatuses"
           :visible-tasks-by-status="visibleTasksByStatus"
           :counts-by-status="countsByStatus"
+          :column-config-by-status="columnConfigByStatus"
           :selected-task-id="selectedTaskId"
           :selected-mobile-status="selectedMobileStatus"
           @select-task="selectTask"
+          @reorder-task="reorderBoardTask"
           @update:selected-mobile-status="selectedMobileStatus = $event"
         />
-        <KanbanTaskInspector
-          :task="selectedTask"
-          :execution-policy="executionPolicy"
-          :run-log="selectedRunLog"
-          @close="clearSelection"
-          @archive="archiveSelectedTask"
-          @start-run="startSelectedTaskRun"
-          @interrupt-run="interruptSelectedTaskRun"
-          @refresh-run-log="refreshSelectedRunLog"
-          @regenerate-review-packet="regenerateSelectedReviewPacket"
-          @set-status="setSelectedTaskStatus"
-          @save-summary="saveSelectedSummary"
-          @save-metadata="saveSelectedMetadata"
-          @add-criterion="addSelectedCriterion"
-          @update-criterion="updateSelectedCriterion"
-          @remove-criterion="removeSelectedCriterion"
-          @toggle-criterion="toggleSelectedCriterion"
-        />
+        <div class="kanban-page-sidebar">
+          <KanbanConfigPanel
+            :config="config"
+            :is-saving="isConfigSaving"
+            @save="saveBoardConfig"
+          />
+          <KanbanTaskInspector
+            :task="selectedTask"
+            :execution-policy="executionPolicy"
+            :run-log="selectedRunLog"
+            @close="clearSelection"
+            @archive="archiveSelectedTask"
+            @start-run="startSelectedTaskRun"
+            @interrupt-run="interruptSelectedTaskRun"
+            @refresh-run-log="refreshSelectedRunLog"
+            @regenerate-review-packet="regenerateSelectedReviewPacket"
+            @set-status="setSelectedTaskStatus"
+            @save-summary="saveSelectedSummary"
+            @save-metadata="saveSelectedMetadata"
+            @add-criterion="addSelectedCriterion"
+            @update-criterion="updateSelectedCriterion"
+            @remove-criterion="removeSelectedCriterion"
+            @toggle-criterion="toggleSelectedCriterion"
+          />
+        </div>
         <KanbanTaskSheet
           :task="selectedTask"
           :execution-policy="executionPolicy"
@@ -95,8 +104,9 @@
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useKanbanBoard } from '../../composables/useKanbanBoard'
-import { KANBAN_STATUSES, type KanbanActor, type KanbanMetadataPatch, type KanbanPriority, type KanbanStatus, type KanbanTaskLabel } from '../../types/kanban'
+import { type KanbanActor, type KanbanMetadataPatch, type KanbanPriority, type KanbanStatus, type KanbanTaskLabel, type UpdateKanbanBoardConfigInput } from '../../types/kanban'
 import KanbanBoardViewport from './KanbanBoardViewport.vue'
+import KanbanConfigPanel from './KanbanConfigPanel.vue'
 import KanbanEmptyState from './KanbanEmptyState.vue'
 import KanbanTaskInspector from './KanbanTaskInspector.vue'
 import KanbanTaskSheet from './KanbanTaskSheet.vue'
@@ -106,12 +116,16 @@ const {
   tasks,
   visibleTasksByStatus,
   countsByStatus,
+  columnConfigByStatus,
+  visibleStatuses,
   assigneeFilterOptions,
   selectedTaskId,
   selectedTask,
   filters,
+  config,
   isLoading,
   errorMessage,
+  versionConflict,
   executionPolicy,
   runLogsByRunId,
   loadBoard,
@@ -119,6 +133,8 @@ const {
   updateTask,
   archiveTask,
   setTaskStatus,
+  reorderTask,
+  updateConfig,
   selectTask,
   clearSelection,
   addAcceptanceCriterion,
@@ -141,6 +157,7 @@ const route = useRoute()
 const router = useRouter()
 const selectedMobileStatus = ref<KanbanStatus>('backlog')
 const mutationError = ref('')
+const isConfigSaving = ref(false)
 
 const labelNames = computed(() => Array.from(new Set(
   tasks.value.filter((task) => !task.archived).flatMap((task) => task.labels.map((label) => label.name)),
@@ -178,6 +195,11 @@ watch(selectedTaskId, (taskId) => {
   syncTaskQueryParam(taskId)
 })
 
+watch(visibleStatuses, (statuses) => {
+  if (statuses.some((status) => status.id === selectedMobileStatus.value)) return
+  selectedMobileStatus.value = statuses[0]?.id ?? 'backlog'
+}, { immediate: true })
+
 function createFirstTask(): void {
   void runMutation('Create task failed', () => createTask({ title: 'New task' }))
 }
@@ -211,6 +233,21 @@ function setSelectedTaskStatus(status: KanbanStatus): void {
   const taskId = readSelectedTaskId()
   if (!taskId) return
   void runMutation('Move task failed', () => setTaskStatus(taskId, status))
+}
+
+function reorderBoardTask(input: { taskId: string; status: KanbanStatus; beforeTaskId?: string; afterTaskId?: string }): void {
+  void runMutation('Reorder task failed', () => reorderTask(input.taskId, {
+    status: input.status,
+    ...(input.beforeTaskId ? { beforeTaskId: input.beforeTaskId } : {}),
+    ...(input.afterTaskId ? { afterTaskId: input.afterTaskId } : {}),
+  }))
+}
+
+function saveBoardConfig(input: UpdateKanbanBoardConfigInput): void {
+  isConfigSaving.value = true
+  void runMutation('Save board config failed', () => updateConfig(input)).finally(() => {
+    isConfigSaving.value = false
+  })
 }
 
 function addSelectedCriterion(text: string): void {
@@ -282,7 +319,11 @@ async function runMutation<T>(label: string, operation: () => Promise<T>): Promi
     return await operation()
   } catch (error) {
     console.error(label, error)
-    mutationError.value = error instanceof Error ? error.message : label
+    const message = error instanceof Error ? error.message : label
+    if (versionConflict.value) {
+      await loadBoard()
+    }
+    mutationError.value = message
     return null
   }
 }
@@ -340,6 +381,13 @@ function syncTaskQueryParam(taskId: string): void {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(280px, 340px);
   gap: 16px;
+  min-width: 0;
+}
+
+.kanban-page-sidebar {
+  display: grid;
+  align-content: start;
+  gap: 12px;
   min-width: 0;
 }
 

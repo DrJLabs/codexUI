@@ -12,19 +12,21 @@
         :key="status.id"
         :status="status"
         :tasks="visibleTasksByStatus[status.id]"
+        :wip-limit="columnConfigByStatus[status.id]?.wipLimit ?? null"
         :selected-task-id="selectedTaskId"
-        @select-task="$emit('select-task', $event)"
+        @select-task="emit('select-task', $event)"
+        @reorder-task="emit('reorder-task', $event)"
       />
     </div>
     <div class="kanban-board-mobile">
       <KanbanTaskCard
-        v-for="task in visibleTasksByStatus[selectedMobileStatus]"
+        v-for="task in selectedMobileTasks"
         :key="task.id"
         :task="task"
         :selected="task.id === selectedTaskId"
-        @select="$emit('select-task', $event)"
+        @select="emit('select-task', $event)"
       />
-      <div v-if="visibleTasksByStatus[selectedMobileStatus].length === 0" class="kanban-board-mobile-empty">
+      <div v-if="selectedMobileTasks.length === 0" class="kanban-board-mobile-empty">
         No tasks in {{ selectedStatusTitle }}.
       </div>
     </div>
@@ -33,25 +35,30 @@
 
 <script setup lang="ts">
 import { computed } from 'vue'
-import type { KANBAN_STATUSES, KanbanStatus, KanbanTask } from '../../types/kanban'
+import type { KanbanBoardColumn, KanbanStatus, KanbanTask } from '../../types/kanban'
 import KanbanColumn from './KanbanColumn.vue'
 import KanbanMobileStatusTabs from './KanbanMobileStatusTabs.vue'
 import KanbanTaskCard from './KanbanTaskCard.vue'
 
+type KanbanStatusOption = { id: KanbanStatus; title: string }
+
 const props = defineProps<{
-  statuses: typeof KANBAN_STATUSES
+  statuses: KanbanStatusOption[]
   visibleTasksByStatus: Record<KanbanStatus, KanbanTask[]>
   countsByStatus: Record<KanbanStatus, number>
+  columnConfigByStatus: Record<KanbanStatus, KanbanBoardColumn | null>
   selectedTaskId: string
   selectedMobileStatus: KanbanStatus
 }>()
 
-defineEmits<{
+const emit = defineEmits<{
   'select-task': [taskId: string]
   'update:selectedMobileStatus': [status: KanbanStatus]
+  'reorder-task': [input: { taskId: string; status: KanbanStatus; beforeTaskId?: string; afterTaskId?: string }]
 }>()
 
 const selectedStatusTitle = computed(() => props.statuses.find((status) => status.id === props.selectedMobileStatus)?.title ?? 'status')
+const selectedMobileTasks = computed(() => props.visibleTasksByStatus[props.selectedMobileStatus] ?? [])
 </script>
 
 <style scoped>
@@ -63,7 +70,8 @@ const selectedStatusTitle = computed(() => props.statuses.find((status) => statu
 
 .kanban-board-desktop {
   display: grid;
-  grid-template-columns: repeat(7, minmax(180px, 1fr));
+  grid-auto-columns: minmax(180px, 1fr);
+  grid-auto-flow: column;
   gap: 12px;
   overflow-x: auto;
 }

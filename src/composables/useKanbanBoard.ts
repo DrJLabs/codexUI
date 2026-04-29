@@ -13,9 +13,10 @@ import {
   setKanbanTaskStatus,
   startKanbanTaskRun,
   subscribeKanbanEvents,
+  updateKanbanConfig,
   updateKanbanTask,
 } from '../api/kanbanGateway'
-import { KANBAN_STATUSES, type CreateKanbanTaskInput, type KanbanActor, type KanbanBoardConfig, type KanbanExecutionPolicy, type KanbanPriority, type KanbanProposal, type KanbanStateSnapshot, type KanbanStatus, type KanbanTask, type KanbanTaskListResult, type ListKanbanTasksParams, type ReorderKanbanTaskInput, type ReplaceKanbanAcceptanceCriteriaInput, type UpdateKanbanTaskInput } from '../types/kanban'
+import { KANBAN_STATUSES, type CreateKanbanTaskInput, type KanbanActor, type KanbanBoardColumn, type KanbanBoardConfig, type KanbanExecutionPolicy, type KanbanPriority, type KanbanProposal, type KanbanStateSnapshot, type KanbanStatus, type KanbanTask, type KanbanTaskListResult, type ListKanbanTasksParams, type ReorderKanbanTaskInput, type ReplaceKanbanAcceptanceCriteriaInput, type UpdateKanbanBoardConfigInput, type UpdateKanbanTaskInput } from '../types/kanban'
 
 const FILTER_STORAGE_KEY = 'codex-web-local.kanban.filters.v1'
 
@@ -27,6 +28,7 @@ export type KanbanBoardGateway = {
   setKanbanTaskStatus: typeof setKanbanTaskStatus
   archiveKanbanTask: typeof archiveKanbanTask
   reorderKanbanTask: typeof reorderKanbanTask
+  updateKanbanConfig: typeof updateKanbanConfig
   replaceKanbanAcceptanceCriteria: typeof replaceKanbanAcceptanceCriteria
   startKanbanTaskRun: typeof startKanbanTaskRun
   interruptKanbanRun: typeof interruptKanbanRun
@@ -58,6 +60,7 @@ const defaultGateway: KanbanBoardGateway = {
   setKanbanTaskStatus,
   archiveKanbanTask,
   reorderKanbanTask,
+  updateKanbanConfig,
   replaceKanbanAcceptanceCriteria,
   startKanbanTaskRun,
   interruptKanbanRun,
@@ -195,6 +198,22 @@ export function useKanbanBoard(options: UseKanbanBoardOptions = {}) {
     KANBAN_STATUSES.map((status) => [status.id, tasksByStatus.value[status.id].length]),
   ) as Record<KanbanStatus, number>)
 
+  const columnConfigByStatus = computed(() => {
+    const grouped = {} as Record<KanbanStatus, KanbanBoardColumn | null>
+    for (const status of KANBAN_STATUSES) {
+      grouped[status.id] = config.value?.columns.find((column) => column.key === status.id) ?? null
+    }
+    return grouped
+  })
+
+  const visibleStatuses = computed(() => {
+    const currentConfig = config.value
+    if (!currentConfig) return [...KANBAN_STATUSES]
+    return currentConfig.columns
+      .filter((column) => column.visible)
+      .map((column) => ({ id: column.key, title: column.title }))
+  })
+
   const assigneeFilterOptions = computed<KanbanActor[]>(() => {
     const options = new Set<KanbanActor>(['operator', 'codex:auto'])
     for (const task of tasks.value) {
@@ -330,6 +349,12 @@ export function useKanbanBoard(options: UseKanbanBoardOptions = {}) {
 
   async function reorderTask(taskId: string, input: Omit<ReorderKanbanTaskInput, 'version'>): Promise<KanbanTask> {
     return await mutateCurrentTask(taskId, async (task) => await gateway.reorderKanbanTask(taskId, { version: task.version, ...input }))
+  }
+
+  async function updateConfig(input: UpdateKanbanBoardConfigInput): Promise<KanbanBoardConfig> {
+    const nextConfig = await gateway.updateKanbanConfig(input)
+    config.value = nextConfig
+    return nextConfig
   }
 
   async function replaceCriteria(taskId: string, criteria: ReplaceKanbanAcceptanceCriteriaInput['criteria']): Promise<KanbanTask> {
@@ -471,6 +496,8 @@ export function useKanbanBoard(options: UseKanbanBoardOptions = {}) {
     tasksByStatus,
     visibleTasksByStatus,
     countsByStatus,
+    columnConfigByStatus,
+    visibleStatuses,
     assigneeFilterOptions,
     selectedTaskId,
     selectedTask,
@@ -492,6 +519,7 @@ export function useKanbanBoard(options: UseKanbanBoardOptions = {}) {
     archiveTask,
     setTaskStatus,
     reorderTask,
+    updateConfig,
     selectTask,
     clearSelection,
     subscribeToEvents,

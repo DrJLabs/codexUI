@@ -4149,3 +4149,40 @@ Kanban metadata editor, priority/assignee toolbar filters, server-side task list
 #### Rollback/Cleanup
 - Clear toolbar filters
 - Restore test task metadata to the desired values or archive temporary tasks
+
+---
+
+### Kanban Configurable Columns, WIP Display, And Drag Reorder
+
+#### Feature/Change Name
+Kanban board configuration panel, config-visible columns, WIP limit display, and native drag/drop card reorder.
+
+#### Prerequisites/Setup
+1. Start the dev server with `pnpm run dev -- --host 0.0.0.0 --port 4173`
+2. Open `http://127.0.0.1:4173/#/kanban`
+3. Create at least three tasks across two statuses
+4. Light theme and dark theme are both available from Settings
+
+#### Steps
+1. Run `pnpm vitest run src/composables/useKanbanBoard.test.ts`
+2. Run `pnpm run build`
+3. In light theme, open the board config panel and hide one column; click Save
+4. Confirm the desktop board and mobile status tabs no longer show the hidden column
+5. Set a WIP limit on a visible column, save, and move enough tasks into that column to exceed the limit
+6. Confirm the column header displays `count / limit` and shows the over-limit state without blocking additional drops
+7. Drag a task card within a column and between columns
+8. Confirm the reordered card persists after refresh and status action buttons still move tasks as the keyboard-accessible fallback
+9. Change default status, default priority, and proposal policy; save and refresh
+10. Switch to dark theme and repeat config panel inspection, WIP display inspection, and drag/drop reorder
+
+#### Expected Results
+- Config saves through the Kanban config endpoint and updates the rendered board without a full page reload
+- Hidden columns are omitted from desktop columns and mobile tabs
+- WIP limits are displayed as `count / limit`; over-limit styling is visible but drops still work
+- Task cards are draggable and drop reorder sends the target status plus before/after task anchors
+- Version conflicts show a mutation error and reload the board
+- Light theme and dark theme controls remain readable
+
+#### Rollback/Cleanup
+- Re-enable hidden columns and clear temporary WIP limits if they were only used for testing
+- Move or archive temporary Kanban tasks
