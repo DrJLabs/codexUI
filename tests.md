@@ -4367,7 +4367,7 @@ Duplicate queued-run protection and metadata validation affordances.
 3. Open `http://127.0.0.1:5173/#/kanban`.
 
 #### Steps
-1. Run `pnpm vitest run src/server/kanban/__tests__/taskQueue.test.ts src/server/kanban/__tests__/routes.test.ts src/server/kanban/__tests__/taskService.test.ts`.
+1. Run `pnpm vitest run src/server/kanban/__tests__/taskQueue.test.ts src/server/kanban/__tests__/routes.test.ts src/server/kanban/__tests__/taskService.test.ts src/server/kanban/__tests__/remoteAccess.test.ts src/server/kanban/__tests__/codexKanbanRunner.test.ts src/server/kanban/__tests__/storage.test.ts src/server/kanban/__tests__/worktreeManager.test.ts`.
 2. Run `pnpm run test:unit`.
 3. Run `pnpm run build`.
 4. In light theme, open a task's metadata editor, enter an invalid estimate or actual minute value, and press Save.
@@ -4378,6 +4378,9 @@ Duplicate queued-run protection and metadata validation affordances.
 #### Expected Results
 - Duplicate queued runs for the same task are rejected before a second queued item is stored.
 - Queued-run promotion emits board refresh events when capacity opens.
+- Spoofed left-most `X-Forwarded-For` values do not grant Tailscale trusted mutation access.
+- Archived queued tasks fail instead of being promoted into hidden execution.
+- Corrupt-state backups and long managed-worktree branch segments include collision-resistant suffixes.
 - Unit tests and build pass.
 - Metadata validation errors are visible and field-level invalid styling appears in both light and dark theme.
 - Switching selected tasks resets stale metadata validation messages.

@@ -248,6 +248,30 @@ describe('CodexKanbanRunner', () => {
     }))
   })
 
+  it('does not promote archived queued tasks', async () => {
+    const { service, storage, runner } = await createHarness()
+    const firstTask = await service.createTask({ title: 'Active before archived queued task' })
+    const secondTask = await service.createTask({ title: 'Archived queued task' })
+    const firstRun = await runner.startTaskRun(firstTask.id, { access, sessionId: 'session_1' })
+    const secondRun = await runner.startTaskRun(secondTask.id, { access, sessionId: 'session_1' })
+    const queuedTask = (await storage.load()).tasks[secondTask.id]
+    if (!queuedTask) throw new Error('Expected queued task')
+
+    await service.archiveTask(queuedTask.id, { version: queuedTask.version })
+    await runner.completeRun(firstRun.run.id, { result: 'Finished active run' })
+
+    const state = await storage.load()
+    expect(secondRun.run.state).toBe('queued')
+    expect(state.runs[secondRun.run.id]).toMatchObject({
+      state: 'failed',
+      errorMessage: 'Cannot start a Kanban run for an archived task',
+    })
+    expect(state.tasks[secondTask.id]).toMatchObject({
+      archived: true,
+      runState: 'failed',
+    })
+  })
+
   it('applies configured queue limits when starting runs', async () => {
     const { service, storage, runner } = await createHarness({
       queueLimits: {

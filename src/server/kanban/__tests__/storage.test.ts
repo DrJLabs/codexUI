@@ -254,6 +254,7 @@ describe('KanbanStorage', () => {
 
     const backups = await readdir(join(dataDir, 'backups'))
     expect(backups.some((name) => name.endsWith('.json'))).toBe(true)
+    expect(backups[0]).toMatch(/-[0-9a-f]{8}\.json$/u)
     const backupContent = await readFile(join(dataDir, 'backups', backups[0] ?? ''), 'utf8')
     expect(backupContent).toBe('{ invalid json')
   })

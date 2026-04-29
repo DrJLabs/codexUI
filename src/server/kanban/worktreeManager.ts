@@ -1,4 +1,5 @@
 import { execFile } from 'node:child_process'
+import { createHash } from 'node:crypto'
 import { mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import { basename, join, resolve } from 'node:path'
 import { promisify } from 'node:util'
@@ -173,7 +174,10 @@ function createTaskBranchName(taskId: string, taskTitle: string, runId?: string)
 }
 
 function sanitizePathSegment(value: string): string {
-  return value.trim().toLowerCase().replace(/[^a-z0-9]+/gu, '-').replace(/^-+|-+$/gu, '').slice(0, 80)
+  const normalized = value.trim().toLowerCase().replace(/[^a-z0-9]+/gu, '-').replace(/^-+|-+$/gu, '')
+  if (normalized.length <= 80) return normalized
+  const hash = createHash('sha256').update(normalized).digest('hex').slice(0, 8)
+  return `${normalized.slice(0, 71)}-${hash}`
 }
 
 async function gitRefExists(cwd: string, ref: string): Promise<boolean> {

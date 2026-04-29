@@ -418,6 +418,9 @@ export class CodexKanbanRunner {
     }
     const task = await this.readTask(taskId)
     try {
+      if (task.archived) {
+        throw new Error('Cannot start a Kanban run for an archived task')
+      }
       const result = await this.startActiveRun(run, task)
       this.eventBus?.emit({ type: 'task.updated', payload: { taskId: result.task.id, runId: result.run.id } })
       this.eventBus?.emit({ type: 'run.started', payload: { runId: result.run.id, taskId: result.task.id, state: result.run.state } })

@@ -64,7 +64,7 @@ export class KanbanStorage {
     const backupDir = join(this.dataDir, 'backups')
     await mkdir(backupDir, { recursive: true })
     const safeTimestamp = new Date().toISOString().replace(/[:.]/gu, '-')
-    const backupPath = join(backupDir, `${safeTimestamp}-${projectHash(this.projectRoot)}.json`)
+    const backupPath = join(backupDir, `${safeTimestamp}-${projectHash(this.projectRoot)}-${randomUUID().slice(0, 8)}.json`)
     await copyFile(this.statePath, backupPath)
     return backupPath
   }

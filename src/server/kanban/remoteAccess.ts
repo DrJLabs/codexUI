@@ -78,7 +78,8 @@ function readForwardedFor(req: Request): string {
 }
 
 function normalizeForwardedFor(value: string): string {
-  return value.split(',')[0]?.trim() ?? ''
+  const entries = value.split(',').map((entry) => entry.trim()).filter(Boolean)
+  return entries[entries.length - 1] ?? ''
 }
 
 function isLoopbackAddress(remote: string): boolean {

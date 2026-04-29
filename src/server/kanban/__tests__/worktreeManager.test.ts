@@ -70,6 +70,25 @@ describe('KanbanWorktreeManager', () => {
     expect(second.branchName).toBe('codexui/task/task-123-run-2-same-title')
   })
 
+  it('keeps long branch segments unique after truncation', async () => {
+    const { dataDir, projectRoot } = await createGitRepo()
+    const manager = new KanbanWorktreeManager({ dataDir, projectRoot })
+    const sharedPrefix = `task_${'a'.repeat(120)}`
+
+    const first = await manager.createManagedWorktree({
+      taskId: `${sharedPrefix}_one`,
+      taskTitle: 'Same title',
+      runId: `${sharedPrefix}_run_one`,
+    })
+    const second = await manager.createManagedWorktree({
+      taskId: `${sharedPrefix}_two`,
+      taskTitle: 'Same title',
+      runId: `${sharedPrefix}_run_two`,
+    })
+
+    expect(first.branchName).not.toBe(second.branchName)
+  })
+
   it('removes the worktree and branch when lock writing fails', async () => {
     const { dataDir, projectRoot } = await createGitRepo()
     const manager = new KanbanWorktreeManager({ dataDir, projectRoot })

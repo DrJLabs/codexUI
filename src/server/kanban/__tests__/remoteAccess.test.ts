@@ -33,6 +33,20 @@ describe('classifyKanbanRemoteAccessFromParts', () => {
     })
   })
 
+  it('rejects spoofed left-most forwarded Tailscale addresses', () => {
+    expect(classifyKanbanRemoteAccessFromParts({
+      remoteAddress: '127.0.0.1',
+      forwardedFor: '100.100.100.100, 203.0.113.10',
+    })).toMatchObject({
+      trusted: false,
+      loopback: false,
+      tailscale: false,
+      forwarded: true,
+      forwardedFor: '203.0.113.10',
+      reason: 'untrusted_forwarded',
+    })
+  })
+
   it('does not trust spoofed forwarded headers from non-loopback peers', () => {
     expect(classifyKanbanRemoteAccessFromParts({
       remoteAddress: '192.168.1.50',
