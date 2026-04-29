@@ -1,6 +1,8 @@
 import { computed, ref, type Ref } from 'vue'
 import {
   archiveKanbanTask,
+  approveKanbanProposal,
+  createKanbanProposal,
   createKanbanTask,
   interruptKanbanRun,
   loadKanbanState,
@@ -10,13 +12,14 @@ import {
   regenerateKanbanReviewPacket,
   replaceKanbanAcceptanceCriteria,
   reorderKanbanTask,
+  rejectKanbanProposal,
   setKanbanTaskStatus,
   startKanbanTaskRun,
   subscribeKanbanEvents,
   updateKanbanConfig,
   updateKanbanTask,
 } from '../api/kanbanGateway'
-import { KANBAN_STATUSES, type CreateKanbanTaskInput, type KanbanActor, type KanbanBoardColumn, type KanbanBoardConfig, type KanbanExecutionPolicy, type KanbanPriority, type KanbanProposal, type KanbanStateSnapshot, type KanbanStatus, type KanbanTask, type KanbanTaskListResult, type ListKanbanTasksParams, type ReorderKanbanTaskInput, type ReplaceKanbanAcceptanceCriteriaInput, type UpdateKanbanBoardConfigInput, type UpdateKanbanTaskInput } from '../types/kanban'
+import { KANBAN_STATUSES, type CreateKanbanProposalInput, type CreateKanbanTaskInput, type KanbanActor, type KanbanBoardColumn, type KanbanBoardConfig, type KanbanExecutionPolicy, type KanbanPriority, type KanbanProposal, type KanbanProposalStatus, type KanbanStateSnapshot, type KanbanStatus, type KanbanTask, type KanbanTaskListResult, type ListKanbanTasksParams, type ReorderKanbanTaskInput, type ReplaceKanbanAcceptanceCriteriaInput, type ResolveKanbanProposalInput, type UpdateKanbanBoardConfigInput, type UpdateKanbanTaskInput } from '../types/kanban'
 
 const FILTER_STORAGE_KEY = 'codex-web-local.kanban.filters.v1'
 
@@ -35,6 +38,9 @@ export type KanbanBoardGateway = {
   loadKanbanRunLogs: typeof loadKanbanRunLogs
   regenerateKanbanReviewPacket: typeof regenerateKanbanReviewPacket
   listKanbanProposals: typeof listKanbanProposals
+  createKanbanProposal: typeof createKanbanProposal
+  approveKanbanProposal: typeof approveKanbanProposal
+  rejectKanbanProposal: typeof rejectKanbanProposal
   subscribeKanbanEvents: typeof subscribeKanbanEvents
 }
 
@@ -67,6 +73,9 @@ const defaultGateway: KanbanBoardGateway = {
   loadKanbanRunLogs,
   regenerateKanbanReviewPacket,
   listKanbanProposals,
+  createKanbanProposal,
+  approveKanbanProposal,
+  rejectKanbanProposal,
   subscribeKanbanEvents,
 }
 
@@ -163,6 +172,8 @@ export function useKanbanBoard(options: UseKanbanBoardOptions = {}) {
   })
   const versionConflict: Ref<KanbanVersionConflictState | null> = ref(null)
   const proposals: Ref<KanbanProposal[]> = ref([])
+  const proposalStatus: Ref<KanbanProposalStatus> = ref('pending')
+  const proposalErrorMessage = ref('')
   const executionPolicy = ref<KanbanExecutionPolicy | null>(null)
   const runLogsByRunId = ref<Record<string, string>>({})
   const isLoading = ref(false)
@@ -260,19 +271,25 @@ export function useKanbanBoard(options: UseKanbanBoardOptions = {}) {
     }
   }
 
+  async function refreshBoardAndTaskList(): Promise<void> {
+    const [snapshot, taskList] = await Promise.all([
+      gateway.loadKanbanState(),
+      gateway.listKanbanTasks(serverQuery.value),
+    ])
+    applySnapshot(snapshot)
+    listState.value = taskList
+    versionConflict.value = null
+  }
+
   async function loadBoard(): Promise<void> {
     isLoading.value = true
     errorMessage.value = ''
     try {
-      const [snapshot, taskList, nextProposals] = await Promise.all([
-        gateway.loadKanbanState(),
-        gateway.listKanbanTasks(serverQuery.value),
-        gateway.listKanbanProposals(),
+      const [boardResult] = await Promise.allSettled([
+        refreshBoardAndTaskList(),
+        loadProposalsSafely(proposalStatus.value),
       ])
-      applySnapshot(snapshot)
-      listState.value = taskList
-      proposals.value = nextProposals
-      versionConflict.value = null
+      if (boardResult.status === 'rejected') throw boardResult.reason
     } catch (error) {
       tasks.value = []
       config.value = null
@@ -293,10 +310,58 @@ export function useKanbanBoard(options: UseKanbanBoardOptions = {}) {
     return taskList
   }
 
+  async function loadProposals(status: KanbanProposalStatus = proposalStatus.value): Promise<KanbanProposal[]> {
+    proposalStatus.value = status
+    proposalErrorMessage.value = ''
+    try {
+      const nextProposals = await gateway.listKanbanProposals(status)
+      proposals.value = nextProposals
+      return nextProposals
+    } catch (error) {
+      proposals.value = []
+      proposalErrorMessage.value = error instanceof Error ? error.message : 'Failed to load proposals'
+      throw error
+    }
+  }
+
+  async function loadProposalsSafely(status: KanbanProposalStatus = proposalStatus.value): Promise<KanbanProposal[]> {
+    try {
+      return await loadProposals(status)
+    } catch (error) {
+      return []
+    }
+  }
+
   async function refreshProposals(): Promise<KanbanProposal[]> {
-    const nextProposals = await gateway.listKanbanProposals()
-    proposals.value = nextProposals
-    return nextProposals
+    return await loadProposals(proposalStatus.value)
+  }
+
+  async function createProposal(input: CreateKanbanProposalInput): Promise<KanbanProposal> {
+    const proposal = await gateway.createKanbanProposal(input)
+    await loadProposalsSafely(proposalStatus.value)
+    return proposal
+  }
+
+  async function approveProposal(proposalId: string, input?: ResolveKanbanProposalInput): Promise<KanbanProposal> {
+    const proposal = input === undefined
+      ? await gateway.approveKanbanProposal(proposalId)
+      : await gateway.approveKanbanProposal(proposalId, input)
+    await Promise.all([
+      refreshBoardAndTaskList(),
+      loadProposalsSafely(proposalStatus.value),
+    ])
+    return proposal
+  }
+
+  async function rejectProposal(proposalId: string, input?: ResolveKanbanProposalInput): Promise<KanbanProposal> {
+    const proposal = input === undefined
+      ? await gateway.rejectKanbanProposal(proposalId)
+      : await gateway.rejectKanbanProposal(proposalId, input)
+    await Promise.all([
+      refreshBoardAndTaskList(),
+      loadProposalsSafely(proposalStatus.value),
+    ])
+    return proposal
   }
 
   async function createTask(input: CreateKanbanTaskInput): Promise<KanbanTask> {
@@ -534,13 +599,19 @@ export function useKanbanBoard(options: UseKanbanBoardOptions = {}) {
     serverQuery,
     versionConflict,
     proposals,
+    proposalStatus,
+    proposalErrorMessage,
     executionPolicy,
     runLogsByRunId,
     isLoading,
     errorMessage,
     loadBoard,
     refreshTaskList,
+    loadProposals,
     refreshProposals,
+    createProposal,
+    approveProposal,
+    rejectProposal,
     createTask,
     updateTask,
     archiveTask,

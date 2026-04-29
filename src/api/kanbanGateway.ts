@@ -1,16 +1,19 @@
 import type {
   CreateKanbanTaskInput,
+  CreateKanbanProposalInput,
   KanbanApiResponse,
   KanbanBoardConfig,
   KanbanStateSnapshot,
   KanbanRun,
   KanbanReviewPacket,
   KanbanProposal,
+  KanbanProposalStatus,
   KanbanTask,
   KanbanTaskListResult,
   ListKanbanTasksParams,
   ReplaceKanbanAcceptanceCriteriaInput,
   ReorderKanbanTaskInput,
+  ResolveKanbanProposalInput,
   StartKanbanRunResponse,
   InterruptKanbanRunResponse,
   UpdateKanbanBoardConfigInput,
@@ -180,8 +183,38 @@ export async function regenerateKanbanReviewPacket(taskId: string): Promise<{ pa
   })
 }
 
-export async function listKanbanProposals(): Promise<KanbanProposal[]> {
-  return await requestKanban<KanbanProposal[]>('/proposals')
+export async function listKanbanProposals(status?: KanbanProposalStatus): Promise<KanbanProposal[]> {
+  const query = new URLSearchParams()
+  if (status) query.set('status', status)
+  const encoded = query.toString()
+  return await requestKanban<KanbanProposal[]>(`/proposals${encoded ? `?${encoded}` : ''}`)
+}
+
+export async function createKanbanProposal(input: CreateKanbanProposalInput): Promise<KanbanProposal> {
+  const token = await readCsrfToken()
+  return await requestKanban<KanbanProposal>('/proposals', {
+    method: 'POST',
+    headers: { 'x-codexui-kanban-csrf': token },
+    body: JSON.stringify(input),
+  })
+}
+
+export async function approveKanbanProposal(proposalId: string, input: ResolveKanbanProposalInput = {}): Promise<KanbanProposal> {
+  const token = await readCsrfToken()
+  return await requestKanban<KanbanProposal>(`/proposals/${encodeURIComponent(proposalId)}/approve`, {
+    method: 'POST',
+    headers: { 'x-codexui-kanban-csrf': token },
+    body: JSON.stringify(input),
+  })
+}
+
+export async function rejectKanbanProposal(proposalId: string, input: ResolveKanbanProposalInput = {}): Promise<KanbanProposal> {
+  const token = await readCsrfToken()
+  return await requestKanban<KanbanProposal>(`/proposals/${encodeURIComponent(proposalId)}/reject`, {
+    method: 'POST',
+    headers: { 'x-codexui-kanban-csrf': token },
+    body: JSON.stringify(input),
+  })
 }
 
 type KanbanEventSubscriptionOptions = {

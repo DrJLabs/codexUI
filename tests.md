@@ -4224,3 +4224,38 @@ Kanban proposal V2 records, fenced `kanban:create` / `kanban:update` marker pars
 - Restore proposal policy to the desired value
 - Archive or delete temporary tasks created during proposal approval
 - Reject or clear temporary pending proposals from local Kanban state if they were only used for testing
+
+---
+
+### Kanban Proposal Inbox V2
+
+#### Feature/Change Name
+Kanban proposal inbox tabs, compact proposal previews, and approve/reject actions.
+
+#### Prerequisites/Setup
+1. Start the dev server with `pnpm run dev -- --host 0.0.0.0 --port 4173`
+2. Open `http://127.0.0.1:4173/#/kanban`
+3. Have at least one pending create proposal and one pending update proposal, or create them through the proposal API
+4. Light theme and dark theme are both available from Settings
+
+#### Steps
+1. Run `pnpm vitest run src/composables/useKanbanBoard.test.ts`
+2. Run `pnpm run build`
+3. In light theme, confirm the proposal inbox appears below the Kanban toolbar without blocking the board columns
+4. Switch between `pending`, `approved`, and `rejected` tabs and confirm the list refreshes for each status
+5. Confirm each proposal row shows a create/update type badge, proposed-by metadata, timestamp, and compact payload preview
+6. Approve a pending create proposal and confirm the proposal list refreshes and the created task appears on the board
+7. Reject a pending proposal and confirm it leaves the pending list after refresh
+8. On a mobile-width viewport, confirm the tabs and approve/reject controls stack below the proposal content without overlap
+9. Switch to dark theme and repeat inbox tab, preview, approve, and reject readability checks
+
+#### Expected Results
+- Proposal tabs call the filtered proposal listing path without blocking board loading
+- Proposal load failures show only the inbox error state and leave the board usable
+- Approve and reject actions use the trusted CSRF-protected proposal routes
+- Approve/reject refresh both proposals and board/task state
+- Light theme and dark theme proposal inbox surfaces remain readable and controls remain accessible
+
+#### Rollback/Cleanup
+- Archive or delete temporary tasks created by proposal approval
+- Reject temporary pending proposals that were only used for testing

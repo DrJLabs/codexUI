@@ -33,6 +33,15 @@
         @clear-filters="clearBoardFilters"
         @create-task="createFirstTask"
       />
+      <KanbanProposalInbox
+        :proposals="proposals"
+        :status="proposalStatus"
+        :error-message="proposalErrorMessage"
+        :is-resolving="isProposalResolving"
+        @update:status="loadProposalStatus"
+        @approve="approveInboxProposal"
+        @reject="rejectInboxProposal"
+      />
       <KanbanEmptyState
         v-if="activeTaskCount === 0"
         title="No tasks yet"
@@ -104,10 +113,11 @@
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useKanbanBoard } from '../../composables/useKanbanBoard'
-import { type KanbanActor, type KanbanMetadataPatch, type KanbanPriority, type KanbanStatus, type KanbanTaskLabel, type UpdateKanbanBoardConfigInput } from '../../types/kanban'
+import { type KanbanActor, type KanbanMetadataPatch, type KanbanPriority, type KanbanProposalStatus, type KanbanStatus, type KanbanTaskLabel, type UpdateKanbanBoardConfigInput } from '../../types/kanban'
 import KanbanBoardViewport from './KanbanBoardViewport.vue'
 import KanbanConfigPanel from './KanbanConfigPanel.vue'
 import KanbanEmptyState from './KanbanEmptyState.vue'
+import KanbanProposalInbox from './KanbanProposalInbox.vue'
 import KanbanTaskInspector from './KanbanTaskInspector.vue'
 import KanbanTaskSheet from './KanbanTaskSheet.vue'
 import KanbanToolbar from './KanbanToolbar.vue'
@@ -123,12 +133,18 @@ const {
   selectedTask,
   filters,
   config,
+  proposals,
+  proposalStatus,
+  proposalErrorMessage,
   isLoading,
   errorMessage,
   versionConflict,
   executionPolicy,
   runLogsByRunId,
   loadBoard,
+  loadProposals,
+  approveProposal,
+  rejectProposal,
   createTask,
   updateTask,
   archiveTask,
@@ -158,6 +174,7 @@ const router = useRouter()
 const selectedMobileStatus = ref<KanbanStatus>('backlog')
 const mutationError = ref('')
 const isConfigSaving = ref(false)
+const isProposalResolving = ref(false)
 
 const labelNames = computed(() => Array.from(new Set(
   tasks.value.filter((task) => !task.archived).flatMap((task) => task.labels.map((label) => label.name)),
@@ -311,6 +328,26 @@ function setBoardAssigneeFilter(assignee: KanbanActor | ''): void {
 function clearBoardFilters(): void {
   clearFilters()
   void loadBoard()
+}
+
+function loadProposalStatus(status: KanbanProposalStatus): void {
+  void loadProposals(status).catch((error: unknown) => {
+    console.error('Load proposals failed', error)
+  })
+}
+
+function approveInboxProposal(proposalId: string): void {
+  isProposalResolving.value = true
+  void runMutation('Approve proposal failed', () => approveProposal(proposalId)).finally(() => {
+    isProposalResolving.value = false
+  })
+}
+
+function rejectInboxProposal(proposalId: string): void {
+  isProposalResolving.value = true
+  void runMutation('Reject proposal failed', () => rejectProposal(proposalId)).finally(() => {
+    isProposalResolving.value = false
+  })
 }
 
 async function runMutation<T>(label: string, operation: () => Promise<T>): Promise<T | null> {

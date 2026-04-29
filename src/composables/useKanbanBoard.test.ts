@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { useKanbanBoard, type KanbanBoardGateway } from './useKanbanBoard'
-import type { KanbanBoardConfig, KanbanExecutionPolicy, KanbanProposal, KanbanStateSnapshot, KanbanTask, KanbanTaskListResult, ListKanbanTasksParams, UpdateKanbanBoardConfigInput } from '../types/kanban'
+import type { CreateKanbanTaskInput, KanbanBoardConfig, KanbanExecutionPolicy, KanbanProposal, KanbanProposalStatus, KanbanStateSnapshot, KanbanTask, KanbanTaskListResult, KanbanUpdateProposalPayload, ListKanbanTasksParams, UpdateKanbanBoardConfigInput } from '../types/kanban'
 
 const policy: KanbanExecutionPolicy = {
   enabled: true,
@@ -293,6 +293,28 @@ function createGateway(state: KanbanStateSnapshot): KanbanBoardGateway {
       }
     },
     listKanbanProposals: async () => [],
+    createKanbanProposal: async (input) => input.type === 'create'
+      ? createProposal({
+          type: 'create',
+          payload: input.payload as CreateKanbanTaskInput,
+          sourceRunId: input.sourceRunId,
+          sourceThreadId: input.sourceThreadId,
+          proposedBy: input.proposedBy,
+        })
+      : createProposal({
+          type: 'update',
+          payload: input.payload as KanbanUpdateProposalPayload,
+          sourceRunId: input.sourceRunId,
+          sourceThreadId: input.sourceThreadId,
+          proposedBy: input.proposedBy,
+        }),
+    approveKanbanProposal: async (proposalId) => createProposal({ id: proposalId, status: 'approved' }),
+    rejectKanbanProposal: async (proposalId, input = {}) => createProposal({
+      id: proposalId,
+      status: 'rejected',
+      reason: input.reason ?? '',
+      resolvedBy: input.resolvedBy ?? '',
+    }),
     subscribeKanbanEvents: () => () => {},
   }
 }
@@ -592,6 +614,56 @@ describe('useKanbanBoard', () => {
 
     expect(board.proposals.value.map((proposal) => proposal.id)).toEqual(['proposal_refreshed'])
     stop()
+  })
+
+  it('loads filtered proposals on demand', async () => {
+    const gateway = createGateway(createState([]))
+    gateway.listKanbanProposals = vi.fn(async (status?: KanbanProposalStatus) => (
+      status === 'pending' ? [createProposal()] : []
+    ))
+    const board = useKanbanBoard({ gateway, storage: null })
+
+    await board.loadProposals('pending')
+
+    expect(board.proposals.value).toHaveLength(1)
+    expect(gateway.listKanbanProposals).toHaveBeenCalledWith('pending')
+  })
+
+  it('approves a proposal and refreshes proposals plus board tasks', async () => {
+    const createdTask = createTask({ id: 'task_created', title: 'Approved task' })
+    const gateway = Object.assign(createGateway(createState([])), {
+      approveKanbanProposal: vi.fn(async () => createProposal({ status: 'approved', resultTaskId: createdTask.id })),
+    })
+    let proposals = [createProposal()]
+    gateway.listKanbanProposals = vi.fn(async () => proposals)
+    gateway.loadKanbanState = vi.fn(async () => createState([createdTask]))
+    gateway.listKanbanTasks = vi.fn(async () => createListResult([createdTask]))
+    const board = useKanbanBoard({ gateway, storage: null })
+
+    await board.loadProposals('pending')
+    expect(board.proposals.value).toHaveLength(1)
+
+    proposals = []
+    await board.approveProposal('proposal_1')
+
+    expect(gateway.approveKanbanProposal).toHaveBeenCalledWith('proposal_1')
+    expect(board.proposals.value).toEqual([])
+    expect(board.tasks.value.map((task) => task.id)).toEqual([createdTask.id])
+  })
+
+  it('keeps board loading usable when proposal loading fails', async () => {
+    const task = createTask({ id: 'task_a' })
+    const gateway = createGateway(createState([task]))
+    gateway.listKanbanProposals = vi.fn(async () => {
+      throw new Error('proposal service offline')
+    })
+    const board = useKanbanBoard({ gateway, storage: null })
+
+    await board.loadBoard()
+
+    expect(board.errorMessage.value).toBe('')
+    expect(board.tasks.value.map((item) => item.id)).toEqual([task.id])
+    expect(board.proposals.value).toEqual([])
   })
 
   it('submits the current task version when updating a task', async () => {
