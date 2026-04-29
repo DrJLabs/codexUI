@@ -140,6 +140,16 @@ async function flushBoardRefresh(): Promise<void> {
   await Promise.resolve()
 }
 
+function createDeferred<T>(): { promise: Promise<T>; resolve: (value: T) => void; reject: (error: unknown) => void } {
+  let resolve: (value: T) => void = () => {}
+  let reject: (error: unknown) => void = () => {}
+  const promise = new Promise<T>((nextResolve, nextReject) => {
+    resolve = nextResolve
+    reject = nextReject
+  })
+  return { promise, resolve, reject }
+}
+
 function createGateway(state: KanbanStateSnapshot): KanbanBoardGateway {
   let currentState = state
   return {
@@ -666,6 +676,52 @@ describe('useKanbanBoard', () => {
     expect(board.proposals.value).toEqual([])
   })
 
+  it('renders board state before a slow proposal load settles', async () => {
+    const task = createTask({ id: 'task_a' })
+    const proposalLoad = createDeferred<KanbanProposal[]>()
+    const gateway = createGateway(createState([task]))
+    gateway.listKanbanProposals = vi.fn(async () => await proposalLoad.promise)
+    const board = useKanbanBoard({ gateway, storage: null })
+
+    const load = board.loadBoard()
+    await flushBoardRefresh()
+
+    expect(board.isLoading.value).toBe(false)
+    expect(board.tasks.value.map((item) => item.id)).toEqual([task.id])
+
+    proposalLoad.resolve([createProposal({ id: 'proposal_slow' })])
+    await load
+    await flushBoardRefresh()
+
+    expect(board.proposals.value.map((proposal) => proposal.id)).toEqual(['proposal_slow'])
+  })
+
+  it('ignores stale proposal tab responses after a newer status load wins', async () => {
+    const pendingLoad = createDeferred<KanbanProposal[]>()
+    const approvedLoad = createDeferred<KanbanProposal[]>()
+    const gateway = createGateway(createState([]))
+    gateway.listKanbanProposals = vi.fn(async (status?: KanbanProposalStatus) => {
+      if (status === 'pending') return await pendingLoad.promise
+      if (status === 'approved') return await approvedLoad.promise
+      return []
+    })
+    const board = useKanbanBoard({ gateway, storage: null })
+
+    const pending = board.loadProposals('pending').catch(() => [])
+    const approved = board.loadProposals('approved')
+    approvedLoad.resolve([createProposal({ id: 'proposal_approved', status: 'approved' })])
+    await approved
+
+    expect(board.proposalStatus.value).toBe('approved')
+    expect(board.proposals.value.map((proposal) => proposal.id)).toEqual(['proposal_approved'])
+
+    pendingLoad.resolve([createProposal({ id: 'proposal_pending', status: 'pending' })])
+    await pending
+
+    expect(board.proposalStatus.value).toBe('approved')
+    expect(board.proposals.value.map((proposal) => proposal.id)).toEqual(['proposal_approved'])
+  })
+
   it('submits the current task version when updating a task', async () => {
     const task = createTask({ id: 'task_a', title: 'Original', version: 7 })
     const gateway = createGateway(createState([task]))
@@ -865,5 +921,30 @@ describe('useKanbanBoard', () => {
     expect(board.tasks.value[0]?.title).toBe('Updated')
     stop()
     expect(stopCalled).toBe(true)
+  })
+
+  it('refreshes proposals only for proposal-created events', async () => {
+    let emitEvent: (event: unknown) => void = () => {}
+    const task = createTask({ id: 'task_a', title: 'Original' })
+    const gateway = createGateway(createState([task]))
+    gateway.loadKanbanState = vi.fn(gateway.loadKanbanState)
+    gateway.listKanbanTasks = vi.fn(gateway.listKanbanTasks)
+    gateway.listKanbanProposals = vi.fn(async () => [createProposal({ id: 'proposal_refreshed' })])
+    gateway.subscribeKanbanEvents = (nextHandler) => {
+      emitEvent = nextHandler
+      return () => {}
+    }
+    const board = useKanbanBoard({ gateway, storage: null })
+
+    await board.loadBoard()
+    expect(gateway.loadKanbanState).toHaveBeenCalledTimes(1)
+    const stop = board.subscribeToEvents()
+    emitEvent({ type: 'proposal.created' })
+    await flushBoardRefresh()
+
+    expect(gateway.loadKanbanState).toHaveBeenCalledTimes(1)
+    expect(gateway.listKanbanProposals).toHaveBeenCalledTimes(2)
+    expect(board.proposals.value.map((proposal) => proposal.id)).toEqual(['proposal_refreshed'])
+    stop()
   })
 })

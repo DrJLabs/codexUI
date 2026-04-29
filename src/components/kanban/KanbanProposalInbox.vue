@@ -5,16 +5,14 @@
         <h2 id="kanban-proposal-inbox-title">Proposal inbox</h2>
         <p>{{ proposals.length }} {{ status }} proposal{{ proposals.length === 1 ? '' : 's' }}</p>
       </div>
-      <div class="kanban-proposal-tabs" role="tablist" aria-label="Proposal status">
+      <div class="kanban-proposal-tabs" role="group" aria-label="Proposal status">
         <button
           v-for="item in statusOptions"
           :key="item"
           class="kanban-proposal-tab"
           :class="{ 'is-active': item === status }"
           type="button"
-          role="tab"
-          :aria-selected="item === status"
-          :tabindex="item === status ? 0 : -1"
+          :aria-pressed="item === status"
           @click="emit('update:status', item)"
         >
           {{ item }}
@@ -38,9 +36,9 @@
           <h3>{{ proposalTitle(proposal) }}</h3>
           <p>{{ payloadPreview(proposal) }}</p>
           <dl class="kanban-proposal-details">
-            <div v-if="proposal.type === 'update'">
+            <div v-if="proposalTaskId(proposal)">
               <dt>Task</dt>
-              <dd>{{ proposal.payload.taskId }}</dd>
+              <dd>{{ proposalTaskId(proposal) }}</dd>
             </div>
             <div v-if="proposal.sourceRunId">
               <dt>Run</dt>
@@ -96,23 +94,52 @@ const emit = defineEmits<{
 const statusOptions: KanbanProposalStatus[] = ['pending', 'approved', 'rejected']
 
 function proposalTitle(proposal: KanbanProposal): string {
-  if (proposal.type === 'create') return proposal.payload.title || 'Create task proposal'
-  return proposal.payload.patch.title || `Update ${proposal.payload.taskId}`
+  if (proposal.type === 'create') {
+    const payload = asRecord(proposal.payload)
+    const title = payload && typeof payload.title === 'string' ? payload.title.trim() : ''
+    return title || 'Create task proposal'
+  }
+  const patch = updatePatch(proposal)
+  const title = patch && typeof patch.title === 'string' ? patch.title.trim() : ''
+  const taskId = proposalTaskId(proposal)
+  if (title) return title
+  return taskId ? `Update ${taskId}` : 'Update task proposal'
 }
 
 function payloadPreview(proposal: KanbanProposal): string {
   if (proposal.type === 'create') {
+    const payload = asRecord(proposal.payload)
+    if (!payload) return 'Proposal payload is unavailable.'
     const parts = [
-      proposal.payload.description,
-      proposal.payload.priority ? `priority: ${proposal.payload.priority}` : '',
-      proposal.payload.assignee ? `assignee: ${proposal.payload.assignee}` : '',
+      typeof payload.description === 'string' ? payload.description : '',
+      typeof payload.priority === 'string' ? `priority: ${payload.priority}` : '',
+      typeof payload.assignee === 'string' ? `assignee: ${payload.assignee}` : '',
     ].filter(Boolean)
     return parts.length > 0 ? parts.join(' | ') : 'Create a task with the proposed fields.'
   }
-  const patch = proposal.payload.patch
+  const patch = updatePatch(proposal)
+  if (!patch) return 'Proposal payload is unavailable.'
   const keys = Object.keys(patch)
   if (keys.length === 0) return 'No recognized update fields.'
   return keys.map((key) => `${key}: ${formatPatchValue(patch[key as keyof typeof patch])}`).join(' | ')
+}
+
+function proposalTaskId(proposal: KanbanProposal): string {
+  if (proposal.type !== 'update') return ''
+  const payload = asRecord(proposal.payload)
+  return payload && typeof payload.taskId === 'string' ? payload.taskId : ''
+}
+
+function updatePatch(proposal: KanbanProposal): Record<string, unknown> | null {
+  if (proposal.type !== 'update') return null
+  const payload = asRecord(proposal.payload)
+  return asRecord(payload?.patch)
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null
 }
 
 function formatPatchValue(value: unknown): string {
@@ -302,6 +329,7 @@ function formatDate(value: string): string {
 :global(:root.dark) .kanban-proposal-empty,
 :global(:root.dark) .kanban-proposal-row p,
 :global(:root.dark) .kanban-proposal-details,
+:global(:root.dark) .kanban-proposal-details dt,
 :global(:root.dark) .kanban-proposal-meta {
   color: #a1a1aa;
 }

@@ -22,6 +22,8 @@ import {
 import { KANBAN_STATUSES, type CreateKanbanProposalInput, type CreateKanbanTaskInput, type KanbanActor, type KanbanBoardColumn, type KanbanBoardConfig, type KanbanExecutionPolicy, type KanbanPriority, type KanbanProposal, type KanbanProposalStatus, type KanbanStateSnapshot, type KanbanStatus, type KanbanTask, type KanbanTaskListResult, type ListKanbanTasksParams, type ReorderKanbanTaskInput, type ReplaceKanbanAcceptanceCriteriaInput, type ResolveKanbanProposalInput, type UpdateKanbanBoardConfigInput, type UpdateKanbanTaskInput } from '../types/kanban'
 
 const FILTER_STORAGE_KEY = 'codex-web-local.kanban.filters.v1'
+const BOARD_REFRESH_EVENT_TYPES = new Set(['task.created', 'task.updated', 'task.status_changed'])
+const PROPOSAL_REFRESH_EVENT_TYPES = new Set(['proposal.created', 'proposal.resolved'])
 
 export type KanbanBoardGateway = {
   loadKanbanState: typeof loadKanbanState
@@ -180,6 +182,9 @@ export function useKanbanBoard(options: UseKanbanBoardOptions = {}) {
   const errorMessage = ref('')
   const selectedTaskId = ref('')
   const filters = ref<KanbanFilters>(storedFilters)
+  let proposalLoadSequence = 0
+  let boardEventRefreshPending = false
+  let proposalEventRefreshPending = false
 
   const tasksByStatus = computed(() => {
     const grouped = createEmptyTasksByStatus()
@@ -285,11 +290,8 @@ export function useKanbanBoard(options: UseKanbanBoardOptions = {}) {
     isLoading.value = true
     errorMessage.value = ''
     try {
-      const [boardResult] = await Promise.allSettled([
-        refreshBoardAndTaskList(),
-        loadProposalsSafely(proposalStatus.value),
-      ])
-      if (boardResult.status === 'rejected') throw boardResult.reason
+      await refreshBoardAndTaskList()
+      void loadProposalsSafely(proposalStatus.value)
     } catch (error) {
       tasks.value = []
       config.value = null
@@ -311,13 +313,20 @@ export function useKanbanBoard(options: UseKanbanBoardOptions = {}) {
   }
 
   async function loadProposals(status: KanbanProposalStatus = proposalStatus.value): Promise<KanbanProposal[]> {
+    const requestId = ++proposalLoadSequence
     proposalStatus.value = status
     proposalErrorMessage.value = ''
     try {
       const nextProposals = await gateway.listKanbanProposals(status)
+      if (requestId !== proposalLoadSequence || proposalStatus.value !== status) {
+        return nextProposals
+      }
       proposals.value = nextProposals
       return nextProposals
     } catch (error) {
+      if (requestId !== proposalLoadSequence || proposalStatus.value !== status) {
+        throw error
+      }
       proposals.value = []
       proposalErrorMessage.value = error instanceof Error ? error.message : 'Failed to load proposals'
       throw error
@@ -362,6 +371,30 @@ export function useKanbanBoard(options: UseKanbanBoardOptions = {}) {
       loadProposalsSafely(proposalStatus.value),
     ])
     return proposal
+  }
+
+  function refreshBoardInBackground(): void {
+    void refreshBoardAndTaskList().catch((error: unknown) => {
+      errorMessage.value = error instanceof Error ? error.message : 'Failed to refresh Kanban board'
+    })
+  }
+
+  function scheduleBoardEventRefresh(): void {
+    if (boardEventRefreshPending) return
+    boardEventRefreshPending = true
+    queueMicrotask(() => {
+      boardEventRefreshPending = false
+      refreshBoardInBackground()
+    })
+  }
+
+  function scheduleProposalEventRefresh(): void {
+    if (proposalEventRefreshPending) return
+    proposalEventRefreshPending = true
+    queueMicrotask(() => {
+      proposalEventRefreshPending = false
+      void loadProposalsSafely(proposalStatus.value)
+    })
   }
 
   async function createTask(input: CreateKanbanTaskInput): Promise<KanbanTask> {
@@ -523,8 +556,16 @@ export function useKanbanBoard(options: UseKanbanBoardOptions = {}) {
   }
 
   function subscribeToEvents(): () => void {
-    return gateway.subscribeKanbanEvents(() => {
-      void loadBoard()
+    return gateway.subscribeKanbanEvents((event) => {
+      const eventType = typeof event === 'object' && event !== null && 'type' in event && typeof event.type === 'string'
+        ? event.type
+        : ''
+      if (PROPOSAL_REFRESH_EVENT_TYPES.has(eventType)) {
+        scheduleProposalEventRefresh()
+      }
+      if (BOARD_REFRESH_EVENT_TYPES.has(eventType)) {
+        scheduleBoardEventRefresh()
+      }
     }, {
       onError: () => {
         // Browser EventSource handles reconnects; keep this hook for observability.
