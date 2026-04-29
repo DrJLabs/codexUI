@@ -12,8 +12,10 @@ const servers: Server[] = []
 const disabledPolicy: KanbanExecutionPolicy = {
   enabled: true,
   executionEnabled: false,
-  requireLoopbackForExecution: true,
-  disableExecutionWhenRemote: true,
+  requireTrustedAccessForExecution: true,
+  allowTailscaleAccess: true,
+  requireLoopbackForExecution: false,
+  disableExecutionWhenRemote: false,
   sandboxMode: 'workspace-write',
   approvalPolicy: 'on-request',
   networkAccess: false,
@@ -92,13 +94,49 @@ describe('Kanban execution policy', () => {
       `${baseUrl}/codex-api/kanban/tasks/task_1/run`,
       {
         method: 'POST',
-        headers: { 'x-forwarded-for': '100.64.0.10' },
+        headers: { 'x-forwarded-for': '203.0.113.10' },
         body: '{}',
       },
     )
 
     expect(response.status).toBe(403)
-    expect(response.body.error).toContain('Kanban execution requires loopback access')
+    expect(response.body.error).toContain('Kanban execution requires trusted local or Tailscale access')
+  })
+
+  it('allows Tailscale Serve forwarded clients to request a CSRF token', async () => {
+    const { baseUrl } = await createTestServer({ policy: enabledPolicy })
+
+    const csrf = await requestJson<{ data: { csrfToken: string } }>(
+      `${baseUrl}/codex-api/kanban/csrf`,
+      { headers: { 'x-forwarded-for': '100.100.100.100' } },
+    )
+
+    expect(csrf.status).toBe(200)
+    expect(csrf.body.data.csrfToken).toMatch(/^[A-Za-z0-9_-]{43}$/)
+  })
+
+  it('allows Tailscale Serve forwarded clients to pass execution access checks', async () => {
+    const { baseUrl } = await createTestServer({ policy: enabledPolicy })
+    const forwardedHeaders = { 'x-forwarded-for': '100.100.100.100' }
+    const csrf = await requestJson<{ data: { csrfToken: string } }>(
+      `${baseUrl}/codex-api/kanban/csrf`,
+      { headers: forwardedHeaders },
+    )
+
+    const response = await requestJson<{ error: string }>(
+      `${baseUrl}/codex-api/kanban/tasks/task_1/run`,
+      {
+        method: 'POST',
+        headers: {
+          ...forwardedHeaders,
+          'x-codexui-kanban-csrf': csrf.body.data.csrfToken,
+        },
+        body: '{}',
+      },
+    )
+
+    expect(response.status).toBe(409)
+    expect(response.body.error).toContain('Kanban runner is not available yet')
   })
 
   it('blocks execution mutations without a CSRF token', async () => {

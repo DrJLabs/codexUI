@@ -8,6 +8,10 @@ describe('resolveKanbanConfig', () => {
     const config = resolveKanbanConfig({})
 
     expect(config.policy.executionEnabled).toBe(false)
+    expect(config.policy.requireTrustedAccessForExecution).toBe(true)
+    expect(config.policy.allowTailscaleAccess).toBe(true)
+    expect(config.policy.requireLoopbackForExecution).toBe(false)
+    expect(config.policy.disableExecutionWhenRemote).toBe(false)
     expect(config.policy.sandboxMode).toBe('workspace-write')
     expect(config.policy.approvalPolicy).toBe('on-request')
     expect(config.policy.networkAccess).toBe(false)

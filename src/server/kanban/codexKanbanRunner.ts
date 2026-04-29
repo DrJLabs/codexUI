@@ -253,7 +253,10 @@ function createAuditActor(actor: KanbanRunActorContext): Record<string, unknown>
     type: 'local-browser',
     sessionId: actor.sessionId,
     remoteAddress: actor.access.remoteAddress,
+    forwardedFor: actor.access.forwardedFor,
     loopback: actor.access.loopback,
+    tailscale: actor.access.tailscale,
+    trusted: actor.access.trusted,
     forwarded: actor.access.forwarded,
   }
 }

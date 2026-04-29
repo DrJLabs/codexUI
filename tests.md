@@ -3878,7 +3878,7 @@ Server-persisted local Kanban board with `#/kanban` route, sidebar navigation, s
 ### Kanban v0.2 Execution Safety Gate
 
 #### Feature/Change Name
-Loopback-only execution preflight with per-router CSRF token and append-only audit hash chain.
+Trusted local or Tailscale execution preflight with per-router CSRF token and append-only audit hash chain.
 
 #### Prerequisites/Setup
 1. Dev server running with `pnpm run dev -- --host 0.0.0.0 --port 4173`
@@ -3891,14 +3891,15 @@ Loopback-only execution preflight with per-router CSRF token and append-only aud
 2. Restart with `CODEXUI_KANBAN_EXECUTION_ENABLED=1`
 3. Fetch `GET /codex-api/kanban/csrf` from `127.0.0.1` and save the returned `csrfToken`
 4. Send `POST /codex-api/kanban/tasks/<task-id>/run` without `x-codexui-kanban-csrf` and confirm it returns `403`
-5. Send the same request with `x-forwarded-for: 100.64.0.10` and confirm it returns `403`
-6. Send the request from loopback with the CSRF header and confirm it returns the temporary runner-not-available response
+5. Send the same request with non-Tailscale `x-forwarded-for: 203.0.113.10` and confirm it returns `403`
+6. Send the request from loopback or Tailscale Serve with the CSRF header and confirm it returns the temporary runner-not-available response
 7. Inspect `${CODEX_HOME:-$HOME/.codex}/codexui-kanban/audit/` and confirm a JSONL audit event was appended
 8. Switch to dark theme and confirm the Kanban page still renders normally with execution controls unavailable until later v0.2 UI tasks wire them
 
 #### Expected Results
 - Execution start is blocked by default
-- Forwarded, Tailscale, LAN, reverse-proxy, and unknown remote requests cannot start execution
+- Non-Tailscale forwarded, LAN, reverse-proxy, and unknown remote requests cannot start execution
+- Tailscale clients and Tailscale Serve forwarding are trusted when CSRF is present
 - Execution mutations require `x-codexui-kanban-csrf`
 - Valid loopback preflight does not start Codex yet and reports that the runner is not available
 - Audit entries include `prevEventHash` and `eventHash`, and secret-shaped fields are redacted
@@ -3981,7 +3982,7 @@ Kanban task run controls, managed worktree runner start, interrupt route, and pe
 #### Prerequisites/Setup
 1. A Git-backed project is available with a committed `main` or `master` branch
 2. Dev server running locally with `CODEXUI_KANBAN_EXECUTION_ENABLED=1 pnpm run dev -- --host 0.0.0.0 --port 4173`
-3. Open `http://127.0.0.1:4173/#/kanban`
+3. Open `http://127.0.0.1:4173/#/kanban` or the configured Tailscale Serve URL
 4. Light theme and dark theme are both available from Settings
 
 #### Steps
@@ -3995,7 +3996,7 @@ Kanban task run controls, managed worktree runner start, interrupt route, and pe
 8. Switch to dark theme and repeat inspection of run controls and log panel
 
 #### Expected Results
-- Run requests are still loopback-only and CSRF-protected
+- Run requests are trusted-access-only and CSRF-protected; loopback and Tailscale Serve are allowed
 - Runner uses a managed worktree and the narrow Codex bridge adapter
 - Run logs are served by `GET /codex-api/kanban/runs/<run-id>/logs`
 - Interrupt calls preserve the worktree and mark task/run state cancelled
@@ -4005,6 +4006,39 @@ Kanban task run controls, managed worktree runner start, interrupt route, and pe
 - Stop the dev server and restart without `CODEXUI_KANBAN_EXECUTION_ENABLED=1`
 - Remove clean test worktrees with `git -C <repo-root> worktree remove <worktree-path>`
 - Remove test branches with `git -C <repo-root> branch -D <branch-name>` after worktree removal
+
+---
+
+### Kanban Phone Over Tailscale Mutations
+
+#### Feature/Change Name
+Kanban trusted-access policy for phone-driven Tailscale Serve usage.
+
+#### Prerequisites/Setup
+1. Dev server running with `CODEXUI_KANBAN_EXECUTION_ENABLED=1 pnpm run dev -- --host 0.0.0.0 --port 4173`
+2. Tailscale Serve maps the device DNS name to the local dev server, for example `https://codexui-dev.tail7570d1.ts.net`
+3. Open the Tailscale Serve URL on a phone connected to the same tailnet
+4. Light theme and dark theme are both available from Settings
+
+#### Steps
+1. In light theme, open `#/kanban` from the phone over the Tailscale Serve URL
+2. Create or select a task and confirm normal non-execution mutations still work
+3. Click `Run` and confirm the request is allowed when the request arrives from Tailscale Serve
+4. Confirm requests with a spoofed non-Tailscale `x-forwarded-for` value still return `403`
+5. Confirm the run still requires `x-codexui-kanban-csrf`
+6. Switch to dark theme and repeat the Kanban route inspection from the phone
+
+#### Expected Results
+- Loopback browser requests and Tailscale clients are trusted
+- Tailscale Serve forwarding is trusted only when the socket peer is loopback and the forwarded client IP is in the Tailscale range
+- Arbitrary LAN clients, non-Tailscale forwarded clients, and spoofed forwarded headers remain blocked for guarded Kanban mutations
+- CSRF remains required for run, interrupt, cleanup, review, and proposal mutations
+- Light theme and dark theme remain readable on the phone
+
+#### Rollback/Cleanup
+- Stop the dev server and restart without `CODEXUI_KANBAN_EXECUTION_ENABLED=1`
+- Disable or remove the Tailscale Serve mapping if it was only created for testing
+- Archive or delete temporary Kanban tasks from local state
 
 ---
 
@@ -4055,8 +4089,8 @@ End-to-end safe execution hardening for Kanban runs: loopback gating, CSRF, mana
 
 #### Steps
 1. In light theme, create a Kanban task with acceptance criteria
-2. Click `Run` and confirm the request succeeds only from loopback
-3. From a forwarded/remote context, send a run request with `x-forwarded-for` and confirm it returns `403`
+2. Click `Run` and confirm the request succeeds from loopback or Tailscale Serve trusted access
+3. From an untrusted forwarded/remote context, send a run request with a non-Tailscale `x-forwarded-for` value and confirm it returns `403`
 4. Confirm the run creates a worktree under `${CODEX_HOME:-$HOME/.codex}/codexui-kanban/worktrees/`
 5. Click `Stop` while a run is active and confirm the run becomes `cancelled`
 6. Make an uncommitted change in the managed worktree and confirm cleanup is refused
@@ -4069,7 +4103,8 @@ End-to-end safe execution hardening for Kanban runs: loopback gating, CSRF, mana
 
 #### Expected Results
 - Execution remains disabled unless explicitly enabled with `CODEXUI_KANBAN_EXECUTION_ENABLED=1`
-- Non-loopback, forwarded, LAN, Tailscale, and tunnel requests cannot start runs or cleanup worktrees
+- Non-Tailscale forwarded, LAN, and public tunnel requests cannot start runs or cleanup worktrees
+- Tailscale clients and Tailscale Serve forwarding can start runs when execution is enabled and CSRF is present
 - CSRF is required for execution, interrupt, cleanup, review, and proposal mutations
 - Runs use managed worktrees and never run directly on `main`
 - Interrupt preserves the worktree

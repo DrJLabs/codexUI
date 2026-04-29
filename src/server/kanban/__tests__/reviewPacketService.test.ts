@@ -14,8 +14,10 @@ const execFileAsync = promisify(execFile)
 const policy: KanbanExecutionPolicy = {
   enabled: true,
   executionEnabled: true,
-  requireLoopbackForExecution: true,
-  disableExecutionWhenRemote: true,
+  requireTrustedAccessForExecution: true,
+  allowTailscaleAccess: true,
+  requireLoopbackForExecution: false,
+  disableExecutionWhenRemote: false,
   sandboxMode: 'workspace-write',
   approvalPolicy: 'on-request',
   networkAccess: false,

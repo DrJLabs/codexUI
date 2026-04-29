@@ -11,8 +11,10 @@ export function resolveKanbanConfig(env: NodeJS.ProcessEnv = process.env): Kanba
     policy: {
       enabled: true,
       executionEnabled: env.CODEXUI_KANBAN_EXECUTION_ENABLED === '1',
-      requireLoopbackForExecution: true,
-      disableExecutionWhenRemote: true,
+      requireTrustedAccessForExecution: true,
+      allowTailscaleAccess: true,
+      requireLoopbackForExecution: false,
+      disableExecutionWhenRemote: false,
       sandboxMode: 'workspace-write',
       approvalPolicy: 'on-request',
       networkAccess: false,

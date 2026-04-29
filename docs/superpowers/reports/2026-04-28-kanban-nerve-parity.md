@@ -26,7 +26,7 @@ Primary Nerve references:
 
 ## Executive Summary
 
-CodexUI now has a functional Kanban board with task creation, status movement, acceptance criteria, labels, run execution through Codex, managed worktrees, run logs/events, review packets, proposals, rework/approve/reject actions, archival, CSRF protection, loopback-only execution, and audit logging.
+CodexUI now has a functional Kanban board with task creation, status movement, acceptance criteria, labels, run execution through Codex, managed worktrees, run logs/events, review packets, proposals, rework/approve/reject actions, archival, CSRF protection, trusted local/Tailscale execution, and audit logging.
 
 Nerve's board is still broader as a multi-agent workflow system. It has configurable columns, WIP limits, task priorities, assignees, model/thinking settings, due/estimate fields, CAS-versioned updates, server-side filtering and pagination, drag/reorder support, proposal creation/update payloads, marker parsing, proposal policy modes, gateway subagent spawning, completion polling, result capture, and explicit task completion webhooks.
 
@@ -54,13 +54,13 @@ The closest parity statement is:
 | Agent marker ingestion | Not implemented. | Parses `[kanban:create]` / `[kanban:update]` style markers, strips markers from result text, creates proposals from agent output. | Missing Nerve parity |
 | Agent assignment | No assignee model; execution starts a Codex turn for the task. | Task assignee can point to operator or agent, including live root-session targeting for fallback subagent launch. | Missing Nerve parity |
 | Execution start | `/tasks/:taskId/run` creates a managed worktree and starts or resumes a Codex thread through the bridge. | `/tasks/:id/execute` spawns a gateway session or fallback child session, links run metadata, and starts completion polling. | Different model |
-| Execution safety | Requires execution feature flag, loopback mutation checks, CSRF token, one active run globally/repo/task, safe Codex sandbox/approval/network policy, command-risk audit. | Uses Nerve's route rate limiter and gateway preflights; inspected Kanban routes do not expose equivalent CSRF/loopback/worktree controls. | CodexUI ahead |
+| Execution safety | Requires execution feature flag, trusted local/Tailscale access checks, CSRF token, one active run globally/repo/task, safe Codex sandbox/approval/network policy, command-risk audit. | Uses Nerve's route rate limiter and gateway preflights; inspected Kanban routes do not expose equivalent CSRF/Tailscale/worktree controls. | CodexUI ahead |
 | Execution completion | Runner records lifecycle state and exposes run logs/events; review packet can be generated manually or through review actions. | Polls child sessions and has explicit `/complete` webhook; stores result/resultAt/error and moves workflow forward. | Missing Nerve parity |
 | Interrupt/abort | `/runs/:runId/interrupt` interrupts Codex turn and marks cancelled. | `/tasks/:id/abort` aborts running task and records feedback. | Rough parity |
 | Review workflow | Review packets hash diff/test evidence; approve moves to done, reject/rework can return work to rework. | Run completion moves to review, approve/reject endpoints record feedback and move task forward/back. | Partial |
 | Run evidence | Run log path, event path, run status endpoint, logs endpoint, events endpoint, review-packet diff and test summary. | Run link stores session/run IDs, result text, status, error, feedback; evidence mostly via Nerve sessions. | CodexUI ahead on local artifacts |
-| Worktree handling | Managed git worktrees per run; cleanup endpoint requires loopback, inactive run, audit record, typed confirmation. | No equivalent per-task managed worktree model in inspected Kanban implementation. | CodexUI ahead |
-| Audit/security | Hash-chain audit log, CSRF, loopback mutation requirements, risk classifier, disabled execution over remote access. | Rate-limited routes and validation; richer workflow controls but less local mutation hardening in inspected Kanban surface. | CodexUI ahead |
+| Worktree handling | Managed git worktrees per run; cleanup endpoint requires trusted local/Tailscale access, inactive run, audit record, typed confirmation. | No equivalent per-task managed worktree model in inspected Kanban implementation. | CodexUI ahead |
+| Audit/security | Hash-chain audit log, CSRF, trusted-access mutation requirements, risk classifier, and blocked public/LAN execution. | Rate-limited routes and validation; richer workflow controls but less local mutation hardening in inspected Kanban surface. | CodexUI ahead |
 | UI density | Board columns, mobile status tabs, card detail sheet/inspector, criteria controls, status actions, proposal count. | Board, cards, columns, header, quick view, detail drawer, proposal inbox, assignee combobox, drag/drop. | Partial |
 | Agent-facing docs/API | Implementation plan and server endpoints exist, but no dedicated skill/API reference for agents yet. | Dedicated `nerve-kanban` skill and API reference for agents. | Missing Nerve parity |
 
@@ -121,7 +121,7 @@ The following Nerve concepts have a clear CodexUI equivalent, even if names diff
 
 1. Local execution guardrails.
 
-   CodexUI's execution is intentionally restricted: feature flag, loopback-only execution mutations, CSRF on mutations, safe sandbox/approval/network policy, and active-run limits. This should not be weakened to match Nerve behavior.
+   CodexUI's execution is intentionally restricted: feature flag, trusted local/Tailscale execution mutations, CSRF on mutations, safe sandbox/approval/network policy, and active-run limits. This should not be weakened to match Nerve behavior.
 
 2. Managed worktree isolation.
 

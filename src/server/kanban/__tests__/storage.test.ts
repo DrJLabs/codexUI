@@ -16,8 +16,10 @@ async function createHarness() {
     policy: {
       enabled: true,
       executionEnabled: false,
-      requireLoopbackForExecution: true,
-      disableExecutionWhenRemote: true,
+      requireTrustedAccessForExecution: true,
+      allowTailscaleAccess: true,
+      requireLoopbackForExecution: false,
+      disableExecutionWhenRemote: false,
       sandboxMode: 'workspace-write',
       approvalPolicy: 'on-request',
       networkAccess: false,

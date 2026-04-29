@@ -95,6 +95,8 @@ export type KanbanBoard = {
 export type KanbanExecutionPolicy = {
   enabled: boolean
   executionEnabled: boolean
+  requireTrustedAccessForExecution: boolean
+  allowTailscaleAccess: boolean
   requireLoopbackForExecution: boolean
   disableExecutionWhenRemote: boolean
   sandboxMode: 'workspace-write'

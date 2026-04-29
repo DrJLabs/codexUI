@@ -5,8 +5,10 @@ import type { KanbanExecutionPolicy, KanbanStateSnapshot, KanbanTask } from '../
 const policy: KanbanExecutionPolicy = {
   enabled: true,
   executionEnabled: false,
-  requireLoopbackForExecution: true,
-  disableExecutionWhenRemote: true,
+  requireTrustedAccessForExecution: true,
+  allowTailscaleAccess: true,
+  requireLoopbackForExecution: false,
+  disableExecutionWhenRemote: false,
   sandboxMode: 'workspace-write',
   approvalPolicy: 'on-request',
   networkAccess: false,

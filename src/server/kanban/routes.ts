@@ -68,7 +68,7 @@ export function createKanbanRouter(options: CreateKanbanRouterOptions = {}): Rou
   })
 
   router.get('/csrf', (req, res) => {
-    assertLoopbackRequest(req)
+    assertTrustedAccessRequest(req)
     res.status(200).json({ data: { csrfToken: csrf.readToken() } })
   })
 
@@ -143,7 +143,7 @@ export function createKanbanRouter(options: CreateKanbanRouterOptions = {}): Rou
     if (!policy.executionEnabled) {
       throw createHttpError(403, 'Kanban execution is disabled')
     }
-    const access = assertLoopbackRequest(req)
+    const access = assertTrustedAccessRequest(req)
     if (!csrf.verifyRequest(req)) {
       throw createHttpError(403, 'Invalid Kanban CSRF token')
     }
@@ -176,7 +176,7 @@ export function createKanbanRouter(options: CreateKanbanRouterOptions = {}): Rou
     if (!policy.executionEnabled) {
       throw createHttpError(403, 'Kanban execution is disabled')
     }
-    const access = assertLoopbackRequest(req)
+    const access = assertTrustedAccessRequest(req)
     if (!csrf.verifyRequest(req)) {
       throw createHttpError(403, 'Invalid Kanban CSRF token')
     }
@@ -217,7 +217,7 @@ export function createKanbanRouter(options: CreateKanbanRouterOptions = {}): Rou
   }))
 
   router.post('/runs/:runId/worktree/cleanup', asyncHandler(async (req, res) => {
-    assertLoopbackMutation(req, csrf)
+    assertTrustedAccessMutation(req, csrf)
     const runId = readRouteParam(req.params.runId, 'runId')
     const runState = await readStoredRunState(storage, runId)
     if (isActiveRunState(runState)) {
@@ -249,28 +249,28 @@ export function createKanbanRouter(options: CreateKanbanRouterOptions = {}): Rou
   }))
 
   router.post('/tasks/:taskId/review-packet/regenerate', asyncHandler(async (req, res) => {
-    assertLoopbackMutation(req, csrf)
+    assertTrustedAccessMutation(req, csrf)
     const result = await reviewPackets.generateForTask(readRouteParam(req.params.taskId, 'taskId'))
     eventBus.emit({ type: 'task.updated', payload: { taskId: result.task.id } })
     res.status(200).json({ data: result })
   }))
 
   router.post('/tasks/:taskId/rework', asyncHandler(async (req, res) => {
-    assertLoopbackMutation(req, csrf)
+    assertTrustedAccessMutation(req, csrf)
     const task = await service.setTaskStatus(readRouteParam(req.params.taskId, 'taskId'), { status: 'rework' })
     eventBus.emit({ type: 'task.status_changed', payload: { taskId: task.id, status: task.status } })
     res.status(200).json({ data: task })
   }))
 
   router.post('/tasks/:taskId/review/approve', asyncHandler(async (req, res) => {
-    assertLoopbackMutation(req, csrf)
+    assertTrustedAccessMutation(req, csrf)
     const task = await service.setTaskStatus(readRouteParam(req.params.taskId, 'taskId'), { status: 'done' })
     eventBus.emit({ type: 'task.status_changed', payload: { taskId: task.id, status: task.status } })
     res.status(200).json({ data: task })
   }))
 
   router.post('/tasks/:taskId/review/reject', asyncHandler(async (req, res) => {
-    assertLoopbackMutation(req, csrf)
+    assertTrustedAccessMutation(req, csrf)
     const task = await service.setTaskStatus(readRouteParam(req.params.taskId, 'taskId'), { status: 'rework' })
     eventBus.emit({ type: 'task.status_changed', payload: { taskId: task.id, status: task.status } })
     res.status(200).json({ data: task })
@@ -281,14 +281,14 @@ export function createKanbanRouter(options: CreateKanbanRouterOptions = {}): Rou
   }))
 
   router.post('/proposals/:proposalId/accept', asyncHandler(async (req, res) => {
-    assertLoopbackMutation(req, csrf)
+    assertTrustedAccessMutation(req, csrf)
     const proposal = await proposals.acceptProposal(readRouteParam(req.params.proposalId, 'proposalId'))
     eventBus.emit({ type: 'task.created', payload: { proposalId: proposal.id } })
     res.status(200).json({ data: proposal })
   }))
 
   router.post('/proposals/:proposalId/reject', asyncHandler(async (req, res) => {
-    assertLoopbackMutation(req, csrf)
+    assertTrustedAccessMutation(req, csrf)
     const proposal = await proposals.rejectProposal(readRouteParam(req.params.proposalId, 'proposalId'))
     res.status(200).json({ data: proposal })
   }))
@@ -323,16 +323,16 @@ function readRouteParam(value: string | string[] | undefined, name: string): str
   return resolved
 }
 
-function assertLoopbackRequest(req: Request): KanbanRemoteAccess {
+function assertTrustedAccessRequest(req: Request): KanbanRemoteAccess {
   const access = classifyKanbanRemoteAccess(req)
-  if (!access.loopback) {
-    throw createHttpError(403, 'Kanban execution requires loopback access')
+  if (!access.trusted) {
+    throw createHttpError(403, 'Kanban execution requires trusted local or Tailscale access')
   }
   return access
 }
 
-function assertLoopbackMutation(req: Request, csrf: KanbanCsrfProtection): KanbanRemoteAccess {
-  const access = assertLoopbackRequest(req)
+function assertTrustedAccessMutation(req: Request, csrf: KanbanCsrfProtection): KanbanRemoteAccess {
+  const access = assertTrustedAccessRequest(req)
   if (!csrf.verifyRequest(req)) {
     throw createHttpError(403, 'Invalid Kanban CSRF token')
   }
@@ -344,7 +344,10 @@ function createAuditActor(access: KanbanRemoteAccess, sessionId: string): Record
     type: 'local-browser',
     sessionId,
     remoteAddress: access.remoteAddress,
+    forwardedFor: access.forwardedFor,
     loopback: access.loopback,
+    tailscale: access.tailscale,
+    trusted: access.trusted,
     forwarded: access.forwarded,
   }
 }
