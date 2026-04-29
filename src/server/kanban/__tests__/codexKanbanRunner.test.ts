@@ -239,6 +239,29 @@ describe('CodexKanbanRunner', () => {
     expect(Object.values(state.reviewPackets)).toHaveLength(0)
   })
 
+  it('manual failure completion clears a stale review packet from a prior run', async () => {
+    const { service, storage, runner } = await createHarness()
+    const task = await service.createTask({ title: 'Failed rerun stale packet task' })
+    const started = await runner.startTaskRun(task.id, { access, sessionId: 'session_1' })
+    await storage.mutate((state) => {
+      state.tasks[task.id] = {
+        ...state.tasks[task.id]!,
+        reviewPacketId: 'review_packet_stale',
+      }
+      state.reviewPackets.review_packet_stale = { id: 'review_packet_stale' }
+    })
+
+    const result = await runner.completeRun(started.run.id, {
+      result: '',
+      error: 'rerun failed',
+    })
+    const state = await storage.load()
+
+    expect(result.reviewPacketId).toBe('')
+    expect(state.tasks[task.id]!.reviewPacketId).toBe('')
+    expect(state.tasks[task.id]!.runState).toBe('failed')
+  })
+
   it('does not duplicate completion side effects across manual and notification entrypoints', async () => {
     let releaseProposal: () => void = () => {}
     const proposalGate = new Promise<void>((resolve) => {

@@ -311,6 +311,7 @@ export class CodexKanbanRunner {
         result: input.result.trim(),
         resultAtIso: now,
         errorMessage,
+        reviewPacketId: '',
         updatedAtIso: now,
         version: task.version + 1,
       }
