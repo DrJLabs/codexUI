@@ -1,12 +1,73 @@
 <template>
   <aside class="thread-artifact-sidebar" aria-label="Thread artifacts">
-    <header class="thread-artifact-sidebar-header">
+    <header
+      v-if="!workspaceModel"
+      class="thread-artifact-sidebar-header"
+    >
       <div>
         <p>Artifacts</p>
         <strong>{{ threadId ? 'Thread workspace' : 'No thread selected' }}</strong>
       </div>
       <span>{{ allArtifacts.length }}</span>
     </header>
+    <div v-if="workspaceModel" class="thread-artifact-section-groups">
+      <section class="thread-artifact-section-group">
+        <h3>Thread</h3>
+        <button
+          v-for="section in workspaceModel.threadSections"
+          :key="section.id"
+          type="button"
+          class="thread-artifact-section-button"
+          :disabled="!section.enabled"
+          :title="section.reason"
+          :aria-describedby="section.reason && !section.enabled ? `thread-artifact-section-reason-${section.id}` : undefined"
+          @click="selectThreadWorkspaceSection(section)"
+        >
+          <span class="thread-artifact-section-label">
+            <span>{{ section.label }}</span>
+            <span
+              v-if="section.reason && !section.enabled"
+              :id="`thread-artifact-section-reason-${section.id}`"
+              class="thread-artifact-section-reason"
+            >
+              {{ section.reason }}
+            </span>
+          </span>
+          <small>{{ section.deferred ? 'Later' : section.count }}</small>
+        </button>
+      </section>
+      <section class="thread-artifact-section-group">
+        <h3>Workspace</h3>
+        <button
+          v-for="section in workspaceModel.workspaceSections"
+          :key="section.id"
+          type="button"
+          class="thread-artifact-section-button"
+          :disabled="!section.enabled"
+          :title="section.reason"
+          :aria-describedby="section.reason && !section.enabled ? `thread-artifact-section-reason-${section.id}` : undefined"
+          @click="selectProjectWorkspaceSection(section)"
+        >
+          <span class="thread-artifact-section-label">
+            <span>{{ section.label }}</span>
+            <span
+              v-if="section.reason && !section.enabled"
+              :id="`thread-artifact-section-reason-${section.id}`"
+              class="thread-artifact-section-reason"
+            >
+              {{ section.reason }}
+            </span>
+          </span>
+          <small>{{ section.deferred ? 'Later' : section.count }}</small>
+        </button>
+      </section>
+      <p
+        v-if="workspaceModel.deferredFollowUps.length"
+        class="thread-artifact-deferred-note"
+      >
+        Chat integration wiring is tracked for a later phase.
+      </p>
+    </div>
     <ArtifactTabs v-model="activeTab" :tabs="tabs" />
     <section class="thread-artifact-sidebar-body">
       <ArtifactEmptyState
@@ -46,6 +107,7 @@
 import { computed, ref } from 'vue'
 import type { KanbanReviewPacket } from '../../types/kanban'
 import type { WorkspaceProposal } from '../../types/proposal'
+import type { ThreadWorkspaceDrawerSection, ThreadWorkspaceModel } from '../../types/threadWorkspace'
 import type { WorkspaceArtifact } from '../../types/workspaceArtifacts'
 import { useThreadArtifacts, type ThreadArtifactTabId } from '../../composables/useThreadArtifacts'
 import ArtifactEmptyState from './ArtifactEmptyState.vue'
@@ -59,10 +121,12 @@ const props = withDefaults(defineProps<{
   artifacts?: WorkspaceArtifact[]
   reviewPacket?: KanbanReviewPacket | null
   proposals?: WorkspaceProposal[]
+  workspaceModel?: ThreadWorkspaceModel | null
 }>(), {
   artifacts: () => [],
   reviewPacket: null,
   proposals: () => [],
+  workspaceModel: null,
 })
 
 const activeTab = ref<ThreadArtifactTabId>('plan')
@@ -77,6 +141,25 @@ const emptyTitle = computed(() => `${tabs.value.find((tab) => tab.id === activeT
 const emptyCopy = computed(() => props.threadId
   ? 'No artifacts have been recorded for this thread yet.'
   : 'Select a thread to inspect workspace artifacts.')
+
+function selectThreadWorkspaceSection(section: ThreadWorkspaceDrawerSection): void {
+  if (!section.enabled || section.scope !== 'thread') return
+  activeTab.value = toThreadArtifactTab(section.id)
+}
+
+function selectProjectWorkspaceSection(section: ThreadWorkspaceDrawerSection): void {
+  if (!section.enabled || section.scope !== 'workspace') return
+  if (section.id === 'worktrees') {
+    activeTab.value = 'run'
+  }
+}
+
+function toThreadArtifactTab(sectionId: ThreadWorkspaceDrawerSection['id']): ThreadArtifactTabId {
+  if (sectionId === 'run') return 'run'
+  if (sectionId === 'evidence') return 'evidence'
+  if (sectionId === 'review' || sectionId === 'proposals') return 'review'
+  return 'plan'
+}
 </script>
 
 <style scoped>
@@ -125,6 +208,75 @@ const emptyCopy = computed(() => props.threadId
   font-weight: 900;
 }
 
+.thread-artifact-section-groups {
+  display: grid;
+  gap: 12px;
+}
+
+.thread-artifact-section-group {
+  display: grid;
+  gap: 6px;
+}
+
+.thread-artifact-section-group h3 {
+  margin: 0;
+  color: #71717a;
+  font-size: 11px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.thread-artifact-section-button {
+  display: flex;
+  min-height: 34px;
+  align-items: start;
+  justify-content: space-between;
+  gap: 8px;
+  border: 1px solid #e4e4e7;
+  border-radius: 8px;
+  background: #fff;
+  padding: 7px 9px;
+  color: #27272a;
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.thread-artifact-section-label {
+  display: grid;
+  gap: 3px;
+  text-align: left;
+}
+
+.thread-artifact-section-reason {
+  color: #71717a;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.25;
+}
+
+.thread-artifact-section-button:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
+.thread-artifact-section-button small {
+  color: #71717a;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.thread-artifact-deferred-note {
+  margin: 0;
+  border: 1px dashed #d4d4d8;
+  border-radius: 8px;
+  padding: 8px;
+  color: #71717a;
+  font-size: 11px;
+  font-weight: 750;
+  line-height: 1.35;
+}
+
 .thread-artifact-sidebar-body {
   display: grid;
   gap: 8px;
@@ -155,7 +307,11 @@ const emptyCopy = computed(() => props.threadId
 }
 
 :global(:root.dark) .thread-artifact-sidebar-header p,
-:global(:root.dark) .thread-artifact-item p {
+:global(:root.dark) .thread-artifact-item p,
+:global(:root.dark) .thread-artifact-section-group h3,
+:global(:root.dark) .thread-artifact-section-button small,
+:global(:root.dark) .thread-artifact-section-reason,
+:global(:root.dark) .thread-artifact-deferred-note {
   color: #a1a1aa;
 }
 
@@ -166,5 +322,15 @@ const emptyCopy = computed(() => props.threadId
 
 :global(:root.dark) .thread-artifact-item {
   border-color: #3f3f46;
+}
+
+:global(:root.dark) .thread-artifact-section-button {
+  border-color: #3f3f46;
+  background: #18181b;
+  color: #f4f4f5;
+}
+
+:global(:root.dark) .thread-artifact-deferred-note {
+  border-color: #52525b;
 }
 </style>
