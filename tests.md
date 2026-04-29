@@ -4520,6 +4520,45 @@ Normal-thread artifact sidebar shell with Plan, Run, Evidence, and Review tabs.
 
 ---
 
+### Thread Workspace Right Drawer IA
+
+#### Feature/Change Name
+Thread workspace model and project-scoped right drawer sections.
+
+#### Prerequisites/Setup
+1. Use the `feature/thread-workspace-right-drawer-ia-dev` worktree.
+2. Reuse the shared dependency install with `node_modules -> /home/drj/projects/codexUI/node_modules` if this worktree does not already have dependencies.
+3. Start the dev server with `pnpm run dev -- --host 0.0.0.0 --port 5173`.
+4. Open a normal chat thread with the right artifact drawer available.
+5. Use a browser viewport of 1440x900 for desktop checks and 375x812 for mobile checks.
+
+#### Steps
+1. Run `pnpm vitest run src/composables/useThreadWorkspace.test.ts src/composables/useThreadArtifacts.test.ts src/composables/useArtifactEvidence.test.ts`.
+2. Run `pnpm run build`.
+3. In light theme, open a normal chat thread and click the right drawer icon.
+4. Confirm the drawer opens without hiding the chat composer.
+5. Confirm the drawer shows a compact workspace header, Thread sections, project-scoped sections, and the deferred chat integration marker.
+6. Click the Worktrees row when it is enabled and confirm the Run tab is selected.
+7. Close the drawer and reopen it by dragging from the right screen edge on mobile.
+8. Switch to dark theme and repeat steps 3-7.
+9. Select a different thread and confirm the header and artifact counts refresh.
+
+#### Expected Results
+- The right drawer opens by icon and by right-edge swipe on mobile.
+- The drawer remains gated to selected thread routes in this phase.
+- Thread sections select the matching artifact tabs.
+- Project-scoped rows render inside the selected-thread drawer; Worktrees switches to the Run tab when enabled.
+- Actions, Permissions, and Automations are visible but disabled/deferred.
+- Chat integration is only surfaced as a deferred marker; no task, proposal approval, or run starts from chat.
+- The chat composer remains visible after switching threads and after opening/closing the drawer.
+- Light and dark themes have readable surfaces and controls.
+
+#### Rollback/Cleanup
+- Stop the dev server.
+- Remove any test-only chat threads or generated artifacts if created during manual testing.
+
+---
+
 ### Desktop Parity PR Review Fixes
 
 #### Feature/Change Name
