@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
 import { describe, expect, it } from 'vitest'
-import type { KanbanExecutionPolicy, KanbanRun } from '../../../types/kanban'
+import type { KanbanExecutionPolicy, KanbanProposal, KanbanRun } from '../../../types/kanban'
 import { KanbanReviewPacketService } from '../reviewPacketService'
 import { KanbanStorage } from '../storage'
 import { KanbanTaskService } from '../taskService'
@@ -120,5 +120,47 @@ describe('KanbanReviewPacketService', () => {
     await expect(service.generateForTask(taskId))
       .rejects
       .toThrow('has no worktree path')
+  })
+
+  it('tracks only pending proposal IDs as unresolved in review packets', async () => {
+    const { storage, taskId } = await createHarness()
+    const nowIso = new Date().toISOString()
+    const pendingProposal: KanbanProposal = {
+      id: 'proposal_pending',
+      type: 'update',
+      payload: { taskId, patch: { title: 'Pending update' } },
+      sourceRunId: 'run_1',
+      sourceThreadId: 'thread_1',
+      proposedBy: 'codex:auto',
+      status: 'pending',
+      version: 2,
+      createdAtIso: nowIso,
+      updatedAtIso: nowIso,
+      resolvedAtIso: '',
+      resolvedBy: '',
+      reason: '',
+      resultTaskId: '',
+    }
+    const approvedProposal: KanbanProposal = {
+      ...pendingProposal,
+      id: 'proposal_approved',
+      status: 'approved',
+      resolvedAtIso: nowIso,
+      resolvedBy: 'operator',
+      resultTaskId: taskId,
+    }
+    await storage.mutate((state) => {
+      state.proposals[pendingProposal.id] = pendingProposal
+      state.proposals[approvedProposal.id] = approvedProposal
+      state.tasks[taskId] = {
+        ...state.tasks[taskId]!,
+        proposalIds: [pendingProposal.id, approvedProposal.id],
+      }
+    })
+    const service = new KanbanReviewPacketService({ storage })
+
+    const result = await service.generateForTask(taskId)
+
+    expect(result.packet.unresolvedProposalIds).toEqual([pendingProposal.id])
   })
 })

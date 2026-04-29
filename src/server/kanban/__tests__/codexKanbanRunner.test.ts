@@ -191,6 +191,17 @@ describe('CodexKanbanRunner', () => {
     expect(rpcCalls.map((call) => call.method)).toContain('turn/interrupt')
   })
 
+  it('rejects interrupt requests for terminal runs', async () => {
+    const { service, runner } = await createHarness()
+    const task = await service.createTask({ title: 'Already completed task' })
+    const started = await runner.startTaskRun(task.id, { access, sessionId: 'session_1' })
+    await runner.completeRun(started.run.id, { result: 'Already complete' })
+
+    await expect(runner.interruptRun(started.run.id, { access, sessionId: 'session_1' }))
+      .rejects
+      .toThrow('Cannot interrupt inactive Kanban run')
+  })
+
   it('removes interrupted queued runs so later queue promotion can continue', async () => {
     const { service, storage, runner } = await createHarness()
     const firstTask = await service.createTask({ title: 'Active before queued interrupt' })

@@ -28,6 +28,7 @@ export type KanbanAuditSink = {
 export class KanbanAuditLog implements KanbanAuditSink {
   private readonly filePath: string
   private writeQueue: Promise<void> = Promise.resolve()
+  private lastEventHash: string | null | undefined
 
   constructor(options: { dataDir: string; projectRoot: string }) {
     this.filePath = resolveProjectAuditLogPath(options.dataDir, options.projectRoot)
@@ -62,10 +63,12 @@ export class KanbanAuditLog implements KanbanAuditSink {
 
     await mkdir(dirname(this.filePath), { recursive: true })
     await appendFile(this.filePath, `${JSON.stringify(record)}\n`, 'utf8')
+    this.lastEventHash = record.eventHash
     return record
   }
 
   private async readPreviousEventHash(): Promise<string | null> {
+    if (this.lastEventHash !== undefined) return this.lastEventHash
     let content = ''
     try {
       content = await readFile(this.filePath, 'utf8')
@@ -81,6 +84,7 @@ export class KanbanAuditLog implements KanbanAuditSink {
     if (typeof lastRecord.eventHash !== 'string' || !/^[a-f0-9]{64}$/u.test(lastRecord.eventHash)) {
       throw new Error('Kanban audit log is corrupt')
     }
+    this.lastEventHash = lastRecord.eventHash
     return lastRecord.eventHash
   }
 }

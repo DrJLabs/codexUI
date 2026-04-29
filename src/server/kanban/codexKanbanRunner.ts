@@ -10,6 +10,7 @@ import type { KanbanProposalService } from './proposalService'
 import type { KanbanRemoteAccess } from './remoteAccess'
 import type { KanbanReviewPacketService } from './reviewPacketService'
 import type { KanbanStateFileV1 } from './migrations'
+import { KanbanInvalidTransitionError } from './errors'
 import { KanbanStorage } from './storage'
 import { KanbanTaskQueue } from './taskQueue'
 import { KanbanWorktreeManager } from './worktreeManager'
@@ -111,6 +112,9 @@ export class CodexKanbanRunner {
 
   async interruptRun(runId: string, actor: KanbanRunActorContext): Promise<InterruptKanbanRunResponse> {
     const run = await this.readRun(runId)
+    if (!isActiveRunState(run.state)) {
+      throw new KanbanInvalidTransitionError(`Cannot interrupt inactive Kanban run ${runId}`)
+    }
     await this.auditLog.append({
       eventType: 'run.interrupt_requested',
       actor: createAuditActor(actor),

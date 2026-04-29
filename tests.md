@@ -4337,11 +4337,15 @@ Kanban CSRF coverage, review approval validation, startup recovery, and failed-s
 4. In dark theme, repeat task create/edit/archive and confirm the board remains readable.
 5. Attempt to approve a task in review without a current review packet and confirm approval is rejected.
 6. Generate or load a valid review packet with no unresolved proposals and confirm approval moves the task to `done`.
+7. Resolve all pending proposals linked to a review packet and confirm only still-pending proposals block approval.
+8. Try interrupting a completed run and confirm the request is rejected without changing the terminal run/task state.
 
 #### Expected Results
 - All core mutating routes require trusted access plus a current CSRF token.
 - Stale CSRF tokens are refreshed once by the browser gateway and retried.
 - Review approval requires the task's current review packet and rejects unresolved proposals.
+- Review packets track pending proposal IDs only; approved/rejected proposals do not keep approval blocked.
+- Interrupt requests are accepted only for active runs and cannot rewrite terminal runs.
 - Restart recovery marks persisted active/queued runs as `needs_recovery` without deleting worktrees.
 - Failed Codex startup preserves the managed worktree for explicit cleanup.
 - Phone-over-Tailscale access remains supported for guarded board mutations.

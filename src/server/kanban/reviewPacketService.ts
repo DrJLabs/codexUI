@@ -40,6 +40,7 @@ export class KanbanReviewPacketService {
       readGitCommit(worktreePath, 'HEAD'),
       this.testRunner.collectResults(),
     ])
+    const unresolvedProposalIds = await this.readUnresolvedProposalIds(task.proposalIds)
     const snapshot = await buildPacketSnapshot(worktreePath, baseRev, baseCommit, headCommit)
     const rawDiffPatch = snapshot.files.map((file) => file.diff).filter(Boolean).join('\n')
     const packetBase = {
@@ -49,7 +50,7 @@ export class KanbanReviewPacketService {
       headCommit,
       rawDiffPatch,
       testResults,
-      unresolvedProposalIds: task.proposalIds,
+      unresolvedProposalIds,
     }
     const packet: KanbanReviewPacket = {
       id: createKanbanId('review_packet'),
@@ -62,7 +63,7 @@ export class KanbanReviewPacketService {
       rawDiffPatch,
       summary: snapshot.summary,
       testResults,
-      unresolvedProposalIds: task.proposalIds,
+      unresolvedProposalIds,
     }
     await this.storage.mutate((state: KanbanStateFileV1) => {
       const currentTask = state.tasks[taskId]
@@ -93,6 +94,12 @@ export class KanbanReviewPacketService {
     if (!isRun(run)) throw new Error(`Kanban run not found: ${runId}`)
     return run
   }
+
+  private async readUnresolvedProposalIds(proposalIds: string[]): Promise<string[]> {
+    if (proposalIds.length === 0) return []
+    const state = await this.storage.load()
+    return proposalIds.filter((proposalId) => isPendingProposal(state.proposals[proposalId]))
+  }
 }
 
 function isRun(value: unknown): value is KanbanRun {
@@ -101,6 +108,12 @@ function isRun(value: unknown): value is KanbanRun {
 
 function isReviewPacket(value: unknown): value is KanbanReviewPacket {
   return value !== null && typeof value === 'object' && typeof (value as { packetHash?: unknown }).packetHash === 'string'
+}
+
+function isPendingProposal(value: unknown): boolean {
+  return value !== null
+    && typeof value === 'object'
+    && (value as { status?: unknown }).status === 'pending'
 }
 
 async function readGitCommit(cwd: string, rev: string): Promise<string> {
