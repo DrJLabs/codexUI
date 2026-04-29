@@ -12,6 +12,7 @@ import { KanbanProposalService } from '../proposalService'
 import { KanbanReviewPacketService } from '../reviewPacketService'
 import { KanbanStorage } from '../storage'
 import { KanbanTaskService } from '../taskService'
+import type { KanbanTaskQueueLimits } from '../taskQueue'
 import { KanbanWorktreeManager } from '../worktreeManager'
 import type { KanbanRemoteAccess } from '../remoteAccess'
 import type { KanbanExecutionPolicy, KanbanProposal } from '../../../types/kanban'
@@ -58,6 +59,7 @@ type HarnessOptions = {
   reviewPacketService?: Pick<KanbanReviewPacketService, 'generateForTask'>
   proposalService?: Pick<KanbanProposalService, 'createProposalsFromMarkers'>
   failThreadStart?: boolean
+  queueLimits?: Partial<KanbanTaskQueueLimits>
 }
 
 async function createHarness(options: HarnessOptions = {}) {
@@ -126,6 +128,7 @@ async function createHarness(options: HarnessOptions = {}) {
     auditLog: new KanbanAuditLog({ dataDir, projectRoot }),
     proposalService,
     reviewPacketService,
+    queueLimits: options.queueLimits,
   })
   return { projectRoot, service, storage, runner, rpcCalls, notificationListeners, bridge }
 }
@@ -219,6 +222,27 @@ describe('CodexKanbanRunner', () => {
     expect(state.runs[secondRun.run.id]).toMatchObject({ state: 'cancelled' })
     expect(thirdRun.run.state).toBe('running')
     expect(state.tasks[thirdTask.id]).toMatchObject({ status: 'running', runState: 'running' })
+  })
+
+  it('applies configured queue limits when starting runs', async () => {
+    const { service, storage, runner } = await createHarness({
+      queueLimits: {
+        maxGlobalActiveRuns: 2,
+        maxActiveRunsPerRepo: 2,
+        maxActiveRunsPerTask: 1,
+      },
+    })
+    const firstTask = await service.createTask({ title: 'First policy-capacity task' })
+    const secondTask = await service.createTask({ title: 'Second policy-capacity task' })
+
+    const firstRun = await runner.startTaskRun(firstTask.id, { access, sessionId: 'session_1' })
+    const secondRun = await runner.startTaskRun(secondTask.id, { access, sessionId: 'session_1' })
+
+    const state = await storage.load()
+    expect(firstRun.run.state).toBe('running')
+    expect(secondRun.run.state).toBe('running')
+    expect(state.tasks[firstTask.id]).toMatchObject({ runState: 'running' })
+    expect(state.tasks[secondTask.id]).toMatchObject({ runState: 'running' })
   })
 
   it('completes a matching active run from a turn completion notification', async () => {

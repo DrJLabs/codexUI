@@ -183,6 +183,7 @@ export function useKanbanBoard(options: UseKanbanBoardOptions = {}) {
   const selectedTaskId = ref('')
   const filters = ref<KanbanFilters>(storedFilters)
   let proposalLoadSequence = 0
+  let boardRefreshSequence = 0
   let boardEventRefreshPending = false
   let proposalEventRefreshPending = false
 
@@ -276,23 +277,29 @@ export function useKanbanBoard(options: UseKanbanBoardOptions = {}) {
     }
   }
 
-  async function refreshBoardAndTaskList(): Promise<void> {
+  async function refreshBoardAndTaskList(refreshId = ++boardRefreshSequence): Promise<boolean> {
     const [snapshot, taskList] = await Promise.all([
       gateway.loadKanbanState(),
       gateway.listKanbanTasks(serverQuery.value),
     ])
+    if (refreshId !== boardRefreshSequence) return false
     applySnapshot(snapshot)
     listState.value = taskList
     versionConflict.value = null
+    return true
   }
 
   async function loadBoard(): Promise<void> {
+    const refreshId = ++boardRefreshSequence
+    proposalLoadSequence += 1
     isLoading.value = true
     errorMessage.value = ''
     try {
-      await refreshBoardAndTaskList()
+      const applied = await refreshBoardAndTaskList(refreshId)
+      if (!applied) return
       void loadProposalsSafely(proposalStatus.value)
     } catch (error) {
+      if (refreshId !== boardRefreshSequence) return
       tasks.value = []
       config.value = null
       listState.value = null
@@ -302,7 +309,9 @@ export function useKanbanBoard(options: UseKanbanBoardOptions = {}) {
       selectedTaskId.value = ''
       errorMessage.value = error instanceof Error ? error.message : 'Failed to load Kanban board'
     } finally {
-      isLoading.value = false
+      if (refreshId === boardRefreshSequence) {
+        isLoading.value = false
+      }
     }
   }
 
@@ -374,7 +383,9 @@ export function useKanbanBoard(options: UseKanbanBoardOptions = {}) {
   }
 
   function refreshBoardInBackground(): void {
-    void refreshBoardAndTaskList().catch((error: unknown) => {
+    const refreshId = ++boardRefreshSequence
+    void refreshBoardAndTaskList(refreshId).catch((error: unknown) => {
+      if (refreshId !== boardRefreshSequence) return
       errorMessage.value = error instanceof Error ? error.message : 'Failed to refresh Kanban board'
     })
   }

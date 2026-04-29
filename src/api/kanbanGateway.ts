@@ -252,6 +252,9 @@ export function subscribeKanbanEvents(
   source.addEventListener('task.created', (event) => handleKanbanEvent(event, handler))
   source.addEventListener('task.updated', (event) => handleKanbanEvent(event, handler))
   source.addEventListener('task.status_changed', (event) => handleKanbanEvent(event, handler))
+  source.addEventListener('run.started', (event) => handleKanbanEvent(event, handler))
+  source.addEventListener('run.completed', (event) => handleKanbanEvent(event, handler))
+  source.addEventListener('run.cancelled', (event) => handleKanbanEvent(event, handler))
   source.addEventListener('proposal.created', (event) => handleKanbanEvent(event, handler))
   source.addEventListener('proposal.resolved', (event) => handleKanbanEvent(event, handler))
   source.onerror = (error) => {

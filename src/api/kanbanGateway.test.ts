@@ -30,6 +30,28 @@ describe('kanbanGateway CSRF handling', () => {
     expect(task).toMatchObject({ id: 'task_1' })
     expect(fetchMock).toHaveBeenCalledTimes(4)
   })
+
+  it('subscribes to run lifecycle events from the Kanban event stream', async () => {
+    const eventSources: MockEventSource[] = []
+    vi.stubGlobal('EventSource', class extends MockEventSource {
+      constructor(url: string) {
+        super(url)
+        eventSources.push(this)
+      }
+    })
+    const { subscribeKanbanEvents } = await import('./kanbanGateway')
+
+    const unsubscribe = subscribeKanbanEvents(() => {})
+
+    expect(eventSources).toHaveLength(1)
+    expect(eventSources[0]!.listeners.map((listener) => listener.type)).toEqual(expect.arrayContaining([
+      'run.started',
+      'run.completed',
+      'run.cancelled',
+    ]))
+    unsubscribe()
+    expect(eventSources[0]!.closed).toBe(true)
+  })
 })
 
 function jsonResponse(status: number, payload: unknown): Response {
@@ -38,4 +60,20 @@ function jsonResponse(status: number, payload: unknown): Response {
     status,
     json: async () => payload,
   } as Response
+}
+
+class MockEventSource {
+  readonly listeners: Array<{ type: string; listener: EventListenerOrEventListenerObject }> = []
+  onerror: ((error: Event) => void) | null = null
+  closed = false
+
+  constructor(readonly url: string) {}
+
+  addEventListener(type: string, listener: EventListenerOrEventListenerObject): void {
+    this.listeners.push({ type, listener })
+  }
+
+  close(): void {
+    this.closed = true
+  }
 }

@@ -70,6 +70,11 @@ export function createKanbanRouter(options: CreateKanbanRouterOptions = {}): Rou
     proposalService: proposals,
     reviewPacketService: reviewPackets,
     eventBus,
+    queueLimits: {
+      maxGlobalActiveRuns: policy.maxGlobalActiveRuns,
+      maxActiveRunsPerRepo: policy.maxActiveRunsPerRepo,
+      maxActiveRunsPerTask: policy.maxActiveRunsPerTask,
+    },
   }) : null
   const router = express.Router()
   const startupRecovery = recoverStaleKanbanRuns(storage).catch((error) => {
@@ -344,7 +349,9 @@ export function createKanbanRouter(options: CreateKanbanRouterOptions = {}): Rou
 
   router.post('/tasks/:taskId/review/reject', asyncHandler(async (req, res) => {
     assertTrustedAccessMutation(req, csrf)
-    const task = await service.setTaskStatus(readRouteParam(req.params.taskId, 'taskId'), { ...parseDeleteTaskInput(req.body), status: 'rework' })
+    const taskId = readRouteParam(req.params.taskId, 'taskId')
+    await assertTaskInReviewWithCurrentPacket(storage, taskId)
+    const task = await service.setTaskStatus(taskId, { ...parseDeleteTaskInput(req.body), status: 'rework' })
     eventBus.emit({ type: 'task.status_changed', payload: { taskId: task.id, status: task.status } })
     res.status(200).json({ data: task })
   }))
@@ -488,6 +495,13 @@ function isActiveRunState(state: string): boolean {
 }
 
 async function assertTaskHasCurrentReviewPacket(storage: KanbanStorage, taskId: string): Promise<void> {
+  const packet = await assertTaskInReviewWithCurrentPacket(storage, taskId)
+  if (packet.unresolvedProposalIds.length > 0) {
+    throw createHttpError(409, 'Kanban task has unresolved proposals and cannot be approved')
+  }
+}
+
+async function assertTaskInReviewWithCurrentPacket(storage: KanbanStorage, taskId: string): Promise<KanbanReviewPacket> {
   const state = await storage.load()
   const task = state.tasks[taskId]
   if (!task) throw new KanbanNotFoundError(`Kanban task not found: ${taskId}`)
@@ -501,9 +515,7 @@ async function assertTaskHasCurrentReviewPacket(storage: KanbanStorage, taskId: 
   if (!isReviewPacket(packet) || packet.taskId !== task.id || packet.runId !== task.currentRunId) {
     throw createHttpError(409, 'Kanban task requires a current valid review packet before approval')
   }
-  if (packet.unresolvedProposalIds.length > 0) {
-    throw createHttpError(409, 'Kanban task has unresolved proposals and cannot be approved')
-  }
+  return packet
 }
 
 function isReviewPacket(value: unknown): value is KanbanReviewPacket {

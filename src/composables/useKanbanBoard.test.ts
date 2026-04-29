@@ -551,6 +551,42 @@ describe('useKanbanBoard', () => {
     })
   })
 
+  it('ignores stale board load responses after a newer load wins', async () => {
+    const oldTask = createTask({ id: 'task_old', title: 'Old task' })
+    const newTask = createTask({ id: 'task_new', title: 'New task' })
+    const oldSnapshot = createDeferred<KanbanStateSnapshot>()
+    const oldList = createDeferred<KanbanTaskListResult>()
+    const newSnapshot = createDeferred<KanbanStateSnapshot>()
+    const newList = createDeferred<KanbanTaskListResult>()
+    let loadCount = 0
+    const gateway = createGateway(createState([]))
+    gateway.loadKanbanState = vi.fn(async () => {
+      loadCount += 1
+      return loadCount === 1 ? await oldSnapshot.promise : await newSnapshot.promise
+    })
+    let listCount = 0
+    gateway.listKanbanTasks = vi.fn(async () => {
+      listCount += 1
+      return listCount === 1 ? await oldList.promise : await newList.promise
+    })
+    const board = useKanbanBoard({ gateway, storage: null })
+
+    const oldLoad = board.loadBoard()
+    const newLoad = board.loadBoard()
+    newSnapshot.resolve(createState([newTask]))
+    newList.resolve(createListResult([newTask]))
+    await newLoad
+
+    expect(board.tasks.value.map((task) => task.id)).toEqual([newTask.id])
+
+    oldSnapshot.resolve(createState([oldTask]))
+    oldList.resolve(createListResult([oldTask]))
+    await oldLoad
+
+    expect(board.tasks.value.map((task) => task.id)).toEqual([newTask.id])
+    expect(board.listState.value?.items.map((task) => task.id)).toEqual([newTask.id])
+  })
+
   it('adds priority and assignee filters to task list loads', async () => {
     const task = createTask({ id: 'task_filtered', priority: 'high', assignee: 'codex:auto' })
     const gateway = withTaskListGateway(createGateway(createState([task])), async (params) => createListResult([task], {

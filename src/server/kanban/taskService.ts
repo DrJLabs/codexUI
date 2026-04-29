@@ -66,7 +66,7 @@ export class KanbanTaskService {
       const defaultPriority = state.settings.kanbanConfig.defaults.priority
       const taskId = createKanbanId('task')
       const nextColumnOrder = Object.values(state.tasks)
-        .filter((task) => task.status === defaultStatus)
+        .filter((task) => task.status === defaultStatus && !task.archived)
         .reduce((nextOrder, task) => Math.max(nextOrder, task.columnOrder + 1), 0)
       createdTask = {
         id: taskId,

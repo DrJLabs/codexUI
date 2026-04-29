@@ -67,6 +67,16 @@ describe('KanbanTaskService', () => {
     expect(secondTask.columnOrder).toBe(1)
   })
 
+  it('places new tasks after active tasks only', async () => {
+    const { service } = await createHarness()
+    const archivedTask = await service.createTask({ title: 'Archived first task' })
+    await service.archiveTask(archivedTask.id, { version: archivedTask.version })
+
+    const newTask = await service.createTask({ title: 'New active task' })
+
+    expect(newTask.columnOrder).toBe(0)
+  })
+
   it('rejects stale updates with a version conflict code', async () => {
     const { service } = await createHarness()
     const task = await service.createTask({ title: 'Original task' })

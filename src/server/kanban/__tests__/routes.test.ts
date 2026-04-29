@@ -547,6 +547,84 @@ describe('createKanbanMiddleware', () => {
     expect(approved.body.data.status).toBe('done')
   })
 
+  it('requires a current review packet before rejecting a task review', async () => {
+    const { baseUrl, dataDir, projectRoot } = await createTestServer()
+    const storage = new KanbanStorage({ dataDir, projectRoot })
+    const created = await requestJson<{ data: { id: string; version: number; createdAtIso: string; updatedAtIso: string } }>(
+      `${baseUrl}/codex-api/kanban/tasks`,
+      await withCsrf(baseUrl, {
+        method: 'POST',
+        body: JSON.stringify({ title: 'Reject target' }),
+      }),
+    )
+    const run: KanbanRun = {
+      id: 'run_route_reject_review',
+      taskId: created.body.data.id,
+      state: 'succeeded',
+      projectRoot,
+      worktreePath: projectRoot,
+      branchName: 'codexui/task/route-reject-review',
+      threadId: 'thread_route_reject',
+      turnId: 'turn_route_reject',
+      logPath: join(dataDir, 'logs.txt'),
+      eventsPath: join(dataDir, 'events.jsonl'),
+      errorMessage: '',
+      createdAtIso: created.body.data.createdAtIso,
+      updatedAtIso: created.body.data.updatedAtIso,
+    }
+    await storage.mutate((state) => {
+      state.runs[run.id] = run
+      state.tasks[created.body.data.id] = {
+        ...state.tasks[created.body.data.id]!,
+        status: 'running',
+        currentRunId: run.id,
+        version: created.body.data.version + 1,
+      }
+    })
+    const nonReviewReject = await requestJson<{ error: string }>(
+      `${baseUrl}/codex-api/kanban/tasks/${created.body.data.id}/review/reject`,
+      await withCsrf(baseUrl, {
+        method: 'POST',
+        body: JSON.stringify({ version: created.body.data.version + 1 }),
+      }),
+    )
+    const packet: KanbanReviewPacket = {
+      id: 'review_packet_route_reject',
+      taskId: created.body.data.id,
+      runId: run.id,
+      packetHash: 'hash',
+      generatedAtIso: new Date().toISOString(),
+      baseCommit: 'base',
+      headCommit: 'head',
+      rawDiffPatch: 'diff',
+      summary: { fileCount: 1, addedLineCount: 1, removedLineCount: 0 },
+      testResults: [],
+      unresolvedProposalIds: ['proposal_pending'],
+    }
+    await storage.mutate((state) => {
+      state.reviewPackets[packet.id] = packet
+      state.tasks[created.body.data.id] = {
+        ...state.tasks[created.body.data.id]!,
+        status: 'review',
+        reviewPacketId: packet.id,
+        proposalIds: ['proposal_pending'],
+        version: created.body.data.version + 2,
+      }
+    })
+    const rejected = await requestJson<{ data: { status: string } }>(
+      `${baseUrl}/codex-api/kanban/tasks/${created.body.data.id}/review/reject`,
+      await withCsrf(baseUrl, {
+        method: 'POST',
+        body: JSON.stringify({ version: created.body.data.version + 2 }),
+      }),
+    )
+
+    expect(nonReviewReject.status).toBe(409)
+    expect(nonReviewReject.body.error).toContain('review')
+    expect(rejected.status).toBe(200)
+    expect(rejected.body.data.status).toBe('rework')
+  })
+
   it('creates, filters, approves, and rejects V2 proposals over HTTP', async () => {
     const eventBus = new KanbanEventBus()
     const events: string[] = []

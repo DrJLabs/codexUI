@@ -12,7 +12,7 @@ import type { KanbanReviewPacketService } from './reviewPacketService'
 import type { KanbanStateFileV1 } from './migrations'
 import { KanbanInvalidTransitionError } from './errors'
 import { KanbanStorage } from './storage'
-import { KanbanTaskQueue } from './taskQueue'
+import { KanbanTaskQueue, type KanbanTaskQueueLimits } from './taskQueue'
 import { KanbanWorktreeManager } from './worktreeManager'
 import type { CodexBridgeRuntime } from '../codexAppServerBridge'
 
@@ -26,6 +26,7 @@ export type CodexKanbanRunnerOptions = {
   proposalService?: Pick<KanbanProposalService, 'createProposalsFromMarkers'>
   reviewPacketService?: Pick<KanbanReviewPacketService, 'generateForTask'>
   eventBus?: KanbanEventBus
+  queueLimits?: Partial<KanbanTaskQueueLimits>
 }
 
 export type KanbanRunActorContext = {
@@ -55,7 +56,7 @@ export class CodexKanbanRunner {
   private readonly proposalService?: Pick<KanbanProposalService, 'createProposalsFromMarkers'>
   private readonly reviewPacketService?: Pick<KanbanReviewPacketService, 'generateForTask'>
   private readonly eventBus?: KanbanEventBus
-  private readonly queue = new KanbanTaskQueue()
+  private readonly queue: KanbanTaskQueue
   private readonly completionLocks = new Map<string, Promise<void>>()
 
   constructor(options: CodexKanbanRunnerOptions) {
@@ -68,6 +69,7 @@ export class CodexKanbanRunner {
     this.proposalService = options.proposalService
     this.reviewPacketService = options.reviewPacketService
     this.eventBus = options.eventBus
+    this.queue = new KanbanTaskQueue(options.queueLimits)
     this.bridge.subscribeNotifications((notification) => this.handleBridgeNotification(notification))
   }
 
@@ -95,7 +97,6 @@ export class CodexKanbanRunner {
     try {
       return await this.startActiveRun(run, task)
     } catch (error) {
-      await this.releaseRunAndStartPromoted(run.id)
       const message = error instanceof Error ? error.message : 'Kanban run failed to start'
       const latestRun = await this.readRun(run.id).catch(() => run)
       const failedRun = { ...latestRun, state: 'failed' as const, errorMessage: message, updatedAtIso: new Date().toISOString() }
@@ -106,6 +107,7 @@ export class CodexKanbanRunner {
         branchName: failedRun.branchName,
         errorMessage: message,
       })
+      await this.releaseRunAndStartPromoted(run.id)
       return Promise.reject(Object.assign(new Error(message), { run: failedRun, task: failedTask }))
     }
   }
