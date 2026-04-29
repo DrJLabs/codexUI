@@ -853,24 +853,24 @@
                       aria-label="Thread artifacts"
                       @click.stop
                     >
-	                      <div class="artifact-drawer-header">
-	                        <button
-	                          class="artifact-drawer-close"
+                      <div class="artifact-drawer-header">
+                        <button
+                          class="artifact-drawer-close"
                           type="button"
                           :aria-label="t('Close artifacts')"
                           :title="t('Close artifacts')"
                           @click="closeArtifactDrawer"
                         >
-	                          <IconTablerX class="artifact-drawer-close-icon" />
-	                        </button>
-	                      </div>
-	                      <ThreadWorkspaceHeader :model="threadWorkspaceModel" />
-	                      <ThreadArtifactSidebar
-	                        class="artifact-drawer-sidebar"
-	                        :thread-id="threadWorkspaceModel.threadId"
-	                        :artifacts="selectedThreadArtifacts"
-	                        :workspace-model="threadWorkspaceModel"
-	                      />
+                          <IconTablerX class="artifact-drawer-close-icon" />
+                        </button>
+                      </div>
+                      <ThreadWorkspaceHeader :model="threadWorkspaceModel" />
+                      <ThreadArtifactSidebar
+                        class="artifact-drawer-sidebar"
+                        :thread-id="threadWorkspaceModel.threadId"
+                        :artifacts="selectedThreadArtifacts"
+                        :workspace-model="threadWorkspaceModel"
+                      />
                     </aside>
                   </div>
                 </Transition>
