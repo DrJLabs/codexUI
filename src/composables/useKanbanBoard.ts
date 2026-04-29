@@ -2,9 +2,12 @@ import { computed, ref, type Ref } from 'vue'
 import {
   archiveKanbanTask,
   createKanbanTask,
+  interruptKanbanRun,
   loadKanbanState,
+  loadKanbanRunLogs,
   replaceKanbanAcceptanceCriteria,
   setKanbanTaskStatus,
+  startKanbanTaskRun,
   subscribeKanbanEvents,
   updateKanbanTask,
 } from '../api/kanbanGateway'
@@ -19,6 +22,9 @@ export type KanbanBoardGateway = {
   setKanbanTaskStatus: typeof setKanbanTaskStatus
   archiveKanbanTask: typeof archiveKanbanTask
   replaceKanbanAcceptanceCriteria: typeof replaceKanbanAcceptanceCriteria
+  startKanbanTaskRun: typeof startKanbanTaskRun
+  interruptKanbanRun: typeof interruptKanbanRun
+  loadKanbanRunLogs: typeof loadKanbanRunLogs
   subscribeKanbanEvents: typeof subscribeKanbanEvents
 }
 
@@ -41,6 +47,9 @@ const defaultGateway: KanbanBoardGateway = {
   setKanbanTaskStatus,
   archiveKanbanTask,
   replaceKanbanAcceptanceCriteria,
+  startKanbanTaskRun,
+  interruptKanbanRun,
+  loadKanbanRunLogs,
   subscribeKanbanEvents,
 }
 
@@ -86,6 +95,7 @@ export function useKanbanBoard(options: UseKanbanBoardOptions = {}) {
   const storage = resolveStorage(options.storage)
   const tasks: Ref<KanbanTask[]> = ref([])
   const executionPolicy = ref<KanbanExecutionPolicy | null>(null)
+  const runLogsByRunId = ref<Record<string, string>>({})
   const isLoading = ref(false)
   const errorMessage = ref('')
   const selectedTaskId = ref('')
@@ -222,6 +232,29 @@ export function useKanbanBoard(options: UseKanbanBoardOptions = {}) {
     return await updateAcceptanceCriterion(taskId, criterionId, { checked })
   }
 
+  async function startTaskRun(taskId: string): Promise<KanbanTask> {
+    const result = await gateway.startKanbanTaskRun(taskId)
+    patchTask(result.task)
+    await refreshRunLog(result.run.id)
+    return result.task
+  }
+
+  async function interruptTaskRun(runId: string): Promise<KanbanTask | null> {
+    const result = await gateway.interruptKanbanRun(runId)
+    if (result.task) {
+      patchTask(result.task)
+    }
+    await refreshRunLog(result.run.id)
+    return result.task
+  }
+
+  async function refreshRunLog(runId: string): Promise<string> {
+    if (!runId) return ''
+    const log = await gateway.loadKanbanRunLogs(runId)
+    runLogsByRunId.value = { ...runLogsByRunId.value, [runId]: log }
+    return log
+  }
+
   function selectTask(taskId: string): void {
     selectedTaskId.value = taskId
   }
@@ -274,6 +307,7 @@ export function useKanbanBoard(options: UseKanbanBoardOptions = {}) {
     selectedTask,
     filters,
     executionPolicy,
+    runLogsByRunId,
     isLoading,
     errorMessage,
     loadBoard,
@@ -288,6 +322,9 @@ export function useKanbanBoard(options: UseKanbanBoardOptions = {}) {
     updateAcceptanceCriterion,
     removeAcceptanceCriterion,
     setCriterionChecked,
+    startTaskRun,
+    interruptTaskRun,
+    refreshRunLog,
     setSearchQuery,
     toggleLabelFilter,
     clearFilters,

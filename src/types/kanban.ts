@@ -68,6 +68,22 @@ export type KanbanTask = {
   version: number
 }
 
+export type KanbanRun = {
+  id: string
+  taskId: string
+  state: KanbanRunState
+  projectRoot: string
+  worktreePath: string
+  branchName: string
+  threadId: string
+  turnId: string
+  logPath: string
+  eventsPath: string
+  errorMessage: string
+  createdAtIso: string
+  updatedAtIso: string
+}
+
 export type KanbanBoard = {
   id: string
   title: string
@@ -99,6 +115,16 @@ export type KanbanStateSnapshot = {
   tasks: KanbanTask[]
   policy: KanbanExecutionPolicy
   generatedAtIso: string
+}
+
+export type StartKanbanRunResponse = {
+  run: KanbanRun
+  task: KanbanTask
+}
+
+export type InterruptKanbanRunResponse = {
+  run: KanbanRun
+  task: KanbanTask | null
 }
 
 export type CreateKanbanTaskInput = {

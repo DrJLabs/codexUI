@@ -47,8 +47,13 @@
         />
         <KanbanTaskInspector
           :task="selectedTask"
+          :execution-policy="executionPolicy"
+          :run-log="selectedRunLog"
           @close="clearSelection"
           @archive="archiveSelectedTask"
+          @start-run="startSelectedTaskRun"
+          @interrupt-run="interruptSelectedTaskRun"
+          @refresh-run-log="refreshSelectedRunLog"
           @set-status="setSelectedTaskStatus"
           @save-summary="saveSelectedSummary"
           @add-criterion="addSelectedCriterion"
@@ -58,8 +63,13 @@
         />
         <KanbanTaskSheet
           :task="selectedTask"
+          :execution-policy="executionPolicy"
+          :run-log="selectedRunLog"
           @close="clearSelection"
           @archive="archiveSelectedTask"
+          @start-run="startSelectedTaskRun"
+          @interrupt-run="interruptSelectedTaskRun"
+          @refresh-run-log="refreshSelectedRunLog"
           @set-status="setSelectedTaskStatus"
           @save-summary="saveSelectedSummary"
           @add-criterion="addSelectedCriterion"
@@ -93,6 +103,7 @@ const {
   isLoading,
   errorMessage,
   executionPolicy,
+  runLogsByRunId,
   loadBoard,
   createTask,
   updateTask,
@@ -104,6 +115,9 @@ const {
   updateAcceptanceCriterion,
   removeAcceptanceCriterion,
   setCriterionChecked,
+  startTaskRun,
+  interruptTaskRun,
+  refreshRunLog,
   setSearchQuery,
   toggleLabelFilter,
   clearFilters,
@@ -120,6 +134,10 @@ const labelNames = computed(() => Array.from(new Set(
 )).sort((left, right) => left.localeCompare(right)))
 
 const activeTaskCount = computed(() => Object.values(countsByStatus.value).reduce((total, count) => total + count, 0))
+const selectedRunLog = computed(() => {
+  const runId = selectedTask.value?.currentRunId ?? ''
+  return runId ? runLogsByRunId.value[runId] ?? '' : ''
+})
 
 onMounted(() => {
   void loadBoard()
@@ -198,6 +216,24 @@ function toggleSelectedCriterion(criterionId: string, checked: boolean): void {
   const taskId = readSelectedTaskId()
   if (!taskId) return
   void runMutation('Update criterion failed', () => setCriterionChecked(taskId, criterionId, checked))
+}
+
+function startSelectedTaskRun(): void {
+  const taskId = readSelectedTaskId()
+  if (!taskId) return
+  void runMutation('Start run failed', () => startTaskRun(taskId))
+}
+
+function interruptSelectedTaskRun(): void {
+  const runId = selectedTask.value?.currentRunId ?? ''
+  if (!runId) return
+  void runMutation('Stop run failed', () => interruptTaskRun(runId))
+}
+
+function refreshSelectedRunLog(): void {
+  const runId = selectedTask.value?.currentRunId ?? ''
+  if (!runId) return
+  void runMutation('Refresh run log failed', () => refreshRunLog(runId))
 }
 
 async function runMutation<T>(label: string, operation: () => Promise<T>): Promise<T | null> {

@@ -8,6 +8,17 @@
       <button type="button" aria-label="Close task inspector" @click="$emit('close')">Close</button>
     </header>
     <TaskStatusActions :status="task.status" @set-status="$emit('set-status', $event)" />
+    <TaskRunControls
+      :task="task"
+      :policy="executionPolicy"
+      @start-run="$emit('start-run')"
+      @interrupt-run="$emit('interrupt-run')"
+    />
+    <TaskRunLogPanel
+      :run-id="task.currentRunId"
+      :log-text="runLog"
+      @refresh="$emit('refresh-run-log')"
+    />
     <TaskSummaryEditor :task="task" @save="$emit('save-summary', $event)" @archive="$emit('archive')" />
     <AcceptanceCriteriaEditor
       :task="task"
@@ -23,18 +34,25 @@
 </template>
 
 <script setup lang="ts">
-import type { KanbanStatus, KanbanTask, KanbanTaskLabel } from '../../types/kanban'
+import type { KanbanExecutionPolicy, KanbanStatus, KanbanTask, KanbanTaskLabel } from '../../types/kanban'
 import AcceptanceCriteriaEditor from './AcceptanceCriteriaEditor.vue'
 import TaskStatusActions from './TaskStatusActions.vue'
+import TaskRunControls from './TaskRunControls.vue'
+import TaskRunLogPanel from './TaskRunLogPanel.vue'
 import TaskSummaryEditor from './TaskSummaryEditor.vue'
 
 defineProps<{
   task: KanbanTask | null
+  executionPolicy: KanbanExecutionPolicy | null
+  runLog: string
 }>()
 
 defineEmits<{
   close: []
   archive: []
+  'start-run': []
+  'interrupt-run': []
+  'refresh-run-log': []
   'set-status': [status: KanbanStatus]
   'save-summary': [patch: { title: string; description: string; labels: KanbanTaskLabel[] }]
   'add-criterion': [text: string]

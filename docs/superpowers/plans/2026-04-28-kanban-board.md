@@ -965,7 +965,7 @@ git commit -m "feat: expose kanban codex bridge adapter"
 - Modify: `src/components/kanban/KanbanTaskInspector.vue`
 - Modify: `src/components/kanban/KanbanTaskSheet.vue`
 
-- [ ] **Step 1: Implement runner flow**
+- [x] **Step 1: Implement runner flow**
 
 Run start flow:
 
@@ -979,11 +979,11 @@ Run start flow:
 8. On completion, capture `git status` and diff.
 9. Move task to `review` and generate review packet in Task 11.
 
-- [ ] **Step 2: Implement interrupt**
+- [x] **Step 2: Implement interrupt**
 
 `POST /codex-api/kanban/runs/:runId/interrupt` marks run `stopping`, calls `turn/interrupt`, preserves the worktree, writes audit events, and moves to `cancelled` or `needs_recovery`.
 
-- [ ] **Step 3: Implement log routes**
+- [x] **Step 3: Implement log routes**
 
 Add:
 
@@ -993,11 +993,11 @@ GET /codex-api/kanban/runs/:runId/logs
 GET /codex-api/kanban/runs/:runId/events
 ```
 
-- [ ] **Step 4: Add UI controls**
+- [x] **Step 4: Add UI controls**
 
 Show Run controls only when policy says local execution is available. Remote/tunnel sessions show a disabled banner and cannot start or approve runs.
 
-- [ ] **Step 5: Tests and commit**
+- [x] **Step 5: Tests and commit**
 
 Add unit tests with a fake bridge runtime. Do not call real Codex in unit tests.
 

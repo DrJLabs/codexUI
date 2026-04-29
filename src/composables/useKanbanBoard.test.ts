@@ -112,6 +112,51 @@ function createGateway(state: KanbanStateSnapshot): KanbanBoardGateway {
       currentState = createState(currentState.tasks.map((item) => item.id === taskId ? updated : item))
       return updated
     },
+    startKanbanTaskRun: async (taskId) => {
+      const task = currentState.tasks.find((item) => item.id === taskId)
+      if (!task) throw new Error('missing')
+      const run = {
+        id: 'run_1',
+        taskId,
+        state: 'running' as const,
+        projectRoot: '/repo',
+        worktreePath: '/repo-worktree',
+        branchName: 'codexui/task/task-1-task',
+        threadId: 'thread_1',
+        turnId: 'turn_1',
+        logPath: '/tmp/logs.txt',
+        eventsPath: '/tmp/events.jsonl',
+        errorMessage: '',
+        createdAtIso: task.createdAtIso,
+        updatedAtIso: task.updatedAtIso,
+      }
+      const updated = { ...task, status: 'running' as const, runState: 'running' as const, currentRunId: run.id, runIds: [run.id] }
+      currentState = createState(currentState.tasks.map((item) => item.id === taskId ? updated : item))
+      return { run, task: updated }
+    },
+    interruptKanbanRun: async (runId) => {
+      const task = currentState.tasks.find((item) => item.currentRunId === runId)
+      const run = {
+        id: runId,
+        taskId: task?.id ?? 'task_1',
+        state: 'cancelled' as const,
+        projectRoot: '/repo',
+        worktreePath: '/repo-worktree',
+        branchName: 'codexui/task/task-1-task',
+        threadId: 'thread_1',
+        turnId: 'turn_1',
+        logPath: '/tmp/logs.txt',
+        eventsPath: '/tmp/events.jsonl',
+        errorMessage: '',
+        createdAtIso: '2026-04-28T00:00:00.000Z',
+        updatedAtIso: '2026-04-28T00:00:00.000Z',
+      }
+      if (!task) return { run, task: null }
+      const updated = { ...task, status: 'cancelled' as const, runState: 'cancelled' as const }
+      currentState = createState(currentState.tasks.map((item) => item.id === task.id ? updated : item))
+      return { run, task: updated }
+    },
+    loadKanbanRunLogs: async () => 'log output',
     subscribeKanbanEvents: () => () => {},
   }
 }
@@ -197,6 +242,24 @@ describe('useKanbanBoard', () => {
     })
     expect(board.selectedTaskId.value).toBe('')
     expect(board.selectedTask.value).toBeNull()
+  })
+
+  it('starts and interrupts task runs while caching run logs', async () => {
+    const board = useKanbanBoard({
+      gateway: createGateway(createState([createTask({ id: 'task_a', title: 'Runnable' })])),
+      storage: null,
+    })
+
+    await board.loadBoard()
+    await board.startTaskRun('task_a')
+    await board.interruptTaskRun('run_1')
+
+    expect(board.tasks.value.find((task) => task.id === 'task_a')).toMatchObject({
+      currentRunId: 'run_1',
+      runState: 'cancelled',
+      status: 'cancelled',
+    })
+    expect(board.runLogsByRunId.value.run_1).toBe('log output')
   })
 
   it('clears stale board state when loading fails after a prior success', async () => {

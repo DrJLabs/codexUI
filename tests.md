@@ -3970,3 +3970,38 @@ Narrow internal Codex bridge runtime and Kanban adapter allowlist for future run
 
 #### Rollback/Cleanup
 - No persistent cleanup is needed for adapter-only tests
+
+---
+
+### Kanban v0.2 Runner Controls And Logs
+
+#### Feature/Change Name
+Kanban task run controls, managed worktree runner start, interrupt route, and persisted run logs/events.
+
+#### Prerequisites/Setup
+1. A Git-backed project is available with a committed `main` or `master` branch
+2. Dev server running locally with `CODEXUI_KANBAN_EXECUTION_ENABLED=1 pnpm run dev -- --host 0.0.0.0 --port 4173`
+3. Open `http://127.0.0.1:4173/#/kanban`
+4. Light theme and dark theme are both available from Settings
+
+#### Steps
+1. In light theme, create or select a Kanban task
+2. Confirm the task inspector shows run state, Run, Stop, and Run log controls
+3. Click `Run`
+4. Confirm the task moves to `running` state and a managed worktree is created under `${CODEX_HOME:-$HOME/.codex}/codexui-kanban/worktrees/`
+5. Click `Refresh` in the run log panel and confirm startup log text appears when the run has started
+6. Click `Stop` while a run is active
+7. Confirm the run moves to `cancelled` and the worktree is preserved
+8. Switch to dark theme and repeat inspection of run controls and log panel
+
+#### Expected Results
+- Run requests are still loopback-only and CSRF-protected
+- Runner uses a managed worktree and the narrow Codex bridge adapter
+- Run logs are served by `GET /codex-api/kanban/runs/<run-id>/logs`
+- Interrupt calls preserve the worktree and mark task/run state cancelled
+- Light theme and dark theme controls remain readable
+
+#### Rollback/Cleanup
+- Stop the dev server and restart without `CODEXUI_KANBAN_EXECUTION_ENABLED=1`
+- Remove clean test worktrees with `git -C <repo-root> worktree remove <worktree-path>`
+- Remove test branches with `git -C <repo-root> branch -D <branch-name>` after worktree removal

@@ -12,8 +12,13 @@
       >
         <KanbanTaskInspector
           :task="task"
+          :execution-policy="executionPolicy"
+          :run-log="runLog"
           @close="emit('close')"
           @archive="emit('archive')"
+          @start-run="emit('start-run')"
+          @interrupt-run="emit('interrupt-run')"
+          @refresh-run-log="emit('refresh-run-log')"
           @set-status="emit('set-status', $event)"
           @save-summary="emit('save-summary', $event)"
           @add-criterion="emit('add-criterion', $event)"
@@ -28,16 +33,21 @@
 
 <script setup lang="ts">
 import { nextTick, ref, watch } from 'vue'
-import type { KanbanStatus, KanbanTask, KanbanTaskLabel } from '../../types/kanban'
+import type { KanbanExecutionPolicy, KanbanStatus, KanbanTask, KanbanTaskLabel } from '../../types/kanban'
 import KanbanTaskInspector from './KanbanTaskInspector.vue'
 
 const props = defineProps<{
   task: KanbanTask | null
+  executionPolicy: KanbanExecutionPolicy | null
+  runLog: string
 }>()
 
 const emit = defineEmits<{
   close: []
   archive: []
+  'start-run': []
+  'interrupt-run': []
+  'refresh-run-log': []
   'set-status': [status: KanbanStatus]
   'save-summary': [patch: { title: string; description: string; labels: KanbanTaskLabel[] }]
   'add-criterion': [text: string]

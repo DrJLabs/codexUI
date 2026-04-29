@@ -4,6 +4,7 @@ import type { KanbanExecutionPolicy } from '../../types/kanban'
 import type { CodexBridgeRuntime } from '../codexAppServerBridge'
 import { KanbanAuditLog, type KanbanAuditSink } from './auditLog'
 import { resolveKanbanConfig } from './config'
+import { CodexKanbanRunner } from './codexKanbanRunner'
 import { KanbanCsrfProtection } from './csrf'
 import { KanbanEventBus, formatSseEvent } from './eventBus'
 import { createKanbanId } from './ids'
@@ -17,6 +18,7 @@ import {
 } from './schema'
 import { KanbanStorage } from './storage'
 import { KanbanTaskService } from './taskService'
+import { KanbanWorktreeManager } from './worktreeManager'
 
 export type CreateKanbanRouterOptions = {
   dataDir?: string
@@ -38,11 +40,20 @@ export function createKanbanRouter(options: CreateKanbanRouterOptions = {}): Rou
   const csrf = new KanbanCsrfProtection()
   const sessionId = createKanbanId('session')
   const policy = options.policy ?? config.policy
+  const storage = new KanbanStorage({ dataDir, projectRoot })
   const service = new KanbanTaskService({
-    storage: new KanbanStorage({ dataDir, projectRoot }),
+    storage,
     projectRoot,
     policy,
   })
+  const runner = options.bridge ? new CodexKanbanRunner({
+    dataDir,
+    projectRoot,
+    storage,
+    worktreeManager: new KanbanWorktreeManager({ dataDir, projectRoot }),
+    bridge: options.bridge,
+    auditLog,
+  }) : null
   const router = express.Router()
 
   router.use(express.json({ limit: '1mb' }))
@@ -133,11 +144,11 @@ export function createKanbanRouter(options: CreateKanbanRouterOptions = {}): Rou
     }
     const taskId = readRouteParam(req.params.taskId, 'taskId')
     await auditLog.append({
-      eventType: 'run.preflight_blocked',
+      eventType: runner ? 'run.preflight_passed' : 'run.preflight_blocked',
       actor: createAuditActor(access, sessionId),
       task: { taskId },
       repo: { projectRoot },
-      codex: { runner: 'not_wired' },
+      codex: { runner: runner ? 'available' : 'not_wired' },
       policy: {
         executionEnabled: policy.executionEnabled,
         sandboxMode: policy.sandboxMode,
@@ -146,7 +157,58 @@ export function createKanbanRouter(options: CreateKanbanRouterOptions = {}): Rou
         useThreadShellCommand: policy.useThreadShellCommand,
       },
     })
-    res.status(409).json({ error: 'Kanban runner is not available yet' })
+    if (!runner) {
+      res.status(409).json({ error: 'Kanban runner is not available yet' })
+      return
+    }
+    const result = await runner.startTaskRun(taskId, { access, sessionId })
+    eventBus.emit({ type: 'task.updated', payload: { taskId: result.task.id } })
+    eventBus.emit({ type: 'run.started', payload: { runId: result.run.id, taskId: result.task.id, state: result.run.state } })
+    res.status(202).json({ data: result })
+  }))
+
+  router.post('/runs/:runId/interrupt', asyncHandler(async (req, res) => {
+    if (!policy.executionEnabled) {
+      throw createHttpError(403, 'Kanban execution is disabled')
+    }
+    const access = assertLoopbackRequest(req)
+    if (!csrf.verifyRequest(req)) {
+      throw createHttpError(403, 'Invalid Kanban CSRF token')
+    }
+    if (!runner) {
+      res.status(409).json({ error: 'Kanban runner is not available yet' })
+      return
+    }
+    const result = await runner.interruptRun(readRouteParam(req.params.runId, 'runId'), { access, sessionId })
+    if (result.task) {
+      eventBus.emit({ type: 'task.updated', payload: { taskId: result.task.id } })
+    }
+    eventBus.emit({ type: 'run.cancelled', payload: { runId: result.run.id, taskId: result.run.taskId } })
+    res.status(200).json({ data: result })
+  }))
+
+  router.get('/runs/:runId', asyncHandler(async (req, res) => {
+    if (!runner) {
+      res.status(404).json({ error: 'Kanban run not found' })
+      return
+    }
+    res.status(200).json({ data: await runner.getRun(readRouteParam(req.params.runId, 'runId')) })
+  }))
+
+  router.get('/runs/:runId/logs', asyncHandler(async (req, res) => {
+    if (!runner) {
+      res.status(404).type('text/plain').send('')
+      return
+    }
+    res.status(200).type('text/plain').send(await runner.readRunLogs(readRouteParam(req.params.runId, 'runId')))
+  }))
+
+  router.get('/runs/:runId/events', asyncHandler(async (req, res) => {
+    if (!runner) {
+      res.status(404).type('application/x-ndjson').send('')
+      return
+    }
+    res.status(200).type('application/x-ndjson').send(await runner.readRunEvents(readRouteParam(req.params.runId, 'runId')))
   }))
 
   router.use((error: unknown, _req: Request, res: Response, _next: express.NextFunction) => {
