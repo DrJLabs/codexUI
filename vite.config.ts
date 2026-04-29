@@ -2,7 +2,11 @@ import { defineConfig } from "vite";
 import vue from "@vitejs/plugin-vue";
 import express from "express";
 import { createCodexBridgeMiddleware } from "./src/server/codexAppServerBridge";
+import { createArtifactRouter } from "./src/server/artifacts/routes";
+import { resolveKanbanConfig } from "./src/server/kanban/config";
 import { createKanbanMiddleware } from "./src/server/kanban";
+import { resolveKanbanDataDir } from "./src/server/kanban/paths";
+import { KanbanStorage } from "./src/server/kanban/storage";
 import { createDirectoryListingHtml, createTextEditorHtml, decodeBrowsePath, getLocalDirectoryListing, isTextEditableFile, normalizeLocalPath } from "./src/server/localBrowseUi";
 import tailwindcss from "@tailwindcss/vite";
 import { spawnSync } from "node:child_process";
@@ -133,9 +137,13 @@ export default defineConfig({
       configureServer(server) {
         process.env.CODEXUI_SERVER_PORT = String(server.config.server.port ?? 5173);
         const bridge = createCodexBridgeMiddleware();
-        const kanban = createKanbanMiddleware({ bridge, projectRoot: appProjectRoot });
+        const kanbanConfig = resolveKanbanConfig();
+        const kanbanDataDir = resolveKanbanDataDir(kanbanConfig.dataDir);
+        const kanbanStorage = new KanbanStorage({ dataDir: kanbanDataDir, projectRoot: appProjectRoot });
+        const kanban = createKanbanMiddleware({ bridge, projectRoot: appProjectRoot, dataDir: kanbanDataDir });
         const kanbanApp = express();
         kanbanApp.use("/codex-api/kanban", kanban);
+        kanbanApp.use("/codex-api/artifacts", createArtifactRouter({ storage: kanbanStorage }));
         const httpServer = server.httpServer;
         if (httpServer) {
           httpServer.once("listening", () => {

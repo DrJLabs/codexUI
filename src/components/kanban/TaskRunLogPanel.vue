@@ -4,12 +4,19 @@
       <h3>Run log</h3>
       <button type="button" @click="$emit('refresh')">Refresh</button>
     </header>
-    <pre>{{ logText || 'No run output recorded yet.' }}</pre>
+    <ArtifactEvidencePanel
+      :evidence="evidence"
+      empty-text="No run output recorded yet."
+    />
   </section>
 </template>
 
 <script setup lang="ts">
-defineProps<{
+import { computed } from 'vue'
+import ArtifactEvidencePanel from '../artifacts/evidence/ArtifactEvidencePanel.vue'
+import { useArtifactEvidence } from '../../composables/useArtifactEvidence'
+
+const props = defineProps<{
   runId: string
   logText: string
 }>()
@@ -17,6 +24,10 @@ defineProps<{
 defineEmits<{
   refresh: []
 }>()
+
+const runIdRef = computed(() => props.runId)
+const logTextRef = computed(() => props.logText)
+const evidence = useArtifactEvidence({ runId: runIdRef, logText: logTextRef })
 </script>
 
 <style scoped>
@@ -48,28 +59,9 @@ defineEmits<{
   font-weight: 900;
 }
 
-.task-run-log pre {
-  min-height: 72px;
-  max-height: 180px;
-  overflow: auto;
-  margin: 0;
-  border: 1px solid #e4e4e7;
-  border-radius: 8px;
-  padding: 10px;
-  background: #f4f4f5;
-  color: #27272a;
-  white-space: pre-wrap;
-}
-
 :global(:root.dark) .task-run-log button {
   border-color: #52525b;
   background: #27272a;
   color: #f4f4f5;
-}
-
-:global(:root.dark) .task-run-log pre {
-  border-color: #3f3f46;
-  background: #09090b;
-  color: #e4e4e7;
 }
 </style>

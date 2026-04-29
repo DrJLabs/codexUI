@@ -15,6 +15,7 @@ async function createHarness() {
     projectRoot,
     policy: {
       enabled: true,
+      executionMode: 'disabled',
       executionEnabled: false,
       requireTrustedAccessForExecution: true,
       allowTailscaleAccess: true,
@@ -50,6 +51,7 @@ describe('KanbanStorage', () => {
     expect(state.settings.kanbanConfig).toMatchObject({
       defaults: { status: 'backlog', priority: 'normal' },
       proposalPolicy: 'confirm',
+      executionMode: 'disabled',
     })
   })
 
@@ -160,6 +162,7 @@ describe('KanbanStorage', () => {
     expect(state.settings.kanbanConfig).toMatchObject({
       defaults: { status: 'backlog', priority: 'normal' },
       proposalPolicy: 'confirm',
+      executionMode: 'disabled',
     })
   })
 

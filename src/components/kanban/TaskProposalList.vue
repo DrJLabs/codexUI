@@ -2,7 +2,7 @@
   <section class="task-proposals" aria-label="Task proposals">
     <h3>Proposals</h3>
     <p v-if="count === 0">No pending proposals.</p>
-    <p v-else>{{ count }} pending proposal{{ count === 1 ? '' : 's' }}</p>
+    <p v-else>{{ count }} pending proposal{{ count === 1 ? '' : 's' }} awaiting operator approval.</p>
   </section>
 </template>
 

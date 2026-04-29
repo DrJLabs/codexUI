@@ -82,4 +82,21 @@ describe('classifyKanbanRemoteAccessFromParts', () => {
       reason: 'untrusted_remote',
     })
   })
+
+  it('classifies private IPv6 clients as LAN without trusting them for execution', () => {
+    expect(classifyKanbanRemoteAccessFromParts({ remoteAddress: 'fd00::123' })).toMatchObject({
+      trusted: false,
+      loopback: false,
+      tailscale: false,
+      accessContext: 'lan',
+      reason: 'untrusted_remote',
+    })
+    expect(classifyKanbanRemoteAccessFromParts({ remoteAddress: 'fe80::123' })).toMatchObject({
+      trusted: false,
+      loopback: false,
+      tailscale: false,
+      accessContext: 'lan',
+      reason: 'untrusted_remote',
+    })
+  })
 })

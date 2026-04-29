@@ -26,6 +26,7 @@ import { KANBAN_STATUSES } from '../../types/kanban'
 const STATUS_IDS = new Set(KANBAN_STATUSES.map((status) => status.id))
 const PRIORITY_IDS = new Set(['critical', 'high', 'normal', 'low'])
 const THINKING_IDS = new Set(['off', 'low', 'medium', 'high'])
+const EXECUTION_MODES = new Set(['disabled', 'local_only', 'trusted_remote', 'open_remote'])
 const PROPOSAL_STATUSES = new Set(['pending', 'approved', 'rejected'])
 const UPDATE_TASK_KEYS = [
   'title',
@@ -36,6 +37,7 @@ const UPDATE_TASK_KEYS = [
   'assignee',
   'model',
   'thinking',
+  'runProfileId',
   'dueAtIso',
   'estimateMinutes',
   'actualMinutes',
@@ -175,6 +177,7 @@ export function parseCreateTaskInput(value: unknown): CreateKanbanTaskInput {
     if (!THINKING_IDS.has(thinking)) throw new Error('Invalid Kanban thinking')
     input.thinking = thinking as KanbanThinkingLevel
   }
+  if ('runProfileId' in record) input.runProfileId = readString(record.runProfileId)
   if ('dueAtIso' in record) input.dueAtIso = readDueDateIso(record.dueAtIso)
   if ('estimateMinutes' in record) input.estimateMinutes = readNullableNonnegativeInteger(record.estimateMinutes, 'estimateMinutes')
   if ('actualMinutes' in record) input.actualMinutes = readNullableNonnegativeInteger(record.actualMinutes, 'actualMinutes')
@@ -204,6 +207,7 @@ export function parseUpdateTaskInput(value: unknown): UpdateKanbanTaskInput {
     if (!THINKING_IDS.has(thinking)) throw new Error('Invalid Kanban thinking')
     patch.thinking = thinking as KanbanThinkingLevel
   }
+  if ('runProfileId' in record) patch.runProfileId = readString(record.runProfileId)
   if ('dueAtIso' in record) patch.dueAtIso = readDueDateIso(record.dueAtIso)
   if ('estimateMinutes' in record) patch.estimateMinutes = readNullableNonnegativeInteger(record.estimateMinutes, 'estimateMinutes')
   if ('actualMinutes' in record) patch.actualMinutes = readNullableNonnegativeInteger(record.actualMinutes, 'actualMinutes')
@@ -370,6 +374,12 @@ export function parseBoardConfigInput(value: unknown): UpdateKanbanBoardConfigIn
     if (!THINKING_IDS.has(defaultThinking)) throw new Error('Invalid default thinking')
     input.defaultThinking = defaultThinking as UpdateKanbanBoardConfigInput['defaultThinking']
   }
+  if ('executionMode' in record) {
+    const executionMode = readString(record.executionMode)
+    if (!EXECUTION_MODES.has(executionMode)) throw new Error('Invalid Kanban execution mode')
+    input.executionMode = executionMode as UpdateKanbanBoardConfigInput['executionMode']
+  }
+  if ('defaultRunProfileId' in record) input.defaultRunProfileId = readString(record.defaultRunProfileId)
   return input
 }
 

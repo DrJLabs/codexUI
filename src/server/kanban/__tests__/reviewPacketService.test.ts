@@ -5,7 +5,9 @@ import { join } from 'node:path'
 import { promisify } from 'node:util'
 import { describe, expect, it } from 'vitest'
 import type { KanbanExecutionPolicy, KanbanProposal, KanbanRun } from '../../../types/kanban'
+import { createReviewPacketFingerprint, evaluateReviewPacketFreshness } from '../../reviewPackets/freshness'
 import { KanbanReviewPacketService } from '../reviewPacketService'
+import { BUILTIN_KANBAN_RUN_PROFILES } from '../runProfiles'
 import { KanbanStorage } from '../storage'
 import { KanbanTaskService } from '../taskService'
 
@@ -13,6 +15,7 @@ const execFileAsync = promisify(execFile)
 
 const policy: KanbanExecutionPolicy = {
   enabled: true,
+  executionMode: 'trusted_remote',
   executionEnabled: true,
   requireTrustedAccessForExecution: true,
   allowTailscaleAccess: true,
@@ -58,6 +61,7 @@ async function createHarness() {
     turnId: 'turn_1',
     logPath: join(dataDir, 'logs.txt'),
     eventsPath: join(dataDir, 'events.jsonl'),
+    runProfileSnapshot: BUILTIN_KANBAN_RUN_PROFILES[1]!,
     errorMessage: '',
     createdAtIso: task.createdAtIso,
     updatedAtIso: task.updatedAtIso,
@@ -79,6 +83,7 @@ describe('KanbanReviewPacketService', () => {
     const second = await service.generateForTask(taskId)
 
     expect(first.packet.packetHash).toMatch(/^[a-f0-9]{64}$/u)
+    expect(first.packet.runProfileFingerprint).toMatch(/^[a-f0-9]{64}$/u)
     expect(first.packet.rawDiffPatch).toContain('changed')
     expect(first.packet.summary.fileCount).toBe(1)
     expect(first.packet.packetHash).not.toBe(second.packet.packetHash)
@@ -162,5 +167,59 @@ describe('KanbanReviewPacketService', () => {
     const result = await service.generateForTask(taskId)
 
     expect(result.packet.unresolvedProposalIds).toEqual([pendingProposal.id])
+  })
+
+  it('uses the shared freshness fingerprint inputs for generated packets', async () => {
+    const { projectRoot, storage, taskId } = await createHarness()
+    await writeFile(join(projectRoot, 'README.md'), 'initial\nfingerprinted\n', 'utf8')
+    const service = new KanbanReviewPacketService({ storage })
+
+    const result = await service.generateForTask(taskId)
+    const currentInput = {
+      taskUpdatedAtIso: result.packet.sourceTaskUpdatedAtIso ?? '',
+      runId: result.packet.runId,
+      baseCommit: result.packet.baseCommit,
+      headCommit: result.packet.headCommit,
+      rawDiffPatch: result.packet.rawDiffPatch,
+      testResults: result.packet.testResults,
+      unresolvedProposalIds: result.packet.unresolvedProposalIds,
+      worktreePath: projectRoot,
+      runProfileFingerprint: result.packet.runProfileFingerprint ?? '',
+    }
+
+    expect(result.packet.packetHash).toBe(createReviewPacketFingerprint(currentInput))
+    expect(evaluateReviewPacketFreshness(result.packet, currentInput)).toEqual({ isCurrent: true, reasons: [] })
+    expect(createReviewPacketFingerprint({
+      ...currentInput,
+      testResults: [
+        { id: 'test_b', command: 'pnpm build', exitCode: 0 },
+        { id: 'test_a', command: 'pnpm test', exitCode: 0 },
+      ],
+    })).toBe(createReviewPacketFingerprint({
+      ...currentInput,
+      testResults: [
+        { id: 'test_a', command: 'pnpm test', exitCode: 0 },
+        { id: 'test_b', command: 'pnpm build', exitCode: 0 },
+      ],
+    }))
+    expect(evaluateReviewPacketFreshness(result.packet, {
+      ...currentInput,
+      taskUpdatedAtIso: 'different-task-update',
+      headCommit: 'different-head',
+      rawDiffPatch: `${currentInput.rawDiffPatch}\n+new line`,
+      testResults: [{ id: 'test_1', command: 'pnpm test', exitCode: 1 }],
+      unresolvedProposalIds: ['proposal_new'],
+      runProfileFingerprint: 'changed-profile',
+    })).toEqual({
+      isCurrent: false,
+      reasons: [
+        'task_updated',
+        'head_commit_changed',
+        'raw_diff_changed',
+        'test_results_changed',
+        'unresolved_proposals_changed',
+        'run_profile_changed',
+      ],
+    })
   })
 })

@@ -10,6 +10,7 @@ import { createKanbanMiddleware } from '../index'
 import { resolveProjectStatePath } from '../paths'
 import type { KanbanReviewPacket, KanbanRun } from '../../../types/kanban'
 import { KanbanStorage } from '../storage'
+import { BUILTIN_KANBAN_RUN_PROFILES } from '../runProfiles'
 
 const servers: Server[] = []
 
@@ -70,13 +71,15 @@ describe('createKanbanMiddleware', () => {
     const { baseUrl } = await createTestServer()
 
     const health = await requestJson<{ data: { ok: true } }>(`${baseUrl}/codex-api/kanban/health`)
-    const state = await requestJson<{ data: { board: { title: string }; tasks: unknown[] } }>(`${baseUrl}/codex-api/kanban/state`)
+    const state = await requestJson<{ data: { board: { title: string }; tasks: unknown[]; config: { executionMode: string }; policy: { executionMode: string } } }>(`${baseUrl}/codex-api/kanban/state`)
 
     expect(health.status).toBe(200)
     expect(health.body.data.ok).toBe(true)
     expect(state.status).toBe(200)
     expect(state.body.data.board.title).toBe('Kanban')
     expect(state.body.data.tasks).toEqual([])
+    expect(state.body.data.config.executionMode).toBe('disabled')
+    expect(state.body.data.policy.executionMode).toBe('disabled')
   })
 
   it('serves SSE with streaming-friendly headers', async () => {
@@ -430,14 +433,15 @@ describe('createKanbanMiddleware', () => {
   it('reads and updates board config', async () => {
     const { baseUrl } = await createTestServer()
 
-    const initial = await requestJson<{ data: { columns: Array<{ key: string; wipLimit: number | null }> } }>(
+    const initial = await requestJson<{ data: { columns: Array<{ key: string; wipLimit: number | null }>; defaultRunProfileId: string } }>(
       `${baseUrl}/codex-api/kanban/config`,
     )
-    const updated = await requestJson<{ data: { columns: Array<{ key: string; wipLimit: number | null }> } }>(
+    const updated = await requestJson<{ data: { columns: Array<{ key: string; wipLimit: number | null }>; defaultRunProfileId: string } }>(
       `${baseUrl}/codex-api/kanban/config`,
       await withCsrf(baseUrl, {
         method: 'PUT',
         body: JSON.stringify({
+          defaultRunProfileId: 'workspace-coding-network',
           columns: initial.body.data.columns.map((column) => (
             column.key === 'ready' ? { ...column, wipLimit: 3 } : column
           )),
@@ -448,7 +452,23 @@ describe('createKanbanMiddleware', () => {
     expect(initial.status).toBe(200)
     expect(initial.body.data.columns.find((column) => column.key === 'ready')?.wipLimit).toBeNull()
     expect(updated.status).toBe(200)
+    expect(updated.body.data.defaultRunProfileId).toBe('workspace-coding-network')
     expect(updated.body.data.columns.find((column) => column.key === 'ready')?.wipLimit).toBe(3)
+  })
+
+  it('rejects unknown board default run profiles', async () => {
+    const { baseUrl } = await createTestServer()
+
+    const response = await requestJson<{ error: string }>(
+      `${baseUrl}/codex-api/kanban/config`,
+      await withCsrf(baseUrl, {
+        method: 'PUT',
+        body: JSON.stringify({ defaultRunProfileId: 'missing-profile' }),
+      }),
+    )
+
+    expect(response.status).toBe(400)
+    expect(response.body.error).toContain('Unknown Kanban run profile')
   })
 
   it('requires a current review packet before approving a task', async () => {
@@ -472,6 +492,7 @@ describe('createKanbanMiddleware', () => {
       turnId: 'turn_route',
       logPath: join(dataDir, 'logs.txt'),
       eventsPath: join(dataDir, 'events.jsonl'),
+      runProfileSnapshot: BUILTIN_KANBAN_RUN_PROFILES[1]!,
       errorMessage: '',
       createdAtIso: created.body.data.createdAtIso,
       updatedAtIso: created.body.data.updatedAtIso,
@@ -568,6 +589,7 @@ describe('createKanbanMiddleware', () => {
       turnId: 'turn_route_reject',
       logPath: join(dataDir, 'logs.txt'),
       eventsPath: join(dataDir, 'events.jsonl'),
+      runProfileSnapshot: BUILTIN_KANBAN_RUN_PROFILES[1]!,
       errorMessage: '',
       createdAtIso: created.body.data.createdAtIso,
       updatedAtIso: created.body.data.updatedAtIso,

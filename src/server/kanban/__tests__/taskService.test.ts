@@ -2,12 +2,13 @@ import { mkdtemp } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import type { KanbanExecutionPolicy } from '../../../types/kanban'
+import { FULL_ACCESS_KANBAN_RUN_PROFILE_ID, type KanbanExecutionPolicy } from '../../../types/kanban'
 import { KanbanStorage } from '../storage'
 import { KanbanTaskService } from '../taskService'
 
 const policy: KanbanExecutionPolicy = {
   enabled: true,
+  executionMode: 'disabled',
   executionEnabled: false,
   requireTrustedAccessForExecution: true,
   allowTailscaleAccess: true,
@@ -42,7 +43,15 @@ describe('KanbanTaskService', () => {
     expect(state.config).toMatchObject({
       defaults: { status: 'backlog', priority: 'normal' },
       proposalPolicy: 'confirm',
+      executionMode: 'disabled',
+      defaultRunProfileId: 'workspace-coding',
     })
+    expect(state.config.runProfiles.map((profile) => profile.id)).toEqual([
+      'read-only-planning',
+      'workspace-coding',
+      'workspace-coding-network',
+      FULL_ACCESS_KANBAN_RUN_PROFILE_ID,
+    ])
   })
 
   it('populates parity metadata defaults for newly created tasks', async () => {
@@ -294,5 +303,30 @@ describe('KanbanTaskService', () => {
     expect(task.status).toBe('ready')
     expect(task.priority).toBe('high')
     expect(task.columnOrder).toBe(0)
+  })
+
+  it('uses the board default run profile for created tasks and accepts task overrides', async () => {
+    const { service } = await createHarness()
+    await service.updateConfig({ defaultRunProfileId: 'workspace-coding-network' })
+
+    const defaulted = await service.createTask({ title: 'Default profile task' })
+    const overridden = await service.createTask({
+      title: 'Read-only task',
+      runProfileId: 'read-only-planning',
+    })
+
+    expect(defaulted.runProfileId).toBe('workspace-coding-network')
+    expect(overridden.runProfileId).toBe('read-only-planning')
+    await expect(service.createTask({ title: 'Invalid profile task', runProfileId: 'missing-profile' }))
+      .rejects
+      .toThrow('Unknown Kanban run profile')
+  })
+
+  it('does not allow full-access operator as the board default run profile', async () => {
+    const { service } = await createHarness()
+
+    await expect(service.updateConfig({ defaultRunProfileId: FULL_ACCESS_KANBAN_RUN_PROFILE_ID }))
+      .rejects
+      .toThrow('Full-access run profile cannot be the board default')
   })
 })

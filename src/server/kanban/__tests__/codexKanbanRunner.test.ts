@@ -15,13 +15,14 @@ import { KanbanTaskService } from '../taskService'
 import type { KanbanTaskQueueLimits } from '../taskQueue'
 import { KanbanWorktreeManager } from '../worktreeManager'
 import type { KanbanRemoteAccess } from '../remoteAccess'
-import type { KanbanExecutionPolicy, KanbanProposal } from '../../../types/kanban'
+import { FULL_ACCESS_KANBAN_RUN_PROFILE_ID, type KanbanExecutionPolicy, type KanbanProposal } from '../../../types/kanban'
 import type { CodexBridgeNotification } from '../../codexAppServerBridge'
 
 const execFileAsync = promisify(execFile)
 
 const policy: KanbanExecutionPolicy = {
   enabled: true,
+  executionMode: 'trusted_remote',
   executionEnabled: true,
   requireTrustedAccessForExecution: true,
   allowTailscaleAccess: true,
@@ -43,6 +44,7 @@ const access: KanbanRemoteAccess = {
   forwarded: false,
   loopback: true,
   tailscale: false,
+  accessContext: 'loopback',
   trusted: true,
   remoteAddress: '127.0.0.1',
   forwardedFor: '',
@@ -60,6 +62,7 @@ type HarnessOptions = {
   proposalService?: Pick<KanbanProposalService, 'createProposalsFromMarkers'>
   failThreadStart?: boolean
   failThreadRead?: boolean
+  policy?: KanbanExecutionPolicy
   queueLimits?: Partial<KanbanTaskQueueLimits>
 }
 
@@ -71,7 +74,11 @@ async function createHarness(options: HarnessOptions = {}) {
   await runGit(projectRoot, ['config', 'user.email', 'codexui@example.test'])
   await runGit(projectRoot, ['commit', '--allow-empty', '-m', 'initial'])
   const storage = new KanbanStorage({ dataDir, projectRoot })
-  const service = new KanbanTaskService({ storage, projectRoot, policy })
+  const executionPolicy = options.policy ?? policy
+  await storage.mutate((state) => {
+    state.settings.kanbanConfig.executionMode = executionPolicy.executionMode
+  })
+  const service = new KanbanTaskService({ storage, projectRoot, policy: executionPolicy })
   const eventBus = new KanbanEventBus()
   const proposalService = options.proposalService ?? new KanbanProposalService({ storage, taskService: service, eventBus })
   const reviewPacketService = options.reviewPacketService ?? new KanbanReviewPacketService({ storage })
@@ -128,6 +135,8 @@ async function createHarness(options: HarnessOptions = {}) {
     worktreeManager: new KanbanWorktreeManager({ dataDir, projectRoot }),
     bridge,
     auditLog: new KanbanAuditLog({ dataDir, projectRoot }),
+    policy: executionPolicy,
+    getExecutionPolicy: async () => await service.getExecutionPolicy(),
     proposalService,
     reviewPacketService,
     eventBus,
@@ -150,8 +159,85 @@ describe('CodexKanbanRunner', () => {
     expect(result.run.worktreePath).toContain('/worktrees/')
     expect(state.runs[result.run.id]).toMatchObject({ id: result.run.id, threadId: 'thread_1', turnId: 'turn_1' })
     expect(rpcCalls.map((call) => call.method)).toEqual(['thread/start', 'turn/start'])
-    expect(JSON.stringify(rpcCalls)).toContain('workspace-write')
+    expect(JSON.stringify(rpcCalls)).toContain('workspaceWrite')
+    expect(rpcCalls.find((call) => call.method === 'turn/start')?.params).toMatchObject({
+      sandboxPolicy: {
+        type: 'workspaceWrite',
+        writableRoots: expect.arrayContaining([result.run.worktreePath]),
+      },
+    })
     expect(JSON.stringify(rpcCalls)).not.toContain('thread/shellCommand')
+  })
+
+  it('uses the effective run profile snapshot when starting a Codex turn', async () => {
+    const { service, storage, runner, rpcCalls } = await createHarness()
+    await service.updateConfig({ defaultRunProfileId: 'workspace-coding-network' })
+    const task = await service.createTask({
+      title: 'Read-only profiled task',
+      model: 'gpt-5.4',
+      thinking: 'high',
+      runProfileId: 'read-only-planning',
+    })
+
+    const result = await runner.startTaskRun(task.id, { access, sessionId: 'session_1' })
+    const state = await storage.load()
+    const turnStart = rpcCalls.find((call) => call.method === 'turn/start')
+
+    expect(result.run.runProfileSnapshot).toMatchObject({
+      id: 'read-only-planning',
+      model: 'gpt-5.4',
+      reasoningEffort: 'high',
+      sandboxMode: 'read-only',
+      approvalPolicy: 'on-request',
+      networkAccess: false,
+    })
+    expect(state.runs[result.run.id]).toMatchObject({
+      runProfileSnapshot: result.run.runProfileSnapshot,
+    })
+    expect(turnStart?.params).toMatchObject({
+      threadId: 'thread_1',
+      cwd: result.run.worktreePath,
+      input: [{ type: 'text', text: expect.stringContaining('Read-only profiled task') }],
+      model: 'gpt-5.4',
+      effort: 'high',
+      approvalPolicy: 'on-request',
+      sandboxPolicy: {
+        type: 'readOnly',
+        networkAccess: false,
+      },
+    })
+    expect(JSON.stringify(turnStart?.params)).not.toContain('sandboxMode')
+    expect(JSON.stringify(turnStart?.params)).not.toContain('permissionProfile')
+  })
+
+  it('blocks danger-full-access run profiles unless policy explicitly allows them', async () => {
+    const { service, runner, rpcCalls } = await createHarness()
+    const task = await service.createTask({
+      title: 'Danger profile task',
+      runProfileId: FULL_ACCESS_KANBAN_RUN_PROFILE_ID,
+    })
+
+    await expect(runner.startTaskRun(task.id, { access, sessionId: 'session_1' }))
+      .rejects
+      .toThrow('danger-full-access')
+    expect(rpcCalls.map((call) => call.method)).toEqual([])
+  })
+
+  it('allows danger-full-access run profiles behind the explicit policy toggle', async () => {
+    const { service, runner, rpcCalls } = await createHarness({
+      policy: { ...policy, allowDangerFullAccess: true },
+    })
+    const task = await service.createTask({
+      title: 'Allowed danger profile task',
+      runProfileId: FULL_ACCESS_KANBAN_RUN_PROFILE_ID,
+    })
+
+    const result = await runner.startTaskRun(task.id, { access, sessionId: 'session_1' })
+
+    expect(result.run.runProfileSnapshot.sandboxMode).toBe('danger-full-access')
+    expect(rpcCalls.find((call) => call.method === 'turn/start')?.params).toMatchObject({
+      sandboxPolicy: { type: 'dangerFullAccess' },
+    })
   })
 
   it('preserves the managed worktree when Codex startup fails', async () => {
@@ -248,6 +334,30 @@ describe('CodexKanbanRunner', () => {
       type: 'run.started',
       payload: { runId: secondRun.run.id, taskId: secondTask.id, state: 'running' },
     }))
+  })
+
+  it('fails queued runs instead of promoting them after execution is disabled', async () => {
+    const { service, storage, runner, rpcCalls } = await createHarness()
+    const firstTask = await service.createTask({ title: 'Active before disabled mode' })
+    const secondTask = await service.createTask({ title: 'Queued after disabled mode' })
+    const firstRun = await runner.startTaskRun(firstTask.id, { access, sessionId: 'session_1' })
+    const secondRun = await runner.startTaskRun(secondTask.id, { access, sessionId: 'session_1' })
+    const turnStartsBeforePromotion = rpcCalls.filter((call) => call.method === 'turn/start').length
+
+    await service.updateConfig({ executionMode: 'disabled' })
+    await runner.completeRun(firstRun.run.id, { result: 'Finished active run' })
+
+    const state = await storage.load()
+    expect(secondRun.run.state).toBe('queued')
+    expect(state.runs[secondRun.run.id]).toMatchObject({
+      state: 'failed',
+      errorMessage: 'Kanban execution is disabled',
+    })
+    expect(state.tasks[secondTask.id]).toMatchObject({
+      runState: 'failed',
+      errorMessage: 'Kanban execution is disabled',
+    })
+    expect(rpcCalls.filter((call) => call.method === 'turn/start')).toHaveLength(turnStartsBeforePromotion)
   })
 
   it('does not promote archived queued tasks', async () => {

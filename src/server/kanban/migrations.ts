@@ -3,12 +3,14 @@ import {
   type KanbanActor,
   type KanbanBoard,
   type KanbanBoardConfig,
+  type KanbanExecutionMode,
   type KanbanPriority,
   type KanbanTask,
   type KanbanTaskFeedback,
   type KanbanThinkingLevel,
 } from '../../types/kanban'
 import { createKanbanId } from './ids'
+import { DEFAULT_KANBAN_RUN_PROFILE_ID, normalizeKanbanRunProfileId, normalizeKanbanRunProfiles } from './runProfiles'
 
 export type KanbanStateFileV1 = {
   schemaVersion: 1
@@ -43,6 +45,10 @@ function isKanbanThinkingLevel(value: unknown): value is KanbanThinkingLevel {
   return value === 'off' || value === 'low' || value === 'medium' || value === 'high'
 }
 
+function isKanbanExecutionMode(value: unknown): value is KanbanExecutionMode {
+  return value === 'disabled' || value === 'local_only' || value === 'trusted_remote' || value === 'open_remote'
+}
+
 function isKanbanTaskFeedback(value: unknown): value is KanbanTaskFeedback {
   return isRecord(value)
     && typeof value.id === 'string'
@@ -75,6 +81,19 @@ function isKanbanBoardConfig(value: unknown): value is KanbanBoardConfig {
     && isKanbanThinkingLevel(value.defaultThinking)
 }
 
+function normalizeKanbanBoardConfig(value: unknown): KanbanBoardConfig {
+  if (!isKanbanBoardConfig(value)) return createDefaultKanbanBoardConfig()
+  const runProfiles = normalizeKanbanRunProfiles((value as Record<string, unknown>).runProfiles)
+  return {
+    ...value,
+    executionMode: isKanbanExecutionMode((value as Record<string, unknown>).executionMode)
+      ? (value as { executionMode: KanbanExecutionMode }).executionMode
+      : 'disabled',
+    defaultRunProfileId: normalizeKanbanRunProfileId((value as Record<string, unknown>).defaultRunProfileId, runProfiles),
+    runProfiles,
+  }
+}
+
 export function createDefaultKanbanBoardConfig(): KanbanBoardConfig {
   return {
     columns: KANBAN_STATUSES.map((status) => ({
@@ -93,6 +112,9 @@ export function createDefaultKanbanBoardConfig(): KanbanBoardConfig {
     proposalPolicy: 'confirm',
     defaultModel: '',
     defaultThinking: 'medium',
+    executionMode: 'disabled',
+    defaultRunProfileId: DEFAULT_KANBAN_RUN_PROFILE_ID,
+    runProfiles: normalizeKanbanRunProfiles(undefined),
   }
 }
 
@@ -109,6 +131,7 @@ export function normalizeKanbanTask(task: KanbanTask, columnOrder: number): Kanb
     resultAtIso: typeof value.resultAtIso === 'string' ? value.resultAtIso : '',
     model: typeof value.model === 'string' ? value.model : '',
     thinking: isKanbanThinkingLevel(value.thinking) ? value.thinking : 'medium',
+    runProfileId: typeof value.runProfileId === 'string' && value.runProfileId.trim() ? value.runProfileId.trim() : '',
     dueAtIso: typeof value.dueAtIso === 'string' ? value.dueAtIso : '',
     estimateMinutes: typeof value.estimateMinutes === 'number' && Number.isFinite(value.estimateMinutes) ? value.estimateMinutes : null,
     actualMinutes: typeof value.actualMinutes === 'number' && Number.isFinite(value.actualMinutes) ? value.actualMinutes : null,
@@ -131,9 +154,7 @@ function normalizeKanbanTasks(tasks: Record<string, KanbanTask>): Record<string,
 function normalizeSettings(settings: Record<string, unknown>): Record<string, unknown> & { kanbanConfig: KanbanBoardConfig } {
   return {
     ...settings,
-    kanbanConfig: isKanbanBoardConfig(settings.kanbanConfig)
-      ? settings.kanbanConfig
-      : createDefaultKanbanBoardConfig(),
+    kanbanConfig: normalizeKanbanBoardConfig(settings.kanbanConfig),
   }
 }
 

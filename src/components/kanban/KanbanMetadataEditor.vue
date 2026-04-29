@@ -32,6 +32,14 @@
         </select>
       </label>
       <label>
+        <span>Run profile</span>
+        <select v-model="runProfileId">
+          <option v-for="profile in runProfiles" :key="profile.id" :value="profile.id">
+            {{ profile.name }}
+          </option>
+        </select>
+      </label>
+      <label>
         <span>Due date</span>
         <input v-model="dueAtIso" type="date" :aria-invalid="dueAtIsoError ? 'true' : undefined" />
       </label>
@@ -58,10 +66,11 @@
 
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
-import type { KanbanActor, KanbanDueDateIso, KanbanMetadataPatch, KanbanPriority, KanbanTask, KanbanThinkingLevel } from '../../types/kanban'
+import type { CodexRunProfile, KanbanActor, KanbanDueDateIso, KanbanMetadataPatch, KanbanPriority, KanbanTask, KanbanThinkingLevel } from '../../types/kanban'
 
 const props = defineProps<{
   task: KanbanTask
+  runProfiles: CodexRunProfile[]
 }>()
 
 const emit = defineEmits<{
@@ -72,6 +81,7 @@ const priority = ref<KanbanPriority>('normal')
 const assignee = ref('codex:auto')
 const model = ref('')
 const thinking = ref<KanbanThinkingLevel>('medium')
+const runProfileId = ref('')
 const dueAtIso = ref('')
 const estimateMinutes = ref('')
 const actualMinutes = ref('')
@@ -91,6 +101,7 @@ watch(() => props.task, (task) => {
   assignee.value = task.assignee
   model.value = task.model
   thinking.value = task.thinking
+  runProfileId.value = task.runProfileId
   dueAtIso.value = task.dueAtIso.slice(0, 10)
   estimateMinutes.value = task.estimateMinutes === null ? '' : String(task.estimateMinutes)
   actualMinutes.value = task.actualMinutes === null ? '' : String(task.actualMinutes)
@@ -155,6 +166,7 @@ function save(): void {
     assignee: nextAssignee,
     model: model.value.trim(),
     thinking: thinking.value,
+    runProfileId: runProfileId.value,
     dueAtIso: nextDueAtIso,
     estimateMinutes: nextEstimateMinutes,
     actualMinutes: nextActualMinutes,

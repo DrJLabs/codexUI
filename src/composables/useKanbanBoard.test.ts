@@ -1,9 +1,24 @@
 import { describe, expect, it, vi } from 'vitest'
 import { useKanbanBoard, type KanbanBoardGateway } from './useKanbanBoard'
-import type { CreateKanbanTaskInput, KanbanBoardConfig, KanbanExecutionPolicy, KanbanProposal, KanbanProposalStatus, KanbanStateSnapshot, KanbanTask, KanbanTaskListResult, KanbanUpdateProposalPayload, ListKanbanTasksParams, UpdateKanbanBoardConfigInput } from '../types/kanban'
+import type { CodexRunProfile, CreateKanbanTaskInput, KanbanBoardConfig, KanbanExecutionPolicy, KanbanProposal, KanbanProposalStatus, KanbanStateSnapshot, KanbanTask, KanbanTaskListResult, KanbanUpdateProposalPayload, ListKanbanTasksParams, UpdateKanbanBoardConfigInput } from '../types/kanban'
+
+const defaultRunProfile: CodexRunProfile = {
+  id: 'workspace-coding',
+  name: 'Workspace coding',
+  description: 'Default coding profile.',
+  model: '',
+  reasoningEffort: 'medium',
+  sandboxMode: 'workspace-write',
+  approvalPolicy: 'on-request',
+  networkAccess: false,
+  writableRoots: [],
+  createdAtIso: '2026-04-29T00:00:00.000Z',
+  updatedAtIso: '2026-04-29T00:00:00.000Z',
+}
 
 const policy: KanbanExecutionPolicy = {
   enabled: true,
+  executionMode: 'disabled',
   executionEnabled: false,
   requireTrustedAccessForExecution: true,
   allowTailscaleAccess: true,
@@ -41,6 +56,9 @@ const boardConfig: KanbanBoardConfig = {
   proposalPolicy: 'confirm',
   defaultModel: '',
   defaultThinking: 'medium',
+  executionMode: 'disabled',
+  defaultRunProfileId: defaultRunProfile.id,
+  runProfiles: [defaultRunProfile],
 }
 
 function createTask(overrides: Partial<KanbanTask>): KanbanTask {
@@ -73,6 +91,7 @@ function createTask(overrides: Partial<KanbanTask>): KanbanTask {
     resultAtIso: '',
     model: '',
     thinking: 'medium',
+    runProfileId: defaultRunProfile.id,
     dueAtIso: '',
     estimateMinutes: null,
     actualMinutes: null,
@@ -254,6 +273,7 @@ function createGateway(state: KanbanStateSnapshot): KanbanBoardGateway {
         turnId: 'turn_1',
         logPath: '/tmp/logs.txt',
         eventsPath: '/tmp/events.jsonl',
+        runProfileSnapshot: defaultRunProfile,
         errorMessage: '',
         createdAtIso: task.createdAtIso,
         updatedAtIso: task.updatedAtIso,
@@ -275,6 +295,7 @@ function createGateway(state: KanbanStateSnapshot): KanbanBoardGateway {
         turnId: 'turn_1',
         logPath: '/tmp/logs.txt',
         eventsPath: '/tmp/events.jsonl',
+        runProfileSnapshot: defaultRunProfile,
         errorMessage: '',
         createdAtIso: '2026-04-28T00:00:00.000Z',
         updatedAtIso: '2026-04-28T00:00:00.000Z',
@@ -285,6 +306,23 @@ function createGateway(state: KanbanStateSnapshot): KanbanBoardGateway {
       return { run, task: updated }
     },
     loadKanbanRunLogs: async () => 'log output',
+    loadKanbanReviewPacket: async (taskId) => {
+      const task = currentState.tasks.find((item) => item.id === taskId)
+      if (!task?.reviewPacketId) throw new Error('missing packet')
+      return {
+        id: task.reviewPacketId,
+        taskId,
+        runId: task.currentRunId,
+        packetHash: 'a'.repeat(64),
+        generatedAtIso: task.updatedAtIso,
+        baseCommit: 'base',
+        headCommit: 'head',
+        rawDiffPatch: '',
+        summary: { fileCount: 0, addedLineCount: 0, removedLineCount: 0 },
+        testResults: [],
+        unresolvedProposalIds: [],
+      }
+    },
     regenerateKanbanReviewPacket: async (taskId) => {
       const task = currentState.tasks.find((item) => item.id === taskId)
       if (!task) throw new Error('missing')

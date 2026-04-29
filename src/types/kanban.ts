@@ -10,13 +10,57 @@ export const KANBAN_STATUSES = [
 
 export type KanbanStatus = typeof KANBAN_STATUSES[number]['id']
 
+export const FULL_ACCESS_KANBAN_RUN_PROFILE_ID = 'full-access-operator'
+
 export type KanbanPriority = 'critical' | 'high' | 'normal' | 'low'
 
 export type KanbanActor = 'operator' | 'codex:auto' | `codex:thread:${string}`
 
 export type KanbanThinkingLevel = 'off' | 'low' | 'medium' | 'high'
 
+export type KanbanRunProfileReasoningEffort = 'low' | 'medium' | 'high' | 'xhigh' | ''
+
+export type KanbanRunProfileSandboxMode = 'read-only' | 'workspace-write' | 'danger-full-access'
+
+export type KanbanRunProfileApprovalPolicy = 'untrusted' | 'on-request' | 'never'
+
 export type KanbanDueDateIso = '' | `${number}${number}${number}${number}-${number}${number}-${number}${number}`
+
+export type KanbanExecutionMode = 'disabled' | 'local_only' | 'trusted_remote' | 'open_remote'
+
+export type KanbanAccessContext =
+  | 'loopback'
+  | 'tailscale'
+  | 'lan'
+  | 'tunnel'
+  | 'reverse_proxy'
+  | 'public'
+  | 'unknown'
+
+export type KanbanRequestCapabilities = {
+  accessContext: KanbanAccessContext
+  trustedForRead: boolean
+  trustedForBoardMutation: boolean
+  trustedForExecution: boolean
+  trustedForExecutionApproval: boolean
+  trustedForSecrets: boolean
+  trustedForCleanup: boolean
+  trustedForMerge: false
+}
+
+export type CodexRunProfile = {
+  id: string
+  name: string
+  description: string
+  model: string
+  reasoningEffort: KanbanRunProfileReasoningEffort
+  sandboxMode: KanbanRunProfileSandboxMode
+  approvalPolicy: KanbanRunProfileApprovalPolicy
+  networkAccess: boolean
+  writableRoots: string[]
+  createdAtIso: string
+  updatedAtIso: string
+}
 
 export type KanbanTaskFeedback = {
   id: string
@@ -44,6 +88,9 @@ export type KanbanBoardConfig = {
   proposalPolicy: 'confirm' | 'auto'
   defaultModel: string
   defaultThinking: KanbanThinkingLevel
+  executionMode: KanbanExecutionMode
+  defaultRunProfileId: string
+  runProfiles: CodexRunProfile[]
 }
 
 export type KanbanRunState =
@@ -105,6 +152,7 @@ export type KanbanTask = {
   resultAtIso: string
   model: string
   thinking: KanbanThinkingLevel
+  runProfileId: string
   dueAtIso: KanbanDueDateIso
   estimateMinutes: number | null
   actualMinutes: number | null
@@ -129,6 +177,7 @@ export type KanbanRun = {
   turnId: string
   logPath: string
   eventsPath: string
+  runProfileSnapshot: CodexRunProfile
   errorMessage: string
   createdAtIso: string
   updatedAtIso: string
@@ -144,6 +193,7 @@ export type KanbanBoard = {
 
 export type KanbanExecutionPolicy = {
   enabled: boolean
+  executionMode: KanbanExecutionMode
   executionEnabled: boolean
   requireTrustedAccessForExecution: boolean
   allowTailscaleAccess: boolean
@@ -152,10 +202,10 @@ export type KanbanExecutionPolicy = {
   sandboxMode: 'workspace-write'
   approvalPolicy: 'on-request'
   networkAccess: false
-  allowDangerFullAccess: false
-  allowApprovalNever: false
-  allowAcceptForSession: false
-  useThreadShellCommand: false
+  allowDangerFullAccess: boolean
+  allowApprovalNever: boolean
+  allowAcceptForSession: boolean
+  useThreadShellCommand: boolean
   maxGlobalActiveRuns: 1
   maxActiveRunsPerRepo: 1
   maxActiveRunsPerTask: 1
@@ -186,6 +236,8 @@ export type KanbanReviewPacket = {
   runId: string
   packetHash: string
   generatedAtIso: string
+  sourceTaskUpdatedAtIso?: string
+  runProfileFingerprint?: string
   baseCommit: string
   headCommit: string
   rawDiffPatch: string
@@ -208,6 +260,7 @@ export type CreateKanbanTaskInput = {
   | 'assignee'
   | 'model'
   | 'thinking'
+  | 'runProfileId'
   | 'dueAtIso'
   | 'estimateMinutes'
   | 'actualMinutes'
@@ -219,6 +272,7 @@ export type KanbanMetadataPatch = Partial<Pick<KanbanTask,
   | 'assignee'
   | 'model'
   | 'thinking'
+  | 'runProfileId'
   | 'dueAtIso'
   | 'estimateMinutes'
   | 'actualMinutes'

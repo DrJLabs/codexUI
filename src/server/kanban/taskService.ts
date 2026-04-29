@@ -14,9 +14,11 @@ import type {
   VersionedSetKanbanTaskStatusInput,
   VersionedUpdateKanbanTaskInput,
 } from '../../types/kanban'
-import { KANBAN_STATUSES } from '../../types/kanban'
+import { FULL_ACCESS_KANBAN_RUN_PROFILE_ID, KANBAN_STATUSES } from '../../types/kanban'
 import { KanbanInvalidTransitionError, KanbanNotFoundError, KanbanVersionConflictError } from './errors'
 import { createKanbanId } from './ids'
+import type { KanbanStateFileV1 } from './migrations'
+import { assertKnownKanbanRunProfile, normalizeKanbanRunProfileId, normalizeKanbanRunProfiles } from './runProfiles'
 import type { KanbanStorage } from './storage'
 
 const ALLOWED_STATUS_TRANSITIONS: Record<KanbanStatus, KanbanStatus[]> = {
@@ -51,9 +53,14 @@ export class KanbanTaskService {
       board,
       tasks: Object.values(state.tasks),
       config: state.settings.kanbanConfig,
-      policy: this.policy,
+      policy: resolveEffectiveKanbanExecutionPolicy(this.policy, state.settings.kanbanConfig),
       generatedAtIso: new Date().toISOString(),
     }
+  }
+
+  async getExecutionPolicy(): Promise<KanbanExecutionPolicy> {
+    const state = await this.storage.load()
+    return resolveEffectiveKanbanExecutionPolicy(this.policy, state.settings.kanbanConfig)
   }
 
   async createTask(input: CreateKanbanTaskInput): Promise<KanbanTask> {
@@ -64,6 +71,9 @@ export class KanbanTaskService {
       if (!board) throw new Error('Kanban board is missing')
       const defaultStatus = state.settings.kanbanConfig.defaults.status
       const defaultPriority = state.settings.kanbanConfig.defaults.priority
+      const runProfiles = state.settings.kanbanConfig.runProfiles
+      const runProfileId = input.runProfileId?.trim() || state.settings.kanbanConfig.defaultRunProfileId
+      assertKnownKanbanRunProfile(runProfileId, runProfiles)
       const taskId = createKanbanId('task')
       const nextColumnOrder = Object.values(state.tasks)
         .filter((task) => task.status === defaultStatus && !task.archived)
@@ -103,6 +113,7 @@ export class KanbanTaskService {
         resultAtIso: '',
         model: input.model?.trim() ?? '',
         thinking: input.thinking ?? 'medium',
+        runProfileId,
         dueAtIso: input.dueAtIso ?? '',
         estimateMinutes: input.estimateMinutes ?? null,
         actualMinutes: input.actualMinutes ?? null,
@@ -148,22 +159,32 @@ export class KanbanTaskService {
 
   async updateTask(taskId: string, input: VersionedUpdateKanbanTaskInput): Promise<KanbanTask> {
     const version = readRequiredVersion(input)
-    return await this.updateExistingTaskWithVersion(taskId, version, (task, nowIso) => ({
-      ...task,
-      title: input.title !== undefined ? input.title.trim() : task.title,
-      description: input.description !== undefined ? input.description.trim() : task.description,
-      labels: input.labels ?? task.labels,
-      blockedReason: input.blockedReason !== undefined ? input.blockedReason.trim() : task.blockedReason,
-      priority: input.priority ?? task.priority,
-      assignee: input.assignee ?? task.assignee,
-      model: input.model !== undefined ? input.model.trim() : task.model,
-      thinking: input.thinking ?? task.thinking,
-      dueAtIso: input.dueAtIso !== undefined ? input.dueAtIso : task.dueAtIso,
-      estimateMinutes: input.estimateMinutes !== undefined ? input.estimateMinutes : task.estimateMinutes,
-      actualMinutes: input.actualMinutes !== undefined ? input.actualMinutes : task.actualMinutes,
-      updatedAtIso: nowIso,
-      version: task.version + 1,
-    }))
+    if (input.runProfileId !== undefined) {
+      const state = await this.storage.load()
+      const runProfileId = input.runProfileId.trim()
+      if (runProfileId) assertKnownKanbanRunProfile(runProfileId, state.settings.kanbanConfig.runProfiles)
+    }
+    return await this.updateExistingTaskWithVersion(taskId, version, (task, nowIso, state) => {
+      const runProfileId = input.runProfileId !== undefined ? input.runProfileId.trim() : task.runProfileId
+      if (runProfileId) assertKnownKanbanRunProfile(runProfileId, state.settings.kanbanConfig.runProfiles)
+      return {
+        ...task,
+        title: input.title !== undefined ? input.title.trim() : task.title,
+        description: input.description !== undefined ? input.description.trim() : task.description,
+        labels: input.labels ?? task.labels,
+        blockedReason: input.blockedReason !== undefined ? input.blockedReason.trim() : task.blockedReason,
+        priority: input.priority ?? task.priority,
+        assignee: input.assignee ?? task.assignee,
+        model: input.model !== undefined ? input.model.trim() : task.model,
+        thinking: input.thinking ?? task.thinking,
+        runProfileId,
+        dueAtIso: input.dueAtIso !== undefined ? input.dueAtIso : task.dueAtIso,
+        estimateMinutes: input.estimateMinutes !== undefined ? input.estimateMinutes : task.estimateMinutes,
+        actualMinutes: input.actualMinutes !== undefined ? input.actualMinutes : task.actualMinutes,
+        updatedAtIso: nowIso,
+        version: task.version + 1,
+      }
+    })
   }
 
   async setTaskStatus(taskId: string, input: VersionedSetKanbanTaskStatusInput): Promise<KanbanTask> {
@@ -253,17 +274,11 @@ export class KanbanTaskService {
   }
 
   async updateConfig(input: UpdateKanbanBoardConfigInput): Promise<KanbanBoardConfig> {
+    const currentState = await this.storage.load()
+    createValidatedKanbanConfig(currentState.settings.kanbanConfig, input)
     let nextConfig: KanbanBoardConfig | null = null
     await this.storage.mutate((state) => {
-      nextConfig = {
-        ...state.settings.kanbanConfig,
-        ...input,
-        defaults: {
-          ...state.settings.kanbanConfig.defaults,
-          ...input.defaults,
-        },
-        columns: input.columns ?? state.settings.kanbanConfig.columns,
-      }
+      nextConfig = createValidatedKanbanConfig(state.settings.kanbanConfig, input)
       state.settings.kanbanConfig = nextConfig
     })
     if (!nextConfig) throw new Error('Failed to update Kanban config')
@@ -289,24 +304,24 @@ export class KanbanTaskService {
     }))
   }
 
-  private async updateExistingTaskWithVersion(taskId: string, version: number, updater: (task: KanbanTask, nowIso: string) => KanbanTask): Promise<KanbanTask> {
-    return await this.updateExistingTask(taskId, (task, nowIso) => {
+  private async updateExistingTaskWithVersion(taskId: string, version: number, updater: (task: KanbanTask, nowIso: string, state: KanbanStateFileV1) => KanbanTask): Promise<KanbanTask> {
+    return await this.updateExistingTask(taskId, (task, nowIso, state) => {
       assertVersion(task, version)
-      return updater(task, nowIso)
+      return updater(task, nowIso, state)
     })
   }
 
   // Internal server-owned mutations only. Public user/task mutations must use updateExistingTaskWithVersion.
-  private async updateExistingTaskInternal(taskId: string, updater: (task: KanbanTask, nowIso: string) => KanbanTask): Promise<KanbanTask> {
+  private async updateExistingTaskInternal(taskId: string, updater: (task: KanbanTask, nowIso: string, state: KanbanStateFileV1) => KanbanTask): Promise<KanbanTask> {
     return await this.updateExistingTask(taskId, updater)
   }
 
-  private async updateExistingTask(taskId: string, updater: (task: KanbanTask, nowIso: string) => KanbanTask): Promise<KanbanTask> {
+  private async updateExistingTask(taskId: string, updater: (task: KanbanTask, nowIso: string, state: KanbanStateFileV1) => KanbanTask): Promise<KanbanTask> {
     let nextTask: KanbanTask | null = null
     await this.storage.mutate((state) => {
       const task = readExistingTask(state.tasks, taskId)
       const nowIso = new Date().toISOString()
-      nextTask = updater(task, nowIso)
+      nextTask = updater(task, nowIso, state)
       state.tasks[taskId] = nextTask
     })
     if (!nextTask) throw new Error('Failed to update Kanban task')
@@ -318,6 +333,27 @@ function readExistingTask(tasks: Record<string, KanbanTask>, taskId: string): Ka
   const task = tasks[taskId]
   if (!task) throw new KanbanNotFoundError('Kanban task not found')
   return task
+}
+
+function createValidatedKanbanConfig(currentConfig: KanbanBoardConfig, input: UpdateKanbanBoardConfigInput): KanbanBoardConfig {
+  const nextConfig = {
+    ...currentConfig,
+    ...input,
+    defaults: {
+      ...currentConfig.defaults,
+      ...input.defaults,
+    },
+    columns: input.columns ?? currentConfig.columns,
+  }
+  nextConfig.runProfiles = normalizeKanbanRunProfiles(nextConfig.runProfiles)
+  nextConfig.defaultRunProfileId = input.defaultRunProfileId !== undefined
+    ? input.defaultRunProfileId.trim()
+    : normalizeKanbanRunProfileId(nextConfig.defaultRunProfileId, nextConfig.runProfiles)
+  assertKnownKanbanRunProfile(nextConfig.defaultRunProfileId, nextConfig.runProfiles)
+  if (nextConfig.defaultRunProfileId === FULL_ACCESS_KANBAN_RUN_PROFILE_ID) {
+    throw new Error('Full-access run profile cannot be the board default')
+  }
+  return nextConfig
 }
 
 function assertVersion(task: KanbanTask, version: number): void {
@@ -362,4 +398,13 @@ function compareTasks(left: KanbanTask, right: KanbanTask, config: KanbanBoardCo
   return leftStatusOrder - rightStatusOrder
     || left.columnOrder - right.columnOrder
     || right.updatedAtIso.localeCompare(left.updatedAtIso)
+}
+
+export function resolveEffectiveKanbanExecutionPolicy(policy: KanbanExecutionPolicy, config: KanbanBoardConfig): KanbanExecutionPolicy {
+  const executionMode = config.executionMode
+  return {
+    ...policy,
+    executionMode,
+    executionEnabled: policy.enabled && executionMode !== 'disabled',
+  }
 }

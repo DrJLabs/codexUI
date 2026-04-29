@@ -3,6 +3,8 @@ import { createHash } from 'node:crypto'
 import { mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import { basename, join, resolve } from 'node:path'
 import { promisify } from 'node:util'
+import type { WorkspaceWorktree } from '../../types/worktree'
+import { WorkspaceWorktreeService } from '../workspaces/worktreeService'
 import { projectHash } from './paths'
 
 const execFileAsync = promisify(execFile)
@@ -101,6 +103,10 @@ export class KanbanWorktreeManager {
       throw new Error(`Cannot clean up active Kanban run ${input.runId}`)
     }
     await this.removeManagedWorktree({ runId: input.runId })
+  }
+
+  async listManagedWorktrees(): Promise<WorkspaceWorktree[]> {
+    return await new WorkspaceWorktreeService({ dataDir: this.dataDir, projectRoot: this.projectRoot }).listWorktrees()
   }
 
   private async resolveGitRoot(): Promise<string> {

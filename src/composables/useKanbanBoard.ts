@@ -5,6 +5,7 @@ import {
   createKanbanProposal,
   createKanbanTask,
   interruptKanbanRun,
+  loadKanbanReviewPacket,
   loadKanbanState,
   loadKanbanRunLogs,
   listKanbanProposals,
@@ -19,7 +20,7 @@ import {
   updateKanbanConfig,
   updateKanbanTask,
 } from '../api/kanbanGateway'
-import { KANBAN_STATUSES, type CreateKanbanProposalInput, type CreateKanbanTaskInput, type KanbanActor, type KanbanBoardColumn, type KanbanBoardConfig, type KanbanExecutionPolicy, type KanbanPriority, type KanbanProposal, type KanbanProposalStatus, type KanbanStateSnapshot, type KanbanStatus, type KanbanTask, type KanbanTaskListResult, type ListKanbanTasksParams, type ReorderKanbanTaskInput, type ReplaceKanbanAcceptanceCriteriaInput, type ResolveKanbanProposalInput, type UpdateKanbanBoardConfigInput, type UpdateKanbanTaskInput } from '../types/kanban'
+import { KANBAN_STATUSES, type CreateKanbanProposalInput, type CreateKanbanTaskInput, type KanbanActor, type KanbanBoardColumn, type KanbanBoardConfig, type KanbanExecutionPolicy, type KanbanPriority, type KanbanProposal, type KanbanProposalStatus, type KanbanReviewPacket, type KanbanStateSnapshot, type KanbanStatus, type KanbanTask, type KanbanTaskListResult, type ListKanbanTasksParams, type ReorderKanbanTaskInput, type ReplaceKanbanAcceptanceCriteriaInput, type ResolveKanbanProposalInput, type UpdateKanbanBoardConfigInput, type UpdateKanbanTaskInput } from '../types/kanban'
 
 const FILTER_STORAGE_KEY = 'codex-web-local.kanban.filters.v1'
 const BOARD_REFRESH_EVENT_TYPES = new Set(['task.created', 'task.updated', 'task.status_changed'])
@@ -38,6 +39,7 @@ export type KanbanBoardGateway = {
   startKanbanTaskRun: typeof startKanbanTaskRun
   interruptKanbanRun: typeof interruptKanbanRun
   loadKanbanRunLogs: typeof loadKanbanRunLogs
+  loadKanbanReviewPacket: typeof loadKanbanReviewPacket
   regenerateKanbanReviewPacket: typeof regenerateKanbanReviewPacket
   listKanbanProposals: typeof listKanbanProposals
   createKanbanProposal: typeof createKanbanProposal
@@ -73,6 +75,7 @@ const defaultGateway: KanbanBoardGateway = {
   startKanbanTaskRun,
   interruptKanbanRun,
   loadKanbanRunLogs,
+  loadKanbanReviewPacket,
   regenerateKanbanReviewPacket,
   listKanbanProposals,
   createKanbanProposal,
@@ -178,6 +181,7 @@ export function useKanbanBoard(options: UseKanbanBoardOptions = {}) {
   const proposalErrorMessage = ref('')
   const executionPolicy = ref<KanbanExecutionPolicy | null>(null)
   const runLogsByRunId = ref<Record<string, string>>({})
+  const reviewPacketsByTaskId = ref<Record<string, KanbanReviewPacket>>({})
   const isLoading = ref(false)
   const errorMessage = ref('')
   const selectedTaskId = ref('')
@@ -269,6 +273,11 @@ export function useKanbanBoard(options: UseKanbanBoardOptions = {}) {
       tasks.value.push(task)
     }
     reconcileSelection()
+    if (!task.reviewPacketId) {
+      const nextPackets = { ...reviewPacketsByTaskId.value }
+      delete nextPackets[task.id]
+      reviewPacketsByTaskId.value = nextPackets
+    }
   }
 
   function reconcileSelection(): void {
@@ -551,8 +560,23 @@ export function useKanbanBoard(options: UseKanbanBoardOptions = {}) {
     return log
   }
 
+  async function refreshReviewPacket(taskId: string): Promise<KanbanReviewPacket | null> {
+    if (!taskId) return null
+    const task = tasks.value.find((item) => item.id === taskId)
+    if (!task?.reviewPacketId) {
+      const nextPackets = { ...reviewPacketsByTaskId.value }
+      delete nextPackets[taskId]
+      reviewPacketsByTaskId.value = nextPackets
+      return null
+    }
+    const packet = await gateway.loadKanbanReviewPacket(taskId)
+    reviewPacketsByTaskId.value = { ...reviewPacketsByTaskId.value, [taskId]: packet }
+    return packet
+  }
+
   async function regenerateReviewPacket(taskId: string): Promise<KanbanTask> {
     const result = await gateway.regenerateKanbanReviewPacket(taskId)
+    reviewPacketsByTaskId.value = { ...reviewPacketsByTaskId.value, [taskId]: result.packet }
     patchTask(result.task)
     await refreshTaskList()
     return result.task
@@ -655,6 +679,7 @@ export function useKanbanBoard(options: UseKanbanBoardOptions = {}) {
     proposalErrorMessage,
     executionPolicy,
     runLogsByRunId,
+    reviewPacketsByTaskId,
     isLoading,
     errorMessage,
     loadBoard,
@@ -680,6 +705,7 @@ export function useKanbanBoard(options: UseKanbanBoardOptions = {}) {
     startTaskRun,
     interruptTaskRun,
     refreshRunLog,
+    refreshReviewPacket,
     regenerateReviewPacket,
     setSearchQuery,
     toggleLabelFilter,

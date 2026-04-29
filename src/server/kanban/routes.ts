@@ -23,7 +23,7 @@ import {
   parseStatusInput,
   parseVersionedUpdateTaskInput,
 } from './schema'
-import { KanbanInvalidProposalError, KanbanInvalidTransitionError, KanbanNotFoundError, KanbanVersionConflictError } from './errors'
+import { KanbanInvalidProposalError, KanbanInvalidTransitionError, KanbanNotFoundError, KanbanRunProfilePolicyError, KanbanVersionConflictError } from './errors'
 import { KanbanProposalService } from './proposalService'
 import { KanbanReviewPacketService } from './reviewPacketService'
 import { KanbanStorage } from './storage'
@@ -67,6 +67,8 @@ export function createKanbanRouter(options: CreateKanbanRouterOptions = {}): Rou
     worktreeManager,
     bridge: options.bridge,
     auditLog,
+    policy,
+    getExecutionPolicy: async () => await service.getExecutionPolicy(),
     proposalService: proposals,
     reviewPacketService: reviewPackets,
     eventBus,
@@ -200,10 +202,11 @@ export function createKanbanRouter(options: CreateKanbanRouterOptions = {}): Rou
   }))
 
   router.post('/tasks/:taskId/run', asyncHandler(async (req, res) => {
-    if (!policy.executionEnabled) {
+    const executionPolicy = await service.getExecutionPolicy()
+    if (!executionPolicy.executionEnabled) {
       throw createHttpError(403, 'Kanban execution is disabled')
     }
-    const access = assertTrustedAccessRequest(req, policy)
+    const access = assertExecutionAccessRequest(req, executionPolicy)
     if (!csrf.verifyRequest(req)) {
       throw createHttpError(403, 'Invalid Kanban CSRF token')
     }
@@ -215,11 +218,13 @@ export function createKanbanRouter(options: CreateKanbanRouterOptions = {}): Rou
       repo: { projectRoot },
       codex: { runner: runner ? 'available' : 'not_wired' },
       policy: {
-        executionEnabled: policy.executionEnabled,
-        sandboxMode: policy.sandboxMode,
-        approvalPolicy: policy.approvalPolicy,
-        networkAccess: policy.networkAccess,
-        useThreadShellCommand: policy.useThreadShellCommand,
+        executionEnabled: executionPolicy.executionEnabled,
+        executionMode: executionPolicy.executionMode,
+        accessContext: access.accessContext,
+        sandboxMode: executionPolicy.sandboxMode,
+        approvalPolicy: executionPolicy.approvalPolicy,
+        networkAccess: executionPolicy.networkAccess,
+        useThreadShellCommand: executionPolicy.useThreadShellCommand,
       },
     })
     if (!runner) {
@@ -233,13 +238,8 @@ export function createKanbanRouter(options: CreateKanbanRouterOptions = {}): Rou
   }))
 
   router.post('/runs/:runId/interrupt', asyncHandler(async (req, res) => {
-    if (!policy.executionEnabled) {
-      throw createHttpError(403, 'Kanban execution is disabled')
-    }
-    const access = assertTrustedAccessRequest(req, policy)
-    if (!csrf.verifyRequest(req)) {
-      throw createHttpError(403, 'Invalid Kanban CSRF token')
-    }
+    const executionPolicy = await service.getExecutionPolicy()
+    const access = assertTrustedAccessMutation(req, csrf, executionPolicy)
     if (!runner) {
       res.status(409).json({ error: 'Kanban runner is not available yet' })
       return
@@ -253,10 +253,11 @@ export function createKanbanRouter(options: CreateKanbanRouterOptions = {}): Rou
   }))
 
   router.post('/runs/:runId/complete', asyncHandler(async (req, res) => {
-    if (!policy.executionEnabled) {
+    const executionPolicy = await service.getExecutionPolicy()
+    if (!executionPolicy.executionEnabled) {
       throw createHttpError(403, 'Kanban execution is disabled')
     }
-    assertTrustedAccessMutation(req, csrf, policy)
+    assertExecutionAccessMutation(req, csrf, executionPolicy)
     if (!runner) {
       res.status(409).json({ error: 'Kanban runner is not available yet' })
       return
@@ -469,6 +470,28 @@ function assertTrustedAccessMutation(req: Request, csrf: KanbanCsrfProtection, p
   return access
 }
 
+function assertExecutionAccessRequest(req: Request, policy: KanbanExecutionPolicy): KanbanRemoteAccess {
+  const access = assertTrustedAccessRequest(req, policy)
+  if (policy.executionMode === 'disabled') {
+    throw createHttpError(403, 'Kanban execution is disabled')
+  }
+  if (policy.executionMode === 'local_only' && !access.loopback) {
+    throw createHttpError(403, 'Kanban execution mode allows local access only')
+  }
+  if (policy.executionMode === 'open_remote') {
+    throw createHttpError(403, 'Open remote Kanban execution requires authenticated remote access')
+  }
+  return access
+}
+
+function assertExecutionAccessMutation(req: Request, csrf: KanbanCsrfProtection, policy: KanbanExecutionPolicy): KanbanRemoteAccess {
+  const access = assertExecutionAccessRequest(req, policy)
+  if (!csrf.verifyRequest(req)) {
+    throw createHttpError(403, 'Invalid Kanban CSRF token')
+  }
+  return access
+}
+
 function createAuditActor(access: KanbanRemoteAccess, sessionId: string): Record<string, unknown> {
   return {
     type: 'local-browser',
@@ -478,6 +501,7 @@ function createAuditActor(access: KanbanRemoteAccess, sessionId: string): Record
     loopback: access.loopback,
     tailscale: access.tailscale,
     trusted: access.trusted,
+    accessContext: access.accessContext,
     forwarded: access.forwarded,
   }
 }
@@ -550,6 +574,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 function resolveErrorStatus(error: unknown, message: string): number {
   if (isHttpStatusError(error)) return error.status
   if (error instanceof KanbanNotFoundError) return 404
+  if (error instanceof KanbanRunProfilePolicyError) return 403
   if (error instanceof KanbanInvalidProposalError) return 409
   if (error instanceof KanbanInvalidTransitionError) return 409
   const lowerMessage = message.toLowerCase()
@@ -575,6 +600,8 @@ function resolveErrorStatus(error: unknown, message: string): number {
     || lowerMessage.startsWith('invalid kanban proposal status')
     || lowerMessage.startsWith('invalid proposal policy')
     || lowerMessage.startsWith('invalid default thinking')
+    || lowerMessage.startsWith('unknown kanban run profile')
+    || lowerMessage.startsWith('full-access run profile cannot be the board default')
     || lowerMessage.startsWith('defaults must be an object')
     || lowerMessage.includes('must be null or a nonnegative integer')
   ) {

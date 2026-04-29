@@ -7,6 +7,7 @@ describe('resolveKanbanConfig', () => {
   it('keeps execution disabled by default and pins safe Codex policy', () => {
     const config = resolveKanbanConfig({})
 
+    expect(config.policy.executionMode).toBe('disabled')
     expect(config.policy.executionEnabled).toBe(false)
     expect(config.policy.requireTrustedAccessForExecution).toBe(true)
     expect(config.policy.allowTailscaleAccess).toBe(true)
@@ -21,6 +22,7 @@ describe('resolveKanbanConfig', () => {
 
   it('enables execution only from CODEXUI_KANBAN_EXECUTION_ENABLED=1', () => {
     expect(resolveKanbanConfig({ CODEXUI_KANBAN_EXECUTION_ENABLED: '1' }).policy.executionEnabled).toBe(true)
+    expect(resolveKanbanConfig({ CODEXUI_KANBAN_EXECUTION_ENABLED: '1' }).policy.executionMode).toBe('trusted_remote')
     expect(resolveKanbanConfig({ CODEXUI_KANBAN_EXECUTION_ENABLED: 'true' }).policy.executionEnabled).toBe(false)
   })
 
