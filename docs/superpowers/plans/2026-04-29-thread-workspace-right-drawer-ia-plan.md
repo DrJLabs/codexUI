@@ -800,20 +800,23 @@ Append:
 ### Prerequisites/Setup
 - Start the dev server with `pnpm run dev -- --host 0.0.0.0 --port 5173`.
 - Open a normal chat thread with the right artifact drawer available.
-- Use a browser viewport of 1440x900 for desktop checks and 375x812 for mobile checks.
+- Use browser viewports of 1440x900 for desktop, 768x1024 for tablet, and 375x812 for mobile checks.
 
 ### Steps
 1. In light theme, open a normal chat thread and click the right drawer icon.
 2. Confirm the drawer opens without hiding the chat composer.
 3. Confirm the drawer shows a compact workspace header, Thread sections, Workspace sections, and the deferred chat integration marker.
 4. Close the drawer and reopen it by dragging from the right screen edge on mobile.
-5. Switch to dark theme and repeat steps 1-4.
-6. Select a different thread and confirm the header and artifact counts refresh.
+5. At 768x1024, confirm the drawer remains usable and the composer remains visible.
+6. Navigate to the home/new-thread route and confirm right drawer entry points are hidden and right-edge swipe does not open the drawer.
+7. Switch to dark theme and repeat steps 1-6.
+8. Select a different thread and confirm the header and artifact counts refresh.
 
 ### Expected Results
 - The right drawer opens by icon and by right-edge swipe on mobile.
 - Thread sections are disabled when no thread is selected.
 - The drawer remains gated to selected thread routes in this phase.
+- On non-thread routes, right drawer entry points are hidden and right-edge swipe does not open the drawer.
 - Workspace rows render inside the selected-thread drawer; Worktrees switches to the Run tab when enabled.
 - Actions, Permissions, and Automations are visible but disabled/deferred.
 - The chat composer remains visible after switching threads and after opening/closing the drawer.

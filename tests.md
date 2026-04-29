@@ -4530,7 +4530,7 @@ Thread workspace model and workspace-scoped right drawer sections.
 2. Reuse the shared dependency install with `node_modules -> /home/drj/projects/codexUI/node_modules` if this worktree does not already have dependencies.
 3. Start the dev server with `pnpm run dev -- --host 0.0.0.0 --port 5173`.
 4. Open a normal chat thread with the right artifact drawer available.
-5. Use a browser viewport of 1440x900 for desktop checks and 375x812 for mobile checks.
+5. Use browser viewports of 1440x900 for desktop, 768x1024 for tablet, and 375x812 for mobile checks.
 
 #### Steps
 1. Run `pnpm vitest run src/composables/useThreadWorkspace.test.ts src/composables/useThreadArtifacts.test.ts src/composables/useArtifactEvidence.test.ts`.
@@ -4540,12 +4540,15 @@ Thread workspace model and workspace-scoped right drawer sections.
 5. Confirm the drawer shows a compact workspace header, Thread sections, Workspace sections, and the deferred chat integration marker.
 6. Click the Worktrees row when it is enabled and confirm the Run tab is selected.
 7. Close the drawer and reopen it by dragging from the right screen edge on mobile.
-8. Switch to dark theme and repeat steps 3-7.
-9. Select a different thread and confirm the header and artifact counts refresh.
+8. At 768x1024, confirm the drawer remains usable and the composer remains visible.
+9. Navigate to the home/new-thread route and confirm right drawer entry points are hidden and right-edge swipe does not open the drawer.
+10. Switch to dark theme and repeat steps 3-9.
+11. Select a different thread and confirm the header and artifact counts refresh.
 
 #### Expected Results
 - The right drawer opens by icon and by right-edge swipe on mobile.
 - The drawer remains gated to selected thread routes in this phase.
+- On non-thread routes, right drawer entry points are hidden and right-edge swipe does not open the drawer.
 - Thread sections select the matching artifact tabs.
 - Workspace rows render inside the selected-thread drawer; Worktrees switches to the Run tab when enabled.
 - Actions, Permissions, and Automations are visible but disabled/deferred.
