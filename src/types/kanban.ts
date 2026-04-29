@@ -211,7 +211,19 @@ export type CreateKanbanTaskInput = {
   acceptanceCriteria?: Array<{ text: string; checked?: boolean }>
 }
 
-export type UpdateKanbanTaskInput = Partial<Pick<KanbanTask, 'title' | 'description' | 'labels' | 'blockedReason'>>
+export type KanbanMetadataPatch = Partial<Pick<KanbanTask,
+  | 'priority'
+  | 'assignee'
+  | 'model'
+  | 'thinking'
+  | 'dueAtIso'
+  | 'estimateMinutes'
+  | 'actualMinutes'
+>>
+
+export type UpdateKanbanTaskInput =
+  Partial<Pick<KanbanTask, 'title' | 'description' | 'labels' | 'blockedReason'>>
+  & KanbanMetadataPatch
 
 export type KanbanVersionedInput = {
   version: number
@@ -236,6 +248,9 @@ export type ReorderKanbanTaskInput = KanbanVersionedInput & {
 
 export type KanbanTaskListQuery = {
   q?: string
+  priority?: KanbanPriority[]
+  assignee?: KanbanActor
+  label?: string
   limit: number
   offset: number
 }

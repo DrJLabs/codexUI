@@ -1,10 +1,12 @@
 import type {
   DeleteKanbanTaskInput,
   CreateKanbanTaskInput,
+  KanbanActor,
   KanbanBoardColumn,
   KanbanPriority,
   KanbanStatus,
   KanbanTaskLabel,
+  KanbanThinkingLevel,
   KanbanTaskListQuery,
   ReplaceKanbanAcceptanceCriteriaInput,
   ReorderKanbanTaskInput,
@@ -34,6 +36,14 @@ function readOptionalString(value: unknown): string | undefined {
   return stringValue ? stringValue : undefined
 }
 
+function readStringArray(value: unknown): string[] {
+  const values = Array.isArray(value) ? value : typeof value === 'string' ? value.split(',') : []
+  return values
+    .flatMap((item) => typeof item === 'string' ? item.split(',') : [])
+    .map((item) => item.trim())
+    .filter(Boolean)
+}
+
 function readInteger(value: unknown, name: string): number {
   const candidate = Array.isArray(value) ? value[0] : value
   const numberValue = typeof candidate === 'number'
@@ -49,6 +59,22 @@ function readRequiredVersion(record: Record<string, unknown>): number {
   const version = readInteger(record.version, 'version')
   if (version < 1) throw new Error('version must be greater than or equal to 1')
   return version
+}
+
+function readKanbanActor(value: unknown): KanbanActor {
+  const actor = readString(value)
+  if (actor === 'operator' || actor === 'codex:auto') return actor
+  if (actor.startsWith('codex:thread:') && actor.slice('codex:thread:'.length).trim()) {
+    return actor as KanbanActor
+  }
+  throw new Error('Invalid Kanban actor')
+}
+
+function readNullableNonnegativeInteger(value: unknown, name: string): number | null {
+  if (value === null || value === '') return null
+  const numberValue = readInteger(value, name)
+  if (numberValue < 0) throw new Error(`${name} must be null or a nonnegative integer`)
+  return numberValue
 }
 
 function labelIdFromName(name: string): string {
@@ -117,6 +143,21 @@ export function parseUpdateTaskInput(value: unknown): UpdateKanbanTaskInput {
   if ('description' in record) patch.description = readString(record.description)
   if ('blockedReason' in record) patch.blockedReason = readString(record.blockedReason)
   if ('labels' in record) patch.labels = readLabels(record.labels)
+  if ('priority' in record) {
+    const priority = readString(record.priority)
+    if (!PRIORITY_IDS.has(priority)) throw new Error('Invalid Kanban priority')
+    patch.priority = priority as KanbanPriority
+  }
+  if ('assignee' in record) patch.assignee = readKanbanActor(record.assignee)
+  if ('model' in record) patch.model = readString(record.model)
+  if ('thinking' in record) {
+    const thinking = readString(record.thinking)
+    if (!THINKING_IDS.has(thinking)) throw new Error('Invalid Kanban thinking')
+    patch.thinking = thinking as KanbanThinkingLevel
+  }
+  if ('dueAtIso' in record) patch.dueAtIso = readString(record.dueAtIso)
+  if ('estimateMinutes' in record) patch.estimateMinutes = readNullableNonnegativeInteger(record.estimateMinutes, 'estimateMinutes')
+  if ('actualMinutes' in record) patch.actualMinutes = readNullableNonnegativeInteger(record.actualMinutes, 'actualMinutes')
   return patch
 }
 
@@ -152,8 +193,15 @@ export function parseListTasksQuery(value: unknown): KanbanTaskListQuery {
   const requestedOffset = 'offset' in record ? readInteger(record.offset, 'offset') : 0
   if (requestedLimit < 1) throw new Error('limit must be greater than or equal to 1')
   if (requestedOffset < 0) throw new Error('offset must be greater than or equal to 0')
+  const priorities = readStringArray(record.priority)
+  for (const priority of priorities) {
+    if (!PRIORITY_IDS.has(priority)) throw new Error('Invalid Kanban priority')
+  }
   return {
     q: readOptionalString(record.q),
+    priority: priorities.length > 0 ? priorities as KanbanPriority[] : undefined,
+    assignee: 'assignee' in record ? readKanbanActor(record.assignee) : undefined,
+    label: readOptionalString(record.label),
     limit: Math.min(requestedLimit, 200),
     offset: requestedOffset,
   }

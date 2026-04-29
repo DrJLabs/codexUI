@@ -127,6 +127,9 @@ export class KanbanTaskService {
     const matchingTasks = Object.values(state.tasks)
       .filter((task) => !task.archived)
       .filter((task) => !normalizedQuery || taskMatchesQuery(task, normalizedQuery))
+      .filter((task) => !query.priority || query.priority.includes(task.priority))
+      .filter((task) => !query.assignee || task.assignee === query.assignee)
+      .filter((task) => !query.label || task.labels.some((label) => label.name.toLowerCase() === query.label?.trim().toLowerCase()))
       .sort((left, right) => compareTasks(left, right, config))
     const items = matchingTasks.slice(query.offset, query.offset + query.limit)
     return {
@@ -151,6 +154,13 @@ export class KanbanTaskService {
       description: input.description !== undefined ? input.description.trim() : task.description,
       labels: input.labels ?? task.labels,
       blockedReason: input.blockedReason !== undefined ? input.blockedReason.trim() : task.blockedReason,
+      priority: input.priority ?? task.priority,
+      assignee: input.assignee ?? task.assignee,
+      model: input.model !== undefined ? input.model.trim() : task.model,
+      thinking: input.thinking ?? task.thinking,
+      dueAtIso: input.dueAtIso !== undefined ? input.dueAtIso.trim() : task.dueAtIso,
+      estimateMinutes: input.estimateMinutes !== undefined ? input.estimateMinutes : task.estimateMinutes,
+      actualMinutes: input.actualMinutes !== undefined ? input.actualMinutes : task.actualMinutes,
       updatedAtIso: nowIso,
       version: task.version + 1,
     }))

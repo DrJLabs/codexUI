@@ -404,6 +404,25 @@ describe('useKanbanBoard', () => {
     })
   })
 
+  it('adds priority and assignee filters to task list loads', async () => {
+    const task = createTask({ id: 'task_filtered', priority: 'high', assignee: 'codex:auto' })
+    const gateway = withTaskListGateway(createGateway(createState([task])), async (params) => createListResult([task], {
+      total: 1,
+      limit: params.limit ?? 50,
+      offset: params.offset ?? 0,
+    }))
+    const board = useKanbanBoard({ gateway, storage: null })
+
+    board.setPriorityFilter(['high'])
+    board.setAssigneeFilter('codex:auto')
+    await board.loadBoard()
+
+    expect(gateway.listKanbanTasks).toHaveBeenCalledWith(expect.objectContaining({
+      priority: ['high'],
+      assignee: 'codex:auto',
+    }))
+  })
+
   it('refreshes the task list after task mutations', async () => {
     const activeTask = createTask({ id: 'task_a', title: 'Active' })
     let listItems = [activeTask]

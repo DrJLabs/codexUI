@@ -424,9 +424,12 @@ function resolveErrorStatus(error: unknown, message: string): number {
     || lowerMessage.includes('must be an integer')
     || lowerMessage.includes('must be greater than or equal to')
     || lowerMessage.startsWith('invalid kanban priority')
+    || lowerMessage.startsWith('invalid kanban actor')
+    || lowerMessage.startsWith('invalid kanban thinking')
     || lowerMessage.startsWith('invalid proposal policy')
     || lowerMessage.startsWith('invalid default thinking')
     || lowerMessage.startsWith('defaults must be an object')
+    || lowerMessage.includes('must be null or a nonnegative integer')
   ) {
     return 400
   }

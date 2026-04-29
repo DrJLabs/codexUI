@@ -63,6 +63,11 @@ export async function loadKanbanState(): Promise<KanbanStateSnapshot> {
 function formatListKanbanTasksQuery(params: ListKanbanTasksParams): string {
   const query = new URLSearchParams()
   if (params.q) query.set('q', params.q)
+  for (const priority of params.priority ?? []) {
+    query.append('priority', priority)
+  }
+  if (params.assignee) query.set('assignee', params.assignee)
+  if (params.label) query.set('label', params.label)
   if (typeof params.limit === 'number') query.set('limit', String(params.limit))
   if (typeof params.offset === 'number') query.set('offset', String(params.offset))
   const encoded = query.toString()

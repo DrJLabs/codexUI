@@ -123,6 +123,71 @@ describe('KanbanTaskService', () => {
     expect(result.hasMore).toBe(false)
   })
 
+  it('filters listed tasks by metadata and label', async () => {
+    const { service } = await createHarness()
+    const highTask = await service.createTask({
+      title: 'High priority deploy',
+      labels: [{ id: 'label_ops', name: 'Ops', color: '#2563eb' }],
+    })
+    const lowTask = await service.createTask({
+      title: 'Low priority copy',
+      labels: [{ id: 'label_docs', name: 'Docs', color: '#16a34a' }],
+    })
+    await service.updateTask(highTask.id, {
+      version: highTask.version,
+      priority: 'high',
+      assignee: 'codex:auto',
+      model: 'gpt-5.4',
+      thinking: 'high',
+      dueAtIso: '2026-05-02',
+      estimateMinutes: 45,
+      actualMinutes: null,
+    })
+    await service.updateTask(lowTask.id, {
+      version: lowTask.version,
+      priority: 'low',
+      assignee: 'operator',
+    })
+
+    const result = await service.listTasks({
+      priority: ['high'],
+      assignee: 'codex:auto',
+      label: 'Ops',
+      limit: 20,
+      offset: 0,
+    })
+
+    expect(result.items.map((task) => task.id)).toEqual([highTask.id])
+    expect(result.total).toBe(1)
+  })
+
+  it('updates allowed metadata fields through the versioned update path', async () => {
+    const { service } = await createHarness()
+    const task = await service.createTask({ title: 'Metadata task' })
+
+    const updated = await service.updateTask(task.id, {
+      version: task.version,
+      priority: 'critical',
+      assignee: 'codex:thread:019e-meta',
+      model: 'gpt-5.4-codex',
+      thinking: 'low',
+      dueAtIso: '2026-05-03',
+      estimateMinutes: 30,
+      actualMinutes: 25,
+    })
+
+    expect(updated).toMatchObject({
+      priority: 'critical',
+      assignee: 'codex:thread:019e-meta',
+      model: 'gpt-5.4-codex',
+      thinking: 'low',
+      dueAtIso: '2026-05-03',
+      estimateMinutes: 30,
+      actualMinutes: 25,
+      version: task.version + 1,
+    })
+  })
+
   it('reorders a task into a new status after another task', async () => {
     const { service } = await createHarness()
     const other = await service.createTask({ title: 'Ready anchor' })

@@ -3,6 +3,8 @@
     <span class="kanban-task-card-title">{{ task.title }}</span>
     <span v-if="task.description" class="kanban-task-card-description">{{ task.description }}</span>
     <span class="kanban-task-card-meta">
+      <span class="kanban-task-card-chip">{{ task.priority }}</span>
+      <span class="kanban-task-card-chip">{{ task.assignee }}</span>
       <span>{{ checkedCriteria }}/{{ task.acceptanceCriteria.length }} criteria</span>
       <span v-if="task.runState !== 'idle'" class="kanban-task-card-badge">{{ task.runState.replace(/_/g, ' ') }}</span>
     </span>
@@ -74,12 +76,16 @@ const checkedCriteria = computed(() => props.task.acceptanceCriteria.filter((cri
   font-weight: 700;
 }
 
+.kanban-task-card-chip,
 .kanban-task-card-badge,
 .kanban-task-card-label {
   border: 1px solid #d4d4d8;
   border-radius: 6px;
   padding: 2px 6px;
   background: #fafafa;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 :global(:root.dark) .kanban-task-card {
@@ -94,6 +100,7 @@ const checkedCriteria = computed(() => props.task.acceptanceCriteria.filter((cri
   color: #a1a1aa;
 }
 
+:global(:root.dark) .kanban-task-card-chip,
 :global(:root.dark) .kanban-task-card-badge,
 :global(:root.dark) .kanban-task-card-label {
   border-color: #3f3f46;

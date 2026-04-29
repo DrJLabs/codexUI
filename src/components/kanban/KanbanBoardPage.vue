@@ -23,9 +23,13 @@
         :search-query="filters.searchQuery"
         :label-names="labelNames"
         :active-labels="filters.labelNames"
+        :priority-filter="filters.priorities"
+        :assignee-filter="filters.assignee"
         @update:search-query="setSearchQuery"
+        @update:priority-filter="setBoardPriorityFilter"
+        @update:assignee-filter="setBoardAssigneeFilter"
         @toggle-label="toggleLabelFilter"
-        @clear-filters="clearFilters"
+        @clear-filters="clearBoardFilters"
         @create-task="createFirstTask"
       />
       <KanbanEmptyState
@@ -57,6 +61,7 @@
           @regenerate-review-packet="regenerateSelectedReviewPacket"
           @set-status="setSelectedTaskStatus"
           @save-summary="saveSelectedSummary"
+          @save-metadata="saveSelectedMetadata"
           @add-criterion="addSelectedCriterion"
           @update-criterion="updateSelectedCriterion"
           @remove-criterion="removeSelectedCriterion"
@@ -74,6 +79,7 @@
           @regenerate-review-packet="regenerateSelectedReviewPacket"
           @set-status="setSelectedTaskStatus"
           @save-summary="saveSelectedSummary"
+          @save-metadata="saveSelectedMetadata"
           @add-criterion="addSelectedCriterion"
           @update-criterion="updateSelectedCriterion"
           @remove-criterion="removeSelectedCriterion"
@@ -88,7 +94,7 @@
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useKanbanBoard } from '../../composables/useKanbanBoard'
-import { KANBAN_STATUSES, type KanbanStatus, type KanbanTaskLabel } from '../../types/kanban'
+import { KANBAN_STATUSES, type KanbanActor, type KanbanMetadataPatch, type KanbanPriority, type KanbanStatus, type KanbanTaskLabel } from '../../types/kanban'
 import KanbanBoardViewport from './KanbanBoardViewport.vue'
 import KanbanEmptyState from './KanbanEmptyState.vue'
 import KanbanTaskInspector from './KanbanTaskInspector.vue'
@@ -123,6 +129,8 @@ const {
   regenerateReviewPacket,
   setSearchQuery,
   toggleLabelFilter,
+  setPriorityFilter,
+  setAssigneeFilter,
   clearFilters,
   subscribeToEvents,
 } = useKanbanBoard()
@@ -180,6 +188,12 @@ function saveSelectedSummary(patch: { title: string; description: string; labels
   const taskId = readSelectedTaskId()
   if (!taskId) return
   void runMutation('Save task failed', () => updateTask(taskId, patch))
+}
+
+function saveSelectedMetadata(patch: KanbanMetadataPatch): void {
+  const taskId = readSelectedTaskId()
+  if (!taskId) return
+  void runMutation('Save metadata failed', () => updateTask(taskId, patch))
 }
 
 function archiveSelectedTask(): void {
@@ -243,6 +257,21 @@ function regenerateSelectedReviewPacket(): void {
   const taskId = readSelectedTaskId()
   if (!taskId) return
   void runMutation('Regenerate review packet failed', () => regenerateReviewPacket(taskId))
+}
+
+function setBoardPriorityFilter(priorities: KanbanPriority[]): void {
+  setPriorityFilter(priorities)
+  void loadBoard()
+}
+
+function setBoardAssigneeFilter(assignee: KanbanActor | ''): void {
+  setAssigneeFilter(assignee)
+  void loadBoard()
+}
+
+function clearBoardFilters(): void {
+  clearFilters()
+  void loadBoard()
 }
 
 async function runMutation<T>(label: string, operation: () => Promise<T>): Promise<T | null> {

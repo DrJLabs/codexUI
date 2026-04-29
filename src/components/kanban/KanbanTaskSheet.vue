@@ -22,6 +22,7 @@
           @regenerate-review-packet="emit('regenerate-review-packet')"
           @set-status="emit('set-status', $event)"
           @save-summary="emit('save-summary', $event)"
+          @save-metadata="emit('save-metadata', $event)"
           @add-criterion="emit('add-criterion', $event)"
           @update-criterion="(criterionId, patch) => emit('update-criterion', criterionId, patch)"
           @remove-criterion="emit('remove-criterion', $event)"
@@ -34,7 +35,7 @@
 
 <script setup lang="ts">
 import { nextTick, ref, watch } from 'vue'
-import type { KanbanExecutionPolicy, KanbanStatus, KanbanTask, KanbanTaskLabel } from '../../types/kanban'
+import type { KanbanExecutionPolicy, KanbanMetadataPatch, KanbanStatus, KanbanTask, KanbanTaskLabel } from '../../types/kanban'
 import KanbanTaskInspector from './KanbanTaskInspector.vue'
 
 const props = defineProps<{
@@ -52,6 +53,7 @@ const emit = defineEmits<{
   'regenerate-review-packet': []
   'set-status': [status: KanbanStatus]
   'save-summary': [patch: { title: string; description: string; labels: KanbanTaskLabel[] }]
+  'save-metadata': [patch: KanbanMetadataPatch]
   'add-criterion': [text: string]
   'update-criterion': [criterionId: string, patch: { text?: string; checked?: boolean }]
   'remove-criterion': [criterionId: string]

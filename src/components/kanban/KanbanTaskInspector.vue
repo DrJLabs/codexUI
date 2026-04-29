@@ -22,6 +22,7 @@
     <TaskReviewPacketPanel :packet-id="task.reviewPacketId" @regenerate="$emit('regenerate-review-packet')" />
     <TaskProposalList :count="task.proposalIds.length" />
     <TaskSummaryEditor :task="task" @save="$emit('save-summary', $event)" @archive="$emit('archive')" />
+    <KanbanMetadataEditor :task="task" @save="$emit('save-metadata', $event)" />
     <AcceptanceCriteriaEditor
       :task="task"
       @add="$emit('add-criterion', $event)"
@@ -36,8 +37,9 @@
 </template>
 
 <script setup lang="ts">
-import type { KanbanExecutionPolicy, KanbanStatus, KanbanTask, KanbanTaskLabel } from '../../types/kanban'
+import type { KanbanExecutionPolicy, KanbanMetadataPatch, KanbanStatus, KanbanTask, KanbanTaskLabel } from '../../types/kanban'
 import AcceptanceCriteriaEditor from './AcceptanceCriteriaEditor.vue'
+import KanbanMetadataEditor from './KanbanMetadataEditor.vue'
 import TaskStatusActions from './TaskStatusActions.vue'
 import TaskRunControls from './TaskRunControls.vue'
 import TaskRunLogPanel from './TaskRunLogPanel.vue'
@@ -60,6 +62,7 @@ defineEmits<{
   'regenerate-review-packet': []
   'set-status': [status: KanbanStatus]
   'save-summary': [patch: { title: string; description: string; labels: KanbanTaskLabel[] }]
+  'save-metadata': [patch: KanbanMetadataPatch]
   'add-criterion': [text: string]
   'update-criterion': [criterionId: string, patch: { text?: string; checked?: boolean }]
   'remove-criterion': [criterionId: string]

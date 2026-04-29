@@ -15,7 +15,7 @@ import {
   subscribeKanbanEvents,
   updateKanbanTask,
 } from '../api/kanbanGateway'
-import { KANBAN_STATUSES, type CreateKanbanTaskInput, type KanbanBoardConfig, type KanbanExecutionPolicy, type KanbanProposal, type KanbanStateSnapshot, type KanbanStatus, type KanbanTask, type KanbanTaskListResult, type ListKanbanTasksParams, type ReorderKanbanTaskInput, type ReplaceKanbanAcceptanceCriteriaInput, type UpdateKanbanTaskInput } from '../types/kanban'
+import { KANBAN_STATUSES, type CreateKanbanTaskInput, type KanbanActor, type KanbanBoardConfig, type KanbanExecutionPolicy, type KanbanPriority, type KanbanProposal, type KanbanStateSnapshot, type KanbanStatus, type KanbanTask, type KanbanTaskListResult, type ListKanbanTasksParams, type ReorderKanbanTaskInput, type ReplaceKanbanAcceptanceCriteriaInput, type UpdateKanbanTaskInput } from '../types/kanban'
 
 const FILTER_STORAGE_KEY = 'codex-web-local.kanban.filters.v1'
 
@@ -41,6 +41,8 @@ export type KanbanBoardStorage = Pick<Storage, 'getItem' | 'setItem'> | null
 type KanbanFilters = {
   searchQuery: string
   labelNames: string[]
+  priorities: KanbanPriority[]
+  assignee: KanbanActor | ''
 }
 
 type UseKanbanBoardOptions = {
@@ -81,17 +83,19 @@ function createEmptyTasksByStatus(): Record<KanbanStatus, KanbanTask[]> {
 }
 
 function readStoredFilters(storage: KanbanBoardStorage): KanbanFilters {
-  if (!storage) return { searchQuery: '', labelNames: [] }
+  if (!storage) return { searchQuery: '', labelNames: [], priorities: [], assignee: '' }
   try {
     const raw = storage.getItem(FILTER_STORAGE_KEY)
-    if (!raw) return { searchQuery: '', labelNames: [] }
+    if (!raw) return { searchQuery: '', labelNames: [], priorities: [], assignee: '' }
     const parsed = JSON.parse(raw) as Partial<KanbanFilters>
     return {
       searchQuery: typeof parsed.searchQuery === 'string' ? parsed.searchQuery : '',
       labelNames: Array.isArray(parsed.labelNames) ? parsed.labelNames.filter((label): label is string => typeof label === 'string') : [],
+      priorities: Array.isArray(parsed.priorities) ? parsed.priorities.filter(isKanbanPriority) : [],
+      assignee: typeof parsed.assignee === 'string' && isKanbanActor(parsed.assignee) ? parsed.assignee : '',
     }
   } catch {
-    return { searchQuery: '', labelNames: [] }
+    return { searchQuery: '', labelNames: [], priorities: [], assignee: '' }
   }
 }
 
@@ -118,13 +122,31 @@ function isKanbanTask(value: unknown): value is KanbanTask {
     && typeof value.version === 'number'
 }
 
+function isKanbanPriority(value: unknown): value is KanbanPriority {
+  return value === 'critical' || value === 'high' || value === 'normal' || value === 'low'
+}
+
+function isKanbanActor(value: unknown): value is KanbanActor {
+  return value === 'operator'
+    || value === 'codex:auto'
+    || (typeof value === 'string' && value.startsWith('codex:thread:') && value.slice('codex:thread:'.length).trim().length > 0)
+}
+
 export function useKanbanBoard(options: UseKanbanBoardOptions = {}) {
   const gateway = options.gateway ?? defaultGateway
   const storage = resolveStorage(options.storage)
   const tasks: Ref<KanbanTask[]> = ref([])
   const config: Ref<KanbanBoardConfig | null> = ref(null)
   const listState: Ref<KanbanTaskListResult | null> = ref(null)
-  const serverQuery: Ref<ListKanbanTasksParams> = ref({ limit: 50, offset: 0 })
+  const storedFilters = readStoredFilters(storage)
+  const serverQuery: Ref<ListKanbanTasksParams> = ref({
+    q: storedFilters.searchQuery.trim() || undefined,
+    label: storedFilters.labelNames.length === 1 ? storedFilters.labelNames[0] : undefined,
+    priority: storedFilters.priorities.length > 0 ? storedFilters.priorities : undefined,
+    assignee: storedFilters.assignee || undefined,
+    limit: 50,
+    offset: 0,
+  })
   const versionConflict: Ref<KanbanVersionConflictState | null> = ref(null)
   const proposals: Ref<KanbanProposal[]> = ref([])
   const executionPolicy = ref<KanbanExecutionPolicy | null>(null)
@@ -132,7 +154,7 @@ export function useKanbanBoard(options: UseKanbanBoardOptions = {}) {
   const isLoading = ref(false)
   const errorMessage = ref('')
   const selectedTaskId = ref('')
-  const filters = ref<KanbanFilters>(readStoredFilters(storage))
+  const filters = ref<KanbanFilters>(storedFilters)
 
   const tasksByStatus = computed(() => {
     const grouped = createEmptyTasksByStatus()
@@ -147,6 +169,8 @@ export function useKanbanBoard(options: UseKanbanBoardOptions = {}) {
     const grouped = createEmptyTasksByStatus()
     const query = filters.value.searchQuery.trim().toLowerCase()
     const labelNames = new Set(filters.value.labelNames.map((label) => label.toLowerCase()))
+    const priorities = new Set(filters.value.priorities)
+    const assignee = filters.value.assignee
     for (const task of tasks.value) {
       if (task.archived) continue
       if (query) {
@@ -160,6 +184,8 @@ export function useKanbanBoard(options: UseKanbanBoardOptions = {}) {
       if (labelNames.size > 0 && !task.labels.some((label) => labelNames.has(label.name.toLowerCase()))) {
         continue
       }
+      if (priorities.size > 0 && !priorities.has(task.priority)) continue
+      if (assignee && task.assignee !== assignee) continue
       grouped[task.status].push(task)
     }
     return grouped
@@ -386,6 +412,7 @@ export function useKanbanBoard(options: UseKanbanBoardOptions = {}) {
 
   function setSearchQuery(searchQuery: string): void {
     filters.value = { ...filters.value, searchQuery }
+    serverQuery.value = { ...serverQuery.value, q: searchQuery.trim() || undefined }
     persistFilters()
   }
 
@@ -397,11 +424,36 @@ export function useKanbanBoard(options: UseKanbanBoardOptions = {}) {
       next.add(labelName)
     }
     filters.value = { ...filters.value, labelNames: Array.from(next) }
+    serverQuery.value = {
+      ...serverQuery.value,
+      label: next.size === 1 ? Array.from(next)[0] : undefined,
+    }
+    persistFilters()
+  }
+
+  function setPriorityFilter(priorities: KanbanPriority[]): void {
+    const nextPriorities = priorities.filter(isKanbanPriority)
+    filters.value = { ...filters.value, priorities: nextPriorities }
+    serverQuery.value = { ...serverQuery.value, priority: nextPriorities.length > 0 ? nextPriorities : undefined }
+    persistFilters()
+  }
+
+  function setAssigneeFilter(assignee: KanbanActor | ''): void {
+    const nextAssignee = assignee && isKanbanActor(assignee) ? assignee : ''
+    filters.value = { ...filters.value, assignee: nextAssignee }
+    serverQuery.value = { ...serverQuery.value, assignee: nextAssignee || undefined }
     persistFilters()
   }
 
   function clearFilters(): void {
-    filters.value = { searchQuery: '', labelNames: [] }
+    filters.value = { searchQuery: '', labelNames: [], priorities: [], assignee: '' }
+    serverQuery.value = {
+      ...serverQuery.value,
+      q: undefined,
+      label: undefined,
+      priority: undefined,
+      assignee: undefined,
+    }
     persistFilters()
   }
 
@@ -443,6 +495,8 @@ export function useKanbanBoard(options: UseKanbanBoardOptions = {}) {
     regenerateReviewPacket,
     setSearchQuery,
     toggleLabelFilter,
+    setPriorityFilter,
+    setAssigneeFilter,
     clearFilters,
   }
 }

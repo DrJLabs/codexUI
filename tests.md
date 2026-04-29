@@ -4117,3 +4117,35 @@ End-to-end safe execution hardening for Kanban runs: loopback gating, CSRF, mana
 - Remove clean test worktrees with `git -C <repo-root> worktree remove <worktree-path>`
 - Remove test branches with `git -C <repo-root> branch -D <branch-name>` after worktree removal
 - Archive or delete temporary Kanban tasks from local state
+
+---
+
+### Kanban Nerve-Parity Metadata And Filters
+
+#### Feature/Change Name
+Kanban metadata editor, priority/assignee toolbar filters, server-side task list filtering, and card metadata display.
+
+#### Prerequisites/Setup
+1. Start the dev server with `pnpm run dev -- --host 0.0.0.0 --port 4173`
+2. Open `http://127.0.0.1:4173/#/kanban`
+3. Create or select at least two tasks with different labels
+4. Light theme and dark theme are both available from Settings
+
+#### Steps
+1. In light theme, select a task and edit metadata below the summary editor: set priority, assignee, model, thinking, due date, estimate minutes, and actual minutes
+2. Save metadata and confirm the task card shows the priority and assignee in its metadata row
+3. Use the toolbar priority filter to select `High` and confirm only matching high-priority tasks remain visible
+4. Use the toolbar assignee filter to select `Codex auto` or `Operator` and confirm the visible board narrows accordingly
+5. Clear filters and confirm search and label filters still work as before
+6. Switch to dark theme and repeat metadata editing plus priority and assignee filtering
+7. On a mobile-width viewport, open the task sheet and confirm the metadata editor appears below the summary editor and remains usable
+
+#### Expected Results
+- Saving metadata updates the selected task through the versioned update path
+- Priority and assignee filters update the board without breaking search or label filtering
+- Task cards show compact priority and assignee metadata without overflowing on mobile
+- The metadata editor is readable and usable in light theme and dark theme
+
+#### Rollback/Cleanup
+- Clear toolbar filters
+- Restore test task metadata to the desired values or archive temporary tasks

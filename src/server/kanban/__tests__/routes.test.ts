@@ -139,6 +139,123 @@ describe('createKanbanMiddleware', () => {
     expect(listed.body.data.hasMore).toBe(false)
   })
 
+  it('honors priority, assignee, and label filters over HTTP', async () => {
+    const { baseUrl } = await createTestServer()
+    const high = await requestJson<{ data: { id: string; version: number } }>(
+      `${baseUrl}/codex-api/kanban/tasks`,
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          title: 'High deploy',
+          labels: [{ name: 'Ops' }],
+        }),
+      },
+    )
+    await requestJson<{ data: unknown }>(
+      `${baseUrl}/codex-api/kanban/tasks`,
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          title: 'Normal docs',
+          labels: [{ name: 'Docs' }],
+        }),
+      },
+    )
+    await requestJson<{ data: unknown }>(
+      `${baseUrl}/codex-api/kanban/tasks/${high.body.data.id}`,
+      {
+        method: 'PATCH',
+        body: JSON.stringify({
+          version: high.body.data.version,
+          priority: 'high',
+          assignee: 'codex:auto',
+        }),
+      },
+    )
+
+    const listed = await requestJson<{
+      data: { items: Array<{ id: string; priority: string; assignee: string }>; total: number }
+    }>(`${baseUrl}/codex-api/kanban/tasks?priority=high&assignee=codex%3Aauto&label=Ops`)
+
+    expect(listed.status).toBe(200)
+    expect(listed.body.data.items).toEqual([
+      expect.objectContaining({
+        id: high.body.data.id,
+        priority: 'high',
+        assignee: 'codex:auto',
+      }),
+    ])
+    expect(listed.body.data.total).toBe(1)
+  })
+
+  it('updates metadata fields and rejects invalid metadata patches over HTTP', async () => {
+    const { baseUrl } = await createTestServer()
+    const created = await requestJson<{ data: { id: string; version: number } }>(
+      `${baseUrl}/codex-api/kanban/tasks`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ title: 'Metadata task' }),
+      },
+    )
+
+    const updated = await requestJson<{
+      data: {
+        version: number
+        priority: string
+        assignee: string
+        model: string
+        thinking: string
+        dueAtIso: string
+        estimateMinutes: number
+        actualMinutes: null
+      }
+    }>(
+      `${baseUrl}/codex-api/kanban/tasks/${created.body.data.id}`,
+      {
+        method: 'PATCH',
+        body: JSON.stringify({
+          version: created.body.data.version,
+          priority: 'critical',
+          assignee: 'codex:thread:019e-route',
+          model: 'gpt-5.4-codex',
+          thinking: 'high',
+          dueAtIso: '2026-05-04',
+          estimateMinutes: 90,
+          actualMinutes: null,
+        }),
+      },
+    )
+    const invalidActor = await requestJson<{ error: string }>(
+      `${baseUrl}/codex-api/kanban/tasks/${created.body.data.id}`,
+      {
+        method: 'PATCH',
+        body: JSON.stringify({ version: updated.body.data.version, assignee: 'codex:thread:' }),
+      },
+    )
+    const invalidMinutes = await requestJson<{ error: string }>(
+      `${baseUrl}/codex-api/kanban/tasks/${created.body.data.id}`,
+      {
+        method: 'PATCH',
+        body: JSON.stringify({ version: updated.body.data.version, estimateMinutes: -1 }),
+      },
+    )
+
+    expect(updated.status).toBe(200)
+    expect(updated.body.data).toMatchObject({
+      priority: 'critical',
+      assignee: 'codex:thread:019e-route',
+      model: 'gpt-5.4-codex',
+      thinking: 'high',
+      dueAtIso: '2026-05-04',
+      estimateMinutes: 90,
+      actualMinutes: null,
+    })
+    expect(invalidActor.status).toBe(400)
+    expect(invalidActor.body.error).toContain('Invalid Kanban actor')
+    expect(invalidMinutes.status).toBe(400)
+    expect(invalidMinutes.body.error).toContain('estimateMinutes must be null or a nonnegative integer')
+  })
+
   it('returns conflict details for stale task patches', async () => {
     const { baseUrl } = await createTestServer()
     const created = await requestJson<{ data: { id: string; version: number; title: string } }>(
