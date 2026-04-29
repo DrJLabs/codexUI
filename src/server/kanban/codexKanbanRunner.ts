@@ -1,6 +1,6 @@
 import { appendFile, mkdir, readFile } from 'node:fs/promises'
 import { dirname } from 'node:path'
-import type { KanbanActor, KanbanRun, KanbanTask, StartKanbanRunResponse, InterruptKanbanRunResponse } from '../../types/kanban'
+import type { CodexRunProfile, KanbanActor, KanbanBoardConfig, KanbanExecutionPolicy, KanbanRun, KanbanTask, StartKanbanRunResponse, InterruptKanbanRunResponse } from '../../types/kanban'
 import type { KanbanAuditSink } from './auditLog'
 import { createKanbanCodexBridgeAdapter, type KanbanCodexBridgeAdapter } from './codexBridgeAdapter'
 import type { KanbanEventBus } from './eventBus'
@@ -10,7 +10,8 @@ import type { KanbanProposalService } from './proposalService'
 import type { KanbanRemoteAccess } from './remoteAccess'
 import type { KanbanReviewPacketService } from './reviewPacketService'
 import type { KanbanStateFileV1 } from './migrations'
-import { KanbanInvalidTransitionError } from './errors'
+import { resolveCodexTurnStartRunSettings, resolveEffectiveKanbanRunProfile } from './runProfiles'
+import { KanbanInvalidTransitionError, KanbanRunProfilePolicyError } from './errors'
 import { KanbanStorage } from './storage'
 import { KanbanTaskQueue, type KanbanTaskQueueLimits } from './taskQueue'
 import { KanbanWorktreeManager } from './worktreeManager'
@@ -23,6 +24,8 @@ export type CodexKanbanRunnerOptions = {
   worktreeManager: KanbanWorktreeManager
   bridge: CodexBridgeRuntime
   auditLog: KanbanAuditSink
+  policy: KanbanExecutionPolicy
+  getExecutionPolicy?: () => Promise<KanbanExecutionPolicy>
   proposalService?: Pick<KanbanProposalService, 'createProposalsFromMarkers'>
   reviewPacketService?: Pick<KanbanReviewPacketService, 'generateForTask'>
   eventBus?: KanbanEventBus
@@ -53,6 +56,8 @@ export class CodexKanbanRunner {
   private readonly worktreeManager: KanbanWorktreeManager
   private readonly bridge: KanbanCodexBridgeAdapter
   private readonly auditLog: KanbanAuditSink
+  private readonly policy: KanbanExecutionPolicy
+  private readonly getExecutionPolicy: () => Promise<KanbanExecutionPolicy>
   private readonly proposalService?: Pick<KanbanProposalService, 'createProposalsFromMarkers'>
   private readonly reviewPacketService?: Pick<KanbanReviewPacketService, 'generateForTask'>
   private readonly eventBus?: KanbanEventBus
@@ -66,6 +71,8 @@ export class CodexKanbanRunner {
     this.worktreeManager = options.worktreeManager
     this.bridge = createKanbanCodexBridgeAdapter(options.bridge)
     this.auditLog = options.auditLog
+    this.policy = options.policy
+    this.getExecutionPolicy = options.getExecutionPolicy ?? (async () => this.policy)
     this.proposalService = options.proposalService
     this.reviewPacketService = options.reviewPacketService
     this.eventBus = options.eventBus
@@ -74,18 +81,29 @@ export class CodexKanbanRunner {
   }
 
   async startTaskRun(taskId: string, actor: KanbanRunActorContext): Promise<StartKanbanRunResponse> {
-    const task = await this.readTask(taskId)
+    const { task, config } = await this.readTaskWithConfig(taskId)
     if (task.archived) {
       throw new Error('Cannot start a Kanban run for an archived task')
     }
-    const run = this.createRun(task)
+    const runProfileSnapshot = resolveEffectiveKanbanRunProfile({
+      task,
+      profiles: config.runProfiles,
+      defaultRunProfileId: config.defaultRunProfileId,
+    })
+    assertRunProfileAllowed(runProfileSnapshot, this.policy)
+    const run = this.createRun(task, runProfileSnapshot)
     await this.auditLog.append({
       eventType: 'run.queued',
       actor: createAuditActor(actor),
       task: { taskId },
       repo: { projectRoot: this.projectRoot },
       codex: { runId: run.id },
-      policy: { sandboxMode: 'workspace-write', approvalPolicy: 'on-request', networkAccess: false },
+      policy: {
+        runProfile: summarizeRunProfile(runProfileSnapshot),
+        sandboxMode: runProfileSnapshot.sandboxMode,
+        approvalPolicy: runProfileSnapshot.approvalPolicy,
+        networkAccess: runProfileSnapshot.networkAccess,
+      },
     })
 
     const queueResult = this.queue.enqueue({ runId: run.id, taskId, repoRoot: this.projectRoot })
@@ -161,7 +179,7 @@ export class CodexKanbanRunner {
     return await readOptionalText(run.eventsPath)
   }
 
-  private createRun(task: KanbanTask): KanbanRun {
+  private createRun(task: KanbanTask, runProfileSnapshot: CodexRunProfile): KanbanRun {
     const runId = createKanbanId('run')
     const runDir = resolveProjectRunDir(this.dataDir, this.projectRoot, runId)
     const now = new Date().toISOString()
@@ -176,6 +194,7 @@ export class CodexKanbanRunner {
       turnId: '',
       logPath: `${runDir}/logs.txt`,
       eventsPath: `${runDir}/events.jsonl`,
+      runProfileSnapshot,
       errorMessage: '',
       createdAtIso: now,
       updatedAtIso: now,
@@ -417,12 +436,27 @@ export class CodexKanbanRunner {
       await this.releaseRunAndStartPromoted(run.id)
       return
     }
-    const task = await this.readTask(taskId)
+    const { task, config } = await this.readTaskWithConfig(taskId)
     try {
       if (task.archived) {
         throw new Error('Cannot start a Kanban run for an archived task')
       }
-      const result = await this.startActiveRun(run, task)
+      const executionPolicy = await this.getExecutionPolicy()
+      if (!executionPolicy.executionEnabled) {
+        throw new Error('Kanban execution is disabled')
+      }
+      const profiledRun = run.runProfileSnapshot?.id
+        ? run
+        : {
+            ...run,
+            runProfileSnapshot: resolveEffectiveKanbanRunProfile({
+              task,
+              profiles: config.runProfiles,
+              defaultRunProfileId: config.defaultRunProfileId,
+            }),
+          }
+      assertRunProfileAllowed(profiledRun.runProfileSnapshot, executionPolicy)
+      const result = await this.startActiveRun(profiledRun, task)
       this.eventBus?.emit({ type: 'task.updated', payload: { taskId: result.task.id, runId: result.run.id } })
       this.eventBus?.emit({ type: 'run.started', payload: { runId: result.run.id, taskId: result.task.id, state: result.run.state } })
     } catch (error) {
@@ -476,6 +510,13 @@ export class CodexKanbanRunner {
     return task
   }
 
+  private async readTaskWithConfig(taskId: string): Promise<{ task: KanbanTask; config: KanbanBoardConfig }> {
+    const state = await this.storage.load()
+    const task = state.tasks[taskId]
+    if (!task) throw new Error(`Kanban task not found: ${taskId}`)
+    return { task, config: state.settings.kanbanConfig }
+  }
+
   private async readRun(runId: string): Promise<KanbanRun> {
     const state = await this.storage.load()
     const run = state.runs[runId]
@@ -521,13 +562,12 @@ export class CodexKanbanRunner {
 
   private async startTurn(task: KanbanTask, run: KanbanRun): Promise<string> {
     const prompt = buildTaskPrompt(task)
+    const runSettings = resolveCodexTurnStartRunSettings(run.runProfileSnapshot, run.worktreePath)
     const started = await this.bridge.rpc<Record<string, unknown>>('turn/start', {
       threadId: run.threadId,
       cwd: run.worktreePath,
-      prompt,
-      sandboxMode: 'workspace-write',
-      approvalPolicy: 'on-request',
-      networkAccess: false,
+      input: [{ type: 'text', text: prompt }],
+      ...runSettings,
     })
     return readString(started.turnId) || readString(started.id)
   }
@@ -562,6 +602,27 @@ function createAuditActor(actor: KanbanRunActorContext): Record<string, unknown>
     tailscale: actor.access.tailscale,
     trusted: actor.access.trusted,
     forwarded: actor.access.forwarded,
+  }
+}
+
+function summarizeRunProfile(profile: CodexRunProfile): Record<string, unknown> {
+  return {
+    id: profile.id,
+    model: profile.model,
+    reasoningEffort: profile.reasoningEffort,
+    sandboxMode: profile.sandboxMode,
+    approvalPolicy: profile.approvalPolicy,
+    networkAccess: profile.networkAccess,
+    writableRoots: profile.writableRoots,
+  }
+}
+
+function assertRunProfileAllowed(profile: CodexRunProfile, policy: KanbanExecutionPolicy): void {
+  if (profile.sandboxMode === 'danger-full-access' && !policy.allowDangerFullAccess) {
+    throw new KanbanRunProfilePolicyError('Kanban run profile uses danger-full-access but policy does not allow it')
+  }
+  if (profile.approvalPolicy === 'never' && !policy.allowApprovalNever) {
+    throw new KanbanRunProfilePolicyError('Kanban run profile uses approval policy never but policy does not allow it')
   }
 }
 

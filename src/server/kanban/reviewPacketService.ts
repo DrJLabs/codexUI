@@ -1,8 +1,8 @@
-import { createHash } from 'node:crypto'
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import type { KanbanReviewPacket, KanbanRun, KanbanTask } from '../../types/kanban'
 import { buildReviewSnapshot } from '../reviewGit'
+import { createReviewPacketFingerprint, createRunProfileFingerprint } from '../reviewPackets/freshness'
 import { createKanbanId } from './ids'
 import type { KanbanStateFileV1 } from './migrations'
 import { KanbanStorage } from './storage'
@@ -43,7 +43,8 @@ export class KanbanReviewPacketService {
     const unresolvedProposalIds = await this.readUnresolvedProposalIds(task.proposalIds)
     const snapshot = await buildPacketSnapshot(worktreePath, baseRev, baseCommit, headCommit)
     const rawDiffPatch = snapshot.files.map((file) => file.diff).filter(Boolean).join('\n')
-    const packetBase = {
+    const runProfileFingerprint = createRunProfileFingerprint(run.runProfileSnapshot)
+    const packetFingerprintInput = {
       taskUpdatedAtIso: task.updatedAtIso,
       runId: run.id,
       baseCommit,
@@ -51,13 +52,17 @@ export class KanbanReviewPacketService {
       rawDiffPatch,
       testResults,
       unresolvedProposalIds,
+      worktreePath,
+      runProfileFingerprint,
     }
     const packet: KanbanReviewPacket = {
       id: createKanbanId('review_packet'),
       taskId,
       runId: run.id,
-      packetHash: createHash('sha256').update(JSON.stringify(packetBase)).digest('hex'),
+      packetHash: createReviewPacketFingerprint(packetFingerprintInput),
       generatedAtIso: new Date().toISOString(),
+      sourceTaskUpdatedAtIso: task.updatedAtIso,
+      runProfileFingerprint,
       baseCommit,
       headCommit,
       rawDiffPatch,

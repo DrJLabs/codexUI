@@ -4390,3 +4390,444 @@ Duplicate queued-run protection and metadata validation affordances.
 
 #### Rollback/Cleanup
 - Revert temporary metadata edits or archive/delete tasks created for the smoke check.
+
+---
+
+### Kanban Desktop Parity Execution Modes
+
+#### Feature/Change Name
+Desktop parity execution-mode defaults, access gating, and visible run policy state.
+
+#### Prerequisites/Setup
+1. Use the `feature/desktop-parity-execution-modes-dev` worktree.
+2. For automated verification, no dev server is required.
+3. For manual UI verification, start the dev server with `pnpm run dev -- --host 127.0.0.1 --port 5173` and open `http://127.0.0.1:5173/#/kanban`.
+
+#### Steps
+1. Run `pnpm vitest run src/server/kanban/__tests__/config.test.ts src/server/kanban/__tests__/remoteAccess.test.ts src/server/kanban/__tests__/policy.test.ts src/server/kanban/__tests__/routes.test.ts src/composables/useKanbanBoard.test.ts`.
+2. Run `pnpm vitest run src/server/kanban/__tests__ src/composables/useKanbanBoard.test.ts src/api/kanbanGateway.test.ts`.
+3. Run `pnpm run build`.
+4. In light theme, confirm the Kanban board banner shows the current execution mode and that the config panel exposes Disabled, Local only, Trusted remote, and Open remote options.
+5. In light theme, open a task sheet and confirm Run controls show the execution mode plus the matching disabled reason when execution is disabled.
+6. Repeat steps 4-5 in dark theme and confirm the banner, config panel, and run controls remain readable.
+
+#### Expected Results
+- New and migrated board config defaults to `executionMode: disabled`.
+- `CODEXUI_KANBAN_EXECUTION_ENABLED=1` resolves to trusted remote execution policy; unset config remains disabled.
+- Local-only execution rejects remote/Tailscale starts, open remote execution remains blocked until authenticated remote access exists, and ordinary trusted board mutations still require CSRF.
+- The UI exposes the mode as explicit policy state instead of presenting execution as a single boolean.
+- Unit tests and production build pass.
+- Light-theme and dark-theme manual checks show readable execution policy surfaces with no overlapping text.
+
+#### Rollback/Cleanup
+- Reset any temporary execution-mode config changes to `disabled`.
+- Stop the port `5173` dev server if it was only started for verification.
+
+---
+
+### Kanban Desktop Parity Run Profiles
+
+#### Feature/Change Name
+Named Codex run profiles for Kanban task execution.
+
+#### Prerequisites/Setup
+1. Use the `feature/desktop-parity-run-profiles-dev` worktree.
+2. For automated verification, no dev server is required.
+3. For manual UI verification, start the dev server with `pnpm run dev -- --host 127.0.0.1 --port 5173` and open `http://127.0.0.1:5173/#/kanban`.
+
+#### Steps
+1. Run `pnpm vitest run src/server/kanban/__tests__/taskService.test.ts src/server/kanban/__tests__/routes.test.ts src/server/kanban/__tests__/codexKanbanRunner.test.ts`.
+2. Run `pnpm vitest run src/server/kanban/__tests__ src/composables/useKanbanBoard.test.ts src/api/kanbanGateway.test.ts`.
+3. Run `pnpm run build`.
+4. In light theme, confirm the board config panel exposes the default run profile selector.
+5. In light theme, open a task metadata editor and confirm the task run profile selector is visible.
+6. In light theme, confirm the task run controls show the effective run profile, sandbox mode, approval policy, network setting, and model source.
+7. Repeat steps 4-6 in dark theme and confirm the config, metadata, and run-control profile surfaces remain readable.
+
+#### Expected Results
+- New and migrated board config includes the four built-in run profiles and defaults to `workspace-coding`.
+- Created tasks inherit the board default run profile and reject unknown run profile IDs.
+- The full-access operator profile cannot be saved as the board default.
+- Runner starts turns with schema-backed `input`, `approvalPolicy`, and `sandboxPolicy` fields, not the old hardcoded `sandboxMode` payload or `permissionProfile`.
+- The effective run profile snapshot is persisted on the run and included in run audit policy details.
+- Unit tests and production build pass.
+- Light-theme and dark-theme manual checks show readable run-profile controls with no overlapping text.
+
+#### Rollback/Cleanup
+- Reset temporary board default run profile changes to `workspace-coding`.
+- Stop the port `5173` dev server if it was only started for verification.
+
+---
+
+### Desktop Parity Artifact Contracts
+
+#### Feature/Change Name
+Neutral workspace artifact contracts and Kanban artifact adapter.
+
+#### Prerequisites/Setup
+1. Use the `feature/desktop-parity-artifact-contracts-dev` worktree.
+2. No dev server is required for this backend/type contract slice.
+
+#### Steps
+1. Run `pnpm vitest run src/server/artifacts/__tests__/artifactIndex.test.ts src/server/kanban/__tests__/reviewPacketService.test.ts`.
+2. Run `pnpm run build`.
+
+#### Expected Results
+- Kanban tasks, runs, run evidence, worktrees, review packets, and proposals are exposed as neutral `WorkspaceArtifact` descriptors.
+- Artifact IDs are stable and scoped by source/kind.
+- The artifact index filters by task, run, thread, source, and kind.
+- No arbitrary file-preview route or path-read API is introduced in this phase.
+- Existing Kanban review packet behavior still passes.
+- Production build passes.
+
+#### Rollback/Cleanup
+- No runtime data cleanup is required; this phase only adds contracts, an index service, and adapters.
+
+---
+
+### Desktop Parity Thread Artifact Sidebar
+
+#### Feature/Change Name
+Normal-thread artifact sidebar shell with Plan, Run, Evidence, and Review tabs.
+
+#### Prerequisites/Setup
+1. Use the `feature/desktop-parity-thread-artifacts-dev` worktree.
+2. Start the dev server with `pnpm run dev -- --host 0.0.0.0 --port 4173`.
+3. Open the assigned dev URL. In this verification run Vite used `http://127.0.0.1:5174`.
+
+#### Steps
+1. Run `pnpm vitest run src/composables/useThreadArtifacts.test.ts`.
+2. Run `pnpm run build`.
+3. With Playwright, open `http://127.0.0.1:5174/#/thread/playwright-artifacts` at 1440x1000 in light theme.
+4. Repeat at 1440x1000 in dark theme.
+5. Repeat at 375x812 in dark theme.
+6. Repeat at 768x1024 in light theme.
+
+#### Expected Results
+- A normal thread route shows the artifact sidebar independent of `#/kanban`.
+- The sidebar exposes Plan, Run, Evidence, and Review tabs and an operational empty state.
+- The sidebar is visible and readable in light and dark theme.
+- Mobile and tablet viewports keep the sidebar inside the viewport without overlapping the composer.
+- Playwright reports no console errors or page errors.
+- Screenshots are saved under:
+  - `output/playwright/thread-artifacts-desktop-light.png`
+  - `output/playwright/thread-artifacts-desktop-dark.png`
+  - `output/playwright/thread-artifacts-mobile-dark.png`
+  - `output/playwright/thread-artifacts-tablet-light.png`
+
+#### Rollback/Cleanup
+- Stop the dev server started for Playwright verification.
+
+---
+
+### Desktop Parity PR Review Fixes
+
+#### Feature/Change Name
+Review feedback fixes for execution policy, run profile sandbox roots, artifact downloads, and review packet refresh.
+
+#### Prerequisites/Setup
+1. Use the `feature/desktop-parity-squashed-dev` worktree.
+2. Reuse the existing dependency install.
+
+#### Steps
+1. Run `pnpm vitest run src/server/kanban/__tests__/codexKanbanRunner.test.ts src/server/kanban/__tests__/policy.test.ts src/server/artifacts/__tests__/routes.test.ts src/server/actions/__tests__/actionRegistry.test.ts src/composables/useKanbanBoard.test.ts`.
+2. Run `pnpm vitest run src/server/kanban/__tests__/reviewPacketService.test.ts src/server/kanban/__tests__/remoteAccess.test.ts`.
+3. Run `pnpm run build`.
+4. With the dev server on `http://127.0.0.1:5173`, open a chat thread and switch between chats at 1280x900.
+5. Repeat the chat switch check after setting `document.documentElement.classList.add('dark')`.
+6. At a 375x812 viewport, drag left from the right edge of a thread view.
+
+#### Expected Results
+- Board `executionMode` changes are reflected in run access checks and the returned policy.
+- Workspace-write run profiles include the managed worktree path in `sandboxPolicy.writableRoots`.
+- Danger-full-access run profiles remain selectable for a task but cannot start unless the explicit server policy toggle allows them.
+- Kanban run profile IDs are validated before config/task mutation state is assigned.
+- Evidence artifact previews reject oversized files before reading file content, while raw responses still allow files within the raw cap.
+- Task run controls display the board default run profile when a legacy task has no explicit run profile ID.
+- Task run controls and the interrupt route continue to allow stopping active runs after execution mode is disabled.
+- Queued runs fail instead of promoting if execution mode is disabled before they reach the front of the queue.
+- Disallowed run profiles return a typed 403 client error instead of a generic server error.
+- Local action guards block git pull/rebase in addition to push/merge until a separate confirmation flow exists.
+- Update proposals persist approved run profile changes.
+- Evidence summaries treat `0 failed, N passed` logs as passed rather than failed.
+- Managed worktree listing finds locks when the app is launched from a repository subdirectory.
+- Artifact previews keep the 512 KiB cap while raw/download routes allow larger artifacts up to the raw response cap.
+- Download filenames are sanitized before being placed in `Content-Disposition`.
+- The thread artifact drawer refreshes for same-thread message/activity changes and while the drawer remains open.
+- Task review packets reload when the selected task's `reviewPacketId` changes.
+- The artifact drawer opens from a right-edge slide gesture on mobile, in addition to the icon button.
+- Review packet fingerprints are stable when test results arrive in a different order.
+- Review packet freshness changes when the source task update timestamp changes.
+- Private IPv6 and link-local IPv6 clients are classified as LAN without being trusted for execution.
+- Artifact evidence falls back to indexed event output when an indexed log path is missing.
+- Chat composer remains visible in light and dark theme after switching chats.
+
+#### Rollback/Cleanup
+- Stop any dev server started for the manual/browser checks.
+
+---
+
+### Thread Artifact Right Drawer
+
+#### Feature/Change Name
+Thread artifact sidebar converted to a right-side drawer.
+
+#### Prerequisites/Setup
+1. Use the `feature/desktop-parity-squashed-dev` worktree.
+2. Start the dev server with `pnpm run dev -- --host 0.0.0.0 --port 5173`.
+3. Open a route with an existing selected thread, such as `http://127.0.0.1:5173/#/thread/<thread-id>`.
+
+#### Steps
+1. Run `pnpm run build`.
+2. At 1440x1000 in light theme, open a thread route and confirm the conversation uses the full content width without a permanently visible artifact column.
+3. Click the mirrored sidebar icon in the header actions.
+4. Confirm the artifact drawer slides in from the right and can be closed with the close button, backdrop click, and Escape.
+5. Repeat at 375x812 in light theme and verify the drawer overlays the conversation instead of squeezing it.
+6. Repeat the desktop and mobile checks in dark theme.
+
+#### Expected Results
+- The artifact panel is closed by default and no longer consumes a permanent second column on thread pages.
+- A mirrored layout-sidebar icon in the header opens and closes the right drawer.
+- A right-edge handle opens the drawer when it is closed.
+- The drawer slides in from the right, uses a bounded responsive width, and remains usable on mobile.
+- Light and dark themes render the drawer, buttons, backdrop, and empty states without contrast regressions.
+- Screenshots are saved under:
+  - `output/playwright/artifact-drawer-desktop-light.png`
+  - `output/playwright/artifact-drawer-desktop-dark.png`
+  - `output/playwright/artifact-drawer-mobile-light.png`
+  - `output/playwright/artifact-drawer-mobile-dark.png`
+
+#### Rollback/Cleanup
+- Stop the dev server if it was started only for this verification.
+
+---
+
+### Thread Composer Layout Regression
+
+#### Feature/Change Name
+Thread composer remains visible after artifact drawer layout changes.
+
+#### Prerequisites/Setup
+1. Use the `feature/desktop-parity-squashed-dev` worktree.
+2. Start the dev server with `pnpm run dev -- --host 0.0.0.0 --port 5173`.
+3. Ensure the thread list has at least two selectable chats.
+
+#### Steps
+1. Run `pnpm run build`.
+2. Open `http://127.0.0.1:5173/` at 1440x1000.
+3. Select a chat and verify the thread composer is visible at the bottom of the viewport.
+4. Select another chat and verify the composer remains visible.
+5. Capture a Playwright screenshot after the second selection.
+
+#### Expected Results
+- `.thread-composer-input` exists after each selection.
+- `.composer-with-queue` remains inside the viewport instead of being pushed offscreen.
+- `.content-thread` is constrained between the content header and composer.
+- Screenshot is saved under:
+  - `output/playwright/chatbox-regression-fixed.png`
+
+#### Rollback/Cleanup
+- Stop the dev server if it was started only for this verification.
+
+---
+
+### Artifact Drawer Data Wiring And Hardening
+
+#### Feature/Change Name
+Thread artifact drawer loads indexed artifacts and artifact routes enforce read safety.
+
+#### Prerequisites/Setup
+1. Use the `feature/desktop-parity-squashed-dev` worktree.
+2. Start the dev server with `pnpm run dev -- --host 0.0.0.0 --port 5173`.
+3. Use a thread route such as `http://127.0.0.1:5173/#/thread/<thread-id>`.
+
+#### Steps
+1. Run `pnpm vitest run src/server/artifacts/__tests__/routes.test.ts src/server/actions/__tests__/actionRegistry.test.ts src/composables/useThreadArtifacts.test.ts`.
+2. Run `pnpm run build`.
+3. Verify `GET /codex-api/artifacts?threadId=<thread-id>` returns indexed artifacts for trusted local/Tailscale access and rejects untrusted forwarded access.
+4. With Playwright, mock the artifact list response for the active thread, open the right artifact drawer, and verify the drawer count and tab counts update from the API payload.
+5. Verify oversized state-backed artifact content returns HTTP 413.
+6. Verify local package-script actions are blocked when the resolved script body contains `git push` or `git merge`.
+
+#### Expected Results
+- The right artifact drawer receives and renders artifacts for the selected thread.
+- Artifact list, metadata, preview, raw, and download routes require trusted local or Tailscale access.
+- Indexed evidence paths still block sensitive file names and extensions.
+- Large review/proposal/state-backed artifact responses are capped.
+- Local action discovery keeps build/test/dev controls available, but blocks script bodies that push or merge until a separate confirmation flow exists.
+- Playwright screenshot is saved under:
+  - `output/playwright/artifact-drawer-wired-artifacts.png`
+
+#### Rollback/Cleanup
+- Stop the dev server if it was started only for this verification.
+
+---
+
+### Desktop Parity Indexed Artifact Previews
+
+#### Feature/Change Name
+Safe indexed artifact preview routes and preview panel shell.
+
+#### Prerequisites/Setup
+1. Use the `feature/desktop-parity-artifact-previews-dev` worktree.
+2. Reuse the shared dependency install with `node_modules -> /home/drj/projects/codexUI/node_modules` if this worktree does not already have dependencies.
+
+#### Steps
+1. Run `pnpm vitest run src/server/artifacts/__tests__/security.test.ts src/server/artifacts/__tests__/routes.test.ts`.
+2. Run `pnpm run build`.
+
+#### Expected Results
+- `/codex-api/artifacts/:artifactId` serves only indexed artifact descriptors.
+- `/preview`, `/raw`, and `/download` resolve content from the artifact index; no `path=` query can redirect the read target.
+- Indexed evidence files can be previewed when they match the descriptor-owned `logPath` or `eventsPath`.
+- Sensitive paths such as `.env`, `.ssh`, private keys, and certificate-key files are blocked even if they appear in an artifact descriptor.
+- Preview access emits audit events for metadata, preview, raw, and download actions when an audit sink is supplied.
+- Production build passes.
+
+#### Rollback/Cleanup
+- No runtime cleanup is required; test state is created under temporary directories.
+
+---
+
+### Desktop Parity Shared Worktree Lifecycle
+
+#### Feature/Change Name
+Shared managed-worktree status service and artifact UI panels.
+
+#### Prerequisites/Setup
+1. Use the `feature/desktop-parity-worktrees-dev` worktree.
+2. Reuse the shared dependency install with `node_modules -> /home/drj/projects/codexUI/node_modules` if this worktree does not already have dependencies.
+
+#### Steps
+1. Run `pnpm vitest run src/server/workspaces/__tests__/worktreeService.test.ts src/server/kanban/__tests__/worktreeManager.test.ts src/server/kanban/__tests__/recoveryService.test.ts`.
+2. Run `pnpm run build`.
+
+#### Expected Results
+- Managed Kanban worktree locks can be listed through `WorkspaceWorktreeService` without taking over Kanban run orchestration.
+- Worktree status reports active, removed, missing, dirty, and stale conditions.
+- Dirty cleanup is refused and clean cleanup requires typed confirmation.
+- `KanbanWorktreeManager` exposes shared worktree status while preserving its existing create/remove behavior.
+- Production build passes.
+
+#### Rollback/Cleanup
+- No runtime cleanup is required; tests create temporary git repositories and managed worktree roots.
+
+---
+
+### Desktop Parity Local Actions
+
+#### Feature/Change Name
+Local project action registry, policy checks, and action evidence UI shell.
+
+#### Prerequisites/Setup
+1. Use the `feature/desktop-parity-local-actions-dev` worktree.
+2. Reuse the shared dependency install with `node_modules -> /home/drj/projects/codexUI/node_modules` if this worktree does not already have dependencies.
+
+#### Steps
+1. Run `pnpm vitest run src/server/actions/__tests__/actionRegistry.test.ts`.
+2. Run `pnpm run build`.
+
+#### Expected Results
+- Build, test, and dev scripts are discovered from `package.json` using the repo package manager.
+- Actions carry the selected run profile and execution mode into the action descriptor.
+- Local actions require execution to be enabled and the request context to be trusted for execution.
+- Dangerous run profiles such as `danger-full-access` and `approvalPolicy: never` remain representable, but require explicit policy toggles before execution.
+- Merge and push commands are blocked until a separate explicit confirmation flow exists.
+- Action output has a reusable evidence panel for artifact/sidebar presentation.
+- Production build passes.
+
+#### Rollback/Cleanup
+- No runtime cleanup is required; tests create temporary package projects.
+
+---
+
+### Desktop Parity Shared Proposal Surface
+
+#### Feature/Change Name
+Shared inert proposal summary panel for Kanban and artifact contexts.
+
+#### Prerequisites/Setup
+1. Use the `feature/desktop-parity-proposals-dev` worktree.
+2. Reuse the shared dependency install with `node_modules -> /home/drj/projects/codexUI/node_modules` if this worktree does not already have dependencies.
+3. For browser verification, start the dev server with `pnpm run dev -- --host 0.0.0.0 --port 4177`. In this run Vite used `http://127.0.0.1:5177`.
+
+#### Steps
+1. Run `pnpm vitest run src/server/kanban/__tests__/markerParser.test.ts src/server/kanban/__tests__/proposalService.test.ts src/server/kanban/__tests__/routes.test.ts`.
+2. Run `pnpm run build`.
+3. With Playwright, open `http://127.0.0.1:5177/#/kanban` at 1440x1000 in light theme.
+4. Repeat in dark theme.
+
+#### Expected Results
+- Kanban proposals map to inert `WorkspaceProposal` summaries for artifact rendering.
+- The Kanban proposal inbox renders through the shared `ArtifactProposalsPanel`.
+- The thread artifact sidebar can render unresolved proposal summaries when supplied proposals.
+- Existing marker parser, proposal service, and proposal route behavior remains green.
+- The existing `proposalPolicy: auto` toggle remains unchanged in this phase; it is still defaulted to `confirm` and should be examined in a separate safety review before changing semantics.
+- The Kanban route loads in light and dark theme with no Playwright console or page errors.
+- Screenshots are saved under:
+  - `output/playwright/kanban-proposals-light.png`
+  - `output/playwright/kanban-proposals-dark.png`
+
+#### Rollback/Cleanup
+- Stop the dev server started for Playwright verification.
+
+---
+
+### Desktop Parity Shared Evidence UI
+
+#### Feature/Change Name
+Shared artifact evidence panel reused by Kanban run logs.
+
+#### Prerequisites/Setup
+1. Use the `feature/desktop-parity-evidence-dev` worktree.
+2. For browser verification, start the dev server with `pnpm run dev -- --host 0.0.0.0 --port 4173`. In this run Vite used `http://127.0.0.1:5175`.
+
+#### Steps
+1. Run `pnpm vitest run src/composables/useArtifactEvidence.test.ts src/server/kanban/__tests__/codexKanbanRunner.test.ts src/server/kanban/__tests__/auditLog.test.ts`.
+2. Run `pnpm run build`.
+3. With Playwright, open `http://127.0.0.1:5175/#/kanban` at 1440x1000 in light theme.
+4. Repeat in dark theme.
+
+#### Expected Results
+- Run log text is normalized into a shared evidence model with status summaries and truncation protection.
+- Kanban run logs render through the shared `ArtifactEvidencePanel` component.
+- Existing runner and audit-log behavior remains green.
+- The Kanban route loads in light and dark theme with no Playwright console or page errors.
+- Screenshots are saved under:
+  - `output/playwright/kanban-evidence-light.png`
+  - `output/playwright/kanban-evidence-dark.png`
+
+#### Rollback/Cleanup
+- Stop the dev server started for Playwright verification.
+
+---
+
+### Desktop Parity Shared Review Packet Summary
+
+#### Feature/Change Name
+Shared review packet freshness fingerprinting and summary UI.
+
+#### Prerequisites/Setup
+1. Use the `feature/desktop-parity-review-packets-dev` worktree.
+2. Reuse the shared dependency install with `node_modules -> /home/drj/projects/codexUI/node_modules` if this worktree does not already have dependencies.
+3. For browser verification, start the dev server with `pnpm run dev -- --host 0.0.0.0 --port 4176`. In this run Vite used `http://127.0.0.1:5176`.
+
+#### Steps
+1. Run `pnpm vitest run src/server/kanban/__tests__/reviewPacketService.test.ts src/server/kanban/__tests__/routes.test.ts src/composables/useKanbanBoard.test.ts`.
+2. Run `pnpm run build`.
+3. With Playwright, open `http://127.0.0.1:5176/#/kanban` at 1440x1000 in light theme.
+4. Repeat in dark theme.
+
+#### Expected Results
+- Review packet hashes are generated from the shared freshness fingerprint input.
+- Freshness checks detect head commit, raw diff, test result, unresolved proposal, worktree path, and run profile changes.
+- Existing Kanban approval/rejection route tests still require a current packet and still block unresolved proposals.
+- Kanban task inspectors render the shared review packet summary when a packet is loaded.
+- The thread artifact sidebar can render the same review packet summary when supplied a packet.
+- The Kanban route loads in light and dark theme with no Playwright console or page errors.
+- Screenshots are saved under:
+  - `output/playwright/kanban-review-packets-light.png`
+  - `output/playwright/kanban-review-packets-dark.png`
+
+#### Rollback/Cleanup
+- Stop the dev server started for Playwright verification.

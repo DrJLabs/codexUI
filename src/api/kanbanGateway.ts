@@ -191,6 +191,10 @@ export async function loadKanbanRunEvents(runId: string): Promise<string> {
   return await requestKanbanText(`/runs/${encodeURIComponent(runId)}/events`)
 }
 
+export async function loadKanbanReviewPacket(taskId: string): Promise<KanbanReviewPacket> {
+  return await requestKanban<KanbanReviewPacket>(`/tasks/${encodeURIComponent(taskId)}/review-packet`)
+}
+
 export async function regenerateKanbanReviewPacket(taskId: string): Promise<{ packet: KanbanReviewPacket; task: KanbanTask }> {
   return await requestProtectedKanban<{ packet: KanbanReviewPacket; task: KanbanTask }>(`/tasks/${encodeURIComponent(taskId)}/review-packet/regenerate`, {
     method: 'POST',

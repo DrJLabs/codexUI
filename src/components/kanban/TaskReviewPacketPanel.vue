@@ -1,22 +1,32 @@
 <template>
   <section class="task-review-packet" aria-label="Task review packet">
-    <header>
-      <h3>Review packet</h3>
-      <button type="button" @click="$emit('regenerate')">Regenerate</button>
-    </header>
-    <p v-if="!packetId">No packet generated yet.</p>
-    <p v-else>Packet {{ packetId }}</p>
+    <ArtifactReviewPacketPanel
+      :packet="packet"
+      :title="packetId ? `Packet ${shortPacketId}` : 'Current packet'"
+      empty-text="No packet generated yet."
+    >
+      <template #actions>
+        <button type="button" @click="$emit('regenerate')">Regenerate</button>
+      </template>
+    </ArtifactReviewPacketPanel>
   </section>
 </template>
 
 <script setup lang="ts">
-defineProps<{
+import { computed } from 'vue'
+import type { KanbanReviewPacket } from '../../types/kanban'
+import ArtifactReviewPacketPanel from '../artifacts/review/ArtifactReviewPacketPanel.vue'
+
+const props = defineProps<{
   packetId: string
+  packet: KanbanReviewPacket | null
 }>()
 
 defineEmits<{
   regenerate: []
 }>()
+
+const shortPacketId = computed(() => props.packetId.length > 18 ? `${props.packetId.slice(0, 18)}...` : props.packetId)
 </script>
 
 <style scoped>
@@ -26,29 +36,6 @@ defineEmits<{
   border: 1px solid #e4e4e7;
   border-radius: 8px;
   padding: 12px;
-}
-
-.task-review-packet header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-}
-
-.task-review-packet h3,
-.task-review-packet p {
-  margin: 0;
-}
-
-.task-review-packet h3 {
-  font-size: 13px;
-  font-weight: 900;
-}
-
-.task-review-packet p {
-  color: #71717a;
-  font-size: 12px;
-  font-weight: 800;
 }
 
 .task-review-packet button {

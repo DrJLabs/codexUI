@@ -23,6 +23,7 @@ function createEvent(projectRoot: string, eventType = 'run.preflight_blocked') {
       remoteAddress: '127.0.0.1',
       loopback: true,
       forwarded: false,
+      accessContext: 'loopback',
     },
     task: { taskId: 'task_1' },
     repo: { projectRoot },
@@ -31,6 +32,7 @@ function createEvent(projectRoot: string, eventType = 'run.preflight_blocked') {
       authorization: 'Bearer secret-token',
     },
     policy: {
+      executionMode: 'trusted_remote',
       executionEnabled: true,
       sandboxMode: 'workspace-write',
       approvalPolicy: 'on-request',

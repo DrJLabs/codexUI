@@ -4,14 +4,16 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import express from 'express'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import type { KanbanExecutionPolicy } from '../../../types/kanban'
+import { FULL_ACCESS_KANBAN_RUN_PROFILE_ID, type KanbanExecutionPolicy, type KanbanTask } from '../../../types/kanban'
 import type { CodexBridgeRuntime } from '../../codexAppServerBridge'
 import { createKanbanMiddleware, type CreateKanbanMiddlewareOptions } from '../index'
+import { KanbanStorage } from '../storage'
 
 const servers: Server[] = []
 
 const disabledPolicy: KanbanExecutionPolicy = {
   enabled: true,
+  executionMode: 'disabled',
   executionEnabled: false,
   requireTrustedAccessForExecution: true,
   allowTailscaleAccess: true,
@@ -31,6 +33,7 @@ const disabledPolicy: KanbanExecutionPolicy = {
 
 const enabledPolicy: KanbanExecutionPolicy = {
   ...disabledPolicy,
+  executionMode: 'trusted_remote',
   executionEnabled: true,
 }
 
@@ -43,6 +46,12 @@ const bridge: CodexBridgeRuntime = {
 async function createTestServer(options: Partial<CreateKanbanMiddlewareOptions> = {}) {
   const dataDir = await mkdtemp(join(tmpdir(), 'codexui-kanban-policy-'))
   const projectRoot = join(dataDir, 'project')
+  if (options.policy?.executionMode && options.policy.executionMode !== 'disabled') {
+    const storage = new KanbanStorage({ dataDir, projectRoot })
+    await storage.mutate((state) => {
+      state.settings.kanbanConfig.executionMode = options.policy?.executionMode ?? 'disabled'
+    })
+  }
   const app = express()
   app.use('/codex-api/kanban', createKanbanMiddleware({
     dataDir,
@@ -92,6 +101,99 @@ describe('Kanban execution policy', () => {
 
     expect(response.status).toBe(403)
     expect(response.body.error).toContain('Kanban execution is disabled')
+  })
+
+  it('returns a client error when a task run uses a disallowed run profile', async () => {
+    const { baseUrl } = await createTestServer({ policy: enabledPolicy, bridge })
+    const csrf = await requestJson<{ data: { csrfToken: string } }>(`${baseUrl}/codex-api/kanban/csrf`)
+    const created = await requestJson<{ data: KanbanTask }>(
+      `${baseUrl}/codex-api/kanban/tasks`,
+      {
+        method: 'POST',
+        headers: { 'x-codexui-kanban-csrf': csrf.body.data.csrfToken },
+        body: JSON.stringify({
+          title: 'Disallowed profile task',
+          runProfileId: FULL_ACCESS_KANBAN_RUN_PROFILE_ID,
+        }),
+      },
+    )
+
+    const response = await requestJson<{ error: string }>(
+      `${baseUrl}/codex-api/kanban/tasks/${created.body.data.id}/run`,
+      {
+        method: 'POST',
+        headers: { 'x-codexui-kanban-csrf': csrf.body.data.csrfToken },
+        body: '{}',
+      },
+    )
+
+    expect(response.status).toBe(403)
+    expect(response.body.error).toContain('danger-full-access')
+  })
+
+  it('does not block run interrupts solely because execution is disabled', async () => {
+    const { baseUrl } = await createTestServer({ policy: disabledPolicy, bridge })
+    const csrf = await requestJson<{ data: { csrfToken: string } }>(`${baseUrl}/codex-api/kanban/csrf`)
+
+    const response = await requestJson<{ error: string }>(
+      `${baseUrl}/codex-api/kanban/runs/run_missing/interrupt`,
+      {
+        method: 'POST',
+        headers: { 'x-codexui-kanban-csrf': csrf.body.data.csrfToken },
+        body: '{}',
+      },
+    )
+
+    expect(response.status).not.toBe(403)
+    expect(response.body.error).not.toContain('Kanban execution is disabled')
+  })
+
+  it('honors board execution mode changes when checking task run access', async () => {
+    const { baseUrl } = await createTestServer({ policy: disabledPolicy })
+    const csrf = await requestJson<{ data: { csrfToken: string } }>(`${baseUrl}/codex-api/kanban/csrf`)
+
+    const configResponse = await requestJson<{ data: { executionMode: string } }>(
+      `${baseUrl}/codex-api/kanban/config`,
+      {
+        method: 'PUT',
+        headers: { 'x-codexui-kanban-csrf': csrf.body.data.csrfToken },
+        body: JSON.stringify({ executionMode: 'trusted_remote' }),
+      },
+    )
+    const runResponse = await requestJson<{ error: string }>(
+      `${baseUrl}/codex-api/kanban/tasks/task_1/run`,
+      {
+        method: 'POST',
+        headers: { 'x-codexui-kanban-csrf': csrf.body.data.csrfToken },
+        body: '{}',
+      },
+    )
+
+    expect(configResponse.status).toBe(200)
+    expect(configResponse.body.data.executionMode).toBe('trusted_remote')
+    expect(runResponse.status).toBe(409)
+    expect(runResponse.body.error).toContain('Kanban runner is not available yet')
+  })
+
+  it('blocks Tailscale execution in local-only mode', async () => {
+    const { baseUrl } = await createTestServer({
+      policy: {
+        ...enabledPolicy,
+        executionMode: 'local_only',
+      },
+    })
+
+    const response = await requestJson<{ error: string }>(
+      `${baseUrl}/codex-api/kanban/tasks/task_1/run`,
+      {
+        method: 'POST',
+        headers: { 'x-forwarded-for': '100.100.100.100' },
+        body: '{}',
+      },
+    )
+
+    expect(response.status).toBe(403)
+    expect(response.body.error).toContain('Kanban execution mode allows local access only')
   })
 
   it('blocks task runs when the request is forwarded or remote', async () => {
@@ -161,6 +263,28 @@ describe('Kanban execution policy', () => {
 
     expect(response.status).toBe(409)
     expect(response.body.error).toContain('Kanban runner is not available yet')
+  })
+
+  it('rejects open remote mode until authenticated remote execution exists', async () => {
+    const { baseUrl } = await createTestServer({
+      policy: {
+        ...enabledPolicy,
+        executionMode: 'open_remote',
+        requireTrustedAccessForExecution: false,
+      },
+    })
+
+    const response = await requestJson<{ error: string }>(
+      `${baseUrl}/codex-api/kanban/tasks/task_1/run`,
+      {
+        method: 'POST',
+        headers: { 'x-forwarded-for': '203.0.113.10' },
+        body: '{}',
+      },
+    )
+
+    expect(response.status).toBe(403)
+    expect(response.body.error).toContain('Open remote Kanban execution requires authenticated remote access')
   })
 
   it('honors policy that disables Tailscale execution access', async () => {

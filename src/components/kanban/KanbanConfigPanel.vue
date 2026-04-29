@@ -35,6 +35,28 @@
 
     <div class="kanban-config-section kanban-config-defaults">
       <label>
+        <span>Execution mode</span>
+        <select v-model="draft.executionMode">
+          <option value="disabled">Disabled</option>
+          <option value="local_only">Local only</option>
+          <option value="trusted_remote">Trusted remote</option>
+          <option value="open_remote">Open remote</option>
+        </select>
+      </label>
+      <label>
+        <span>Default run profile</span>
+        <select v-model="draft.defaultRunProfileId">
+          <option
+            v-for="profile in draft.runProfiles"
+            :key="profile.id"
+            :value="profile.id"
+            :disabled="profile.id === FULL_ACCESS_KANBAN_RUN_PROFILE_ID"
+          >
+            {{ profile.name }}
+          </option>
+        </select>
+      </label>
+      <label>
         <span>Default status</span>
         <select v-model="draft.defaults.status">
           <option v-for="column in draft.columns" :key="column.key" :value="column.key">
@@ -64,7 +86,7 @@
 
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
-import { KANBAN_STATUSES, type KanbanBoardConfig, type KanbanStatus, type UpdateKanbanBoardConfigInput } from '../../types/kanban'
+import { FULL_ACCESS_KANBAN_RUN_PROFILE_ID, KANBAN_STATUSES, type KanbanBoardConfig, type KanbanStatus, type UpdateKanbanBoardConfigInput } from '../../types/kanban'
 
 const props = defineProps<{
   config: KanbanBoardConfig | null
@@ -90,6 +112,9 @@ const defaultDraft: KanbanBoardConfig = {
   allowDoneDragBypass: false,
   quickViewLimit: 20,
   proposalPolicy: 'confirm',
+  executionMode: 'disabled',
+  defaultRunProfileId: 'workspace-coding',
+  runProfiles: [],
   defaultModel: '',
   defaultThinking: 'medium',
 }
@@ -107,6 +132,10 @@ function cloneConfig(config: KanbanBoardConfig): KanbanBoardConfig {
     ...config,
     columns: config.columns.map((column) => ({ ...column })),
     defaults: { ...config.defaults },
+    runProfiles: config.runProfiles.map((profile) => ({
+      ...profile,
+      writableRoots: [...profile.writableRoots],
+    })),
   }
 }
 
@@ -137,6 +166,8 @@ function save(): void {
     columns: draft.value.columns,
     defaults: draft.value.defaults,
     proposalPolicy: draft.value.proposalPolicy,
+    executionMode: draft.value.executionMode,
+    defaultRunProfileId: draft.value.defaultRunProfileId,
   })
 }
 </script>

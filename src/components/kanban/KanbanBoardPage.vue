@@ -1,7 +1,12 @@
 <template>
   <div class="kanban-page">
-    <div v-if="executionPolicy && !executionPolicy.executionEnabled" class="kanban-page-banner">
-      Execution is disabled until explicitly enabled locally.
+    <div
+      v-if="executionPolicy"
+      class="kanban-page-banner"
+      :data-mode="executionPolicy.executionMode"
+    >
+      <strong>{{ executionModeTitle }}</strong>
+      <span>{{ executionModeCopy }}</span>
     </div>
     <div v-if="mutationError" class="kanban-page-error" role="alert">
       {{ mutationError }}
@@ -70,7 +75,10 @@
           <KanbanTaskInspector
             :task="selectedTask"
             :execution-policy="executionPolicy"
+            :run-profiles="runProfiles"
+            :default-run-profile-id="config?.defaultRunProfileId ?? ''"
             :run-log="selectedRunLog"
+            :review-packet="selectedReviewPacket"
             @close="clearSelection"
             @archive="archiveSelectedTask"
             @start-run="startSelectedTaskRun"
@@ -89,7 +97,10 @@
         <KanbanTaskSheet
           :task="selectedTask"
           :execution-policy="executionPolicy"
+          :run-profiles="runProfiles"
+          :default-run-profile-id="config?.defaultRunProfileId ?? ''"
           :run-log="selectedRunLog"
+          :review-packet="selectedReviewPacket"
           @close="clearSelection"
           @archive="archiveSelectedTask"
           @start-run="startSelectedTaskRun"
@@ -141,6 +152,7 @@ const {
   versionConflict,
   executionPolicy,
   runLogsByRunId,
+  reviewPacketsByTaskId,
   loadBoard,
   loadProposals,
   approveProposal,
@@ -160,6 +172,7 @@ const {
   startTaskRun,
   interruptTaskRun,
   refreshRunLog,
+  refreshReviewPacket,
   regenerateReviewPacket,
   setSearchQuery,
   toggleLabelFilter,
@@ -181,9 +194,40 @@ const labelNames = computed(() => Array.from(new Set(
 )).sort((left, right) => left.localeCompare(right)))
 
 const activeTaskCount = computed(() => Object.values(countsByStatus.value).reduce((total, count) => total + count, 0))
+const runProfiles = computed(() => config.value?.runProfiles ?? [])
 const selectedRunLog = computed(() => {
   const runId = selectedTask.value?.currentRunId ?? ''
   return runId ? runLogsByRunId.value[runId] ?? '' : ''
+})
+const selectedReviewPacket = computed(() => {
+  const taskId = selectedTask.value?.id ?? ''
+  return taskId ? reviewPacketsByTaskId.value[taskId] ?? null : null
+})
+const executionModeTitle = computed(() => {
+  switch (executionPolicy.value?.executionMode) {
+    case 'local_only':
+      return 'Kanban execution: Local only'
+    case 'trusted_remote':
+      return 'Kanban execution: Trusted remote'
+    case 'open_remote':
+      return 'Kanban execution: Open remote'
+    case 'disabled':
+    default:
+      return 'Kanban execution: Disabled'
+  }
+})
+const executionModeCopy = computed(() => {
+  switch (executionPolicy.value?.executionMode) {
+    case 'local_only':
+      return 'Only loopback browser sessions can start or approve runs.'
+    case 'trusted_remote':
+      return 'Loopback and trusted Tailscale sessions can start and approve runs.'
+    case 'open_remote':
+      return 'Remote execution is blocked until authenticated remote access is implemented.'
+    case 'disabled':
+    default:
+      return 'Board changes are allowed, but task runs cannot start.'
+  }
 })
 
 onMounted(() => {
@@ -211,6 +255,14 @@ watch(() => route.query.task, () => {
 watch(selectedTaskId, (taskId) => {
   syncTaskQueryParam(taskId)
 })
+
+watch(() => [selectedTask.value?.id ?? '', selectedTask.value?.reviewPacketId ?? ''], ([taskId, packetId]) => {
+  if (!taskId || !packetId) return
+  if (reviewPacketsByTaskId.value[taskId]?.id === packetId) return
+  void refreshReviewPacket(taskId).catch((error: unknown) => {
+    console.warn('Failed to load review packet', error)
+  })
+}, { immediate: true })
 
 watch(visibleStatuses, (statuses) => {
   if (statuses.some((status) => status.id === selectedMobileStatus.value)) return
@@ -395,13 +447,28 @@ function syncTaskQueryParam(taskId: string): void {
 }
 
 .kanban-page-banner {
+  display: grid;
+  gap: 2px;
   padding: 10px 12px;
   border: 1px solid rgba(217, 119, 6, 0.35);
   border-radius: 8px;
   background: rgba(254, 243, 199, 0.75);
   color: #92400e;
   font-size: 13px;
+}
+
+.kanban-page-banner strong {
+  font-weight: 900;
+}
+
+.kanban-page-banner span {
   font-weight: 700;
+}
+
+.kanban-page-banner[data-mode="trusted_remote"] {
+  border-color: rgba(14, 165, 233, 0.35);
+  background: rgba(224, 242, 254, 0.85);
+  color: #075985;
 }
 
 .kanban-page-error {
@@ -432,6 +499,12 @@ function syncTaskQueryParam(taskId: string): void {
   border-color: rgba(245, 158, 11, 0.3);
   background: rgba(120, 53, 15, 0.35);
   color: #fcd34d;
+}
+
+:global(:root.dark) .kanban-page-banner[data-mode="trusted_remote"] {
+  border-color: rgba(56, 189, 248, 0.35);
+  background: rgba(8, 47, 73, 0.55);
+  color: #bae6fd;
 }
 
 :global(:root.dark) .kanban-page-error {

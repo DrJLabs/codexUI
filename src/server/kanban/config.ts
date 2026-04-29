@@ -6,11 +6,13 @@ export type KanbanConfig = {
 }
 
 export function resolveKanbanConfig(env: NodeJS.ProcessEnv = process.env): KanbanConfig {
+  const executionEnabled = env.CODEXUI_KANBAN_EXECUTION_ENABLED === '1'
   return {
     dataDir: env.CODEXUI_KANBAN_DATA_DIR?.trim() ?? '',
     policy: {
       enabled: true,
-      executionEnabled: env.CODEXUI_KANBAN_EXECUTION_ENABLED === '1',
+      executionMode: executionEnabled ? 'trusted_remote' : 'disabled',
+      executionEnabled,
       requireTrustedAccessForExecution: true,
       allowTailscaleAccess: true,
       requireLoopbackForExecution: false,

@@ -1,4 +1,5 @@
 import type { Request } from 'express'
+import type { KanbanAccessContext } from '../../types/kanban'
 
 const LOOPBACK_ADDRESSES = new Set(['127.0.0.1', '::1', '::ffff:127.0.0.1'])
 
@@ -7,6 +8,7 @@ export type KanbanRemoteAccess = {
   loopback: boolean
   tailscale: boolean
   trusted: boolean
+  accessContext: KanbanAccessContext
   remoteAddress: string
   forwardedFor: string
   reason: 'loopback' | 'tailscale' | 'tailscale_serve_forwarded' | 'untrusted_forwarded' | 'untrusted_remote' | 'unknown'
@@ -32,6 +34,7 @@ export function classifyKanbanRemoteAccessFromParts(input: { remoteAddress?: str
         loopback: false,
         tailscale: true,
         trusted: true,
+        accessContext: 'tailscale',
         remoteAddress,
         forwardedFor,
         reason: 'tailscale_serve_forwarded',
@@ -42,6 +45,7 @@ export function classifyKanbanRemoteAccessFromParts(input: { remoteAddress?: str
       loopback: false,
       tailscale: false,
       trusted: false,
+      accessContext: classifyUntrustedAccessContext(remoteAddress, true),
       remoteAddress,
       forwardedFor,
       reason: 'untrusted_forwarded',
@@ -53,6 +57,7 @@ export function classifyKanbanRemoteAccessFromParts(input: { remoteAddress?: str
       loopback: false,
       tailscale: false,
       trusted: false,
+      accessContext: 'unknown',
       remoteAddress: '',
       forwardedFor: '',
       reason: 'unknown',
@@ -65,10 +70,22 @@ export function classifyKanbanRemoteAccessFromParts(input: { remoteAddress?: str
     loopback,
     tailscale,
     trusted: loopback || tailscale,
+    accessContext: loopback ? 'loopback' : tailscale ? 'tailscale' : classifyUntrustedAccessContext(remoteAddress, false),
     remoteAddress,
     forwardedFor: '',
     reason: loopback ? 'loopback' : tailscale ? 'tailscale' : 'untrusted_remote',
   }
+}
+
+function classifyUntrustedAccessContext(remote: string, forwarded: boolean): KanbanAccessContext {
+  if (forwarded) return 'public'
+  const normalized = remote.startsWith('::ffff:') ? remote.slice('::ffff:'.length) : remote
+  if (/^10\./u.test(normalized) || /^192\.168\./u.test(normalized) || /^172\.(1[6-9]|2\d|3[0-1])\./u.test(normalized)) {
+    return 'lan'
+  }
+  if (isPrivateIPv6Lan(normalized)) return 'lan'
+  if (!remote) return 'unknown'
+  return 'public'
 }
 
 function readForwardedFor(req: Request): string {
@@ -109,4 +126,9 @@ function isTrustedTailscaleIPv6(remote: string): boolean {
 
 function isTrustedTailscaleRemote(remote: string): boolean {
   return isTrustedTailscaleIPv4(remote) || isTrustedTailscaleIPv6(remote)
+}
+
+function isPrivateIPv6Lan(remote: string): boolean {
+  const normalized = remote.toLowerCase()
+  return /^f[cd][0-9a-f]{2}:/u.test(normalized) || /^fe[89ab][0-9a-f]:/u.test(normalized)
 }

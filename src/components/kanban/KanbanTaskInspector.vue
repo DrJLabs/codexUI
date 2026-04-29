@@ -11,6 +11,8 @@
     <TaskRunControls
       :task="task"
       :policy="executionPolicy"
+      :run-profiles="runProfiles"
+      :default-run-profile-id="defaultRunProfileId"
       @start-run="$emit('start-run')"
       @interrupt-run="$emit('interrupt-run')"
     />
@@ -19,10 +21,14 @@
       :log-text="runLog"
       @refresh="$emit('refresh-run-log')"
     />
-    <TaskReviewPacketPanel :packet-id="task.reviewPacketId" @regenerate="$emit('regenerate-review-packet')" />
+    <TaskReviewPacketPanel
+      :packet-id="task.reviewPacketId"
+      :packet="reviewPacket"
+      @regenerate="$emit('regenerate-review-packet')"
+    />
     <TaskProposalList :count="task.proposalIds.length" />
     <TaskSummaryEditor :task="task" @save="$emit('save-summary', $event)" @archive="$emit('archive')" />
-    <KanbanMetadataEditor :task="task" @save="$emit('save-metadata', $event)" />
+    <KanbanMetadataEditor :task="task" :run-profiles="runProfiles" @save="$emit('save-metadata', $event)" />
     <AcceptanceCriteriaEditor
       :task="task"
       @add="$emit('add-criterion', $event)"
@@ -37,7 +43,7 @@
 </template>
 
 <script setup lang="ts">
-import type { KanbanExecutionPolicy, KanbanMetadataPatch, KanbanStatus, KanbanTask, KanbanTaskLabel } from '../../types/kanban'
+import type { CodexRunProfile, KanbanExecutionPolicy, KanbanMetadataPatch, KanbanReviewPacket, KanbanStatus, KanbanTask, KanbanTaskLabel } from '../../types/kanban'
 import AcceptanceCriteriaEditor from './AcceptanceCriteriaEditor.vue'
 import KanbanMetadataEditor from './KanbanMetadataEditor.vue'
 import TaskStatusActions from './TaskStatusActions.vue'
@@ -50,7 +56,10 @@ import TaskSummaryEditor from './TaskSummaryEditor.vue'
 defineProps<{
   task: KanbanTask | null
   executionPolicy: KanbanExecutionPolicy | null
+  runProfiles: CodexRunProfile[]
+  defaultRunProfileId: string
   runLog: string
+  reviewPacket: KanbanReviewPacket | null
 }>()
 
 defineEmits<{

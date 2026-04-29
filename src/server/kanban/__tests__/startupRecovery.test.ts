@@ -4,11 +4,13 @@ import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import type { KanbanExecutionPolicy, KanbanRun } from '../../../types/kanban'
 import { recoverStaleKanbanRuns } from '../startupRecovery'
+import { BUILTIN_KANBAN_RUN_PROFILES } from '../runProfiles'
 import { KanbanStorage } from '../storage'
 import { KanbanTaskService } from '../taskService'
 
 const policy: KanbanExecutionPolicy = {
   enabled: true,
+  executionMode: 'trusted_remote',
   executionEnabled: true,
   requireTrustedAccessForExecution: true,
   allowTailscaleAccess: true,
@@ -51,6 +53,7 @@ describe('recoverStaleKanbanRuns', () => {
       turnId: '',
       logPath: join(dataDir, 'queued.log'),
       eventsPath: join(dataDir, 'queued.jsonl'),
+      runProfileSnapshot: BUILTIN_KANBAN_RUN_PROFILES[1]!,
       errorMessage: '',
       createdAtIso: nowIso,
       updatedAtIso: nowIso,

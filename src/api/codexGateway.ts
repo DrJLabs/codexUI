@@ -53,6 +53,7 @@ import type {
   UiThreadAutomation,
   UiThreadAutomationStatus,
 } from '../types/codex'
+import type { WorkspaceArtifact, WorkspaceArtifactKind, WorkspaceArtifactQuery, WorkspaceArtifactSource } from '../types/workspaceArtifacts'
 import { normalizePathForUi } from '../pathUtils.js'
 
 type CurrentModelConfig = {
@@ -545,6 +546,46 @@ function normalizeThreadFileChangeFallback(value: unknown): ThreadFileChangeFall
   }
 
   return normalized
+}
+
+function normalizeWorkspaceArtifact(value: unknown): WorkspaceArtifact | null {
+  const record = asRecord(value)
+  if (!record) return null
+  const id = readString(record.id)
+  const title = readString(record.title)
+  const kind = normalizeWorkspaceArtifactKind(record.kind)
+  const source = normalizeWorkspaceArtifactSource(record.source)
+  if (!id || !title || !kind || !source) return null
+  return {
+    ...record,
+    id,
+    title,
+    kind,
+    source,
+  } as WorkspaceArtifact
+}
+
+function normalizeWorkspaceArtifactKind(value: unknown): WorkspaceArtifactKind | null {
+  return value === 'plan'
+    || value === 'run_metadata'
+    || value === 'evidence'
+    || value === 'review_packet'
+    || value === 'proposal'
+    || value === 'worktree'
+    ? value
+    : null
+}
+
+function normalizeWorkspaceArtifactSource(value: unknown): WorkspaceArtifactSource | null {
+  return value === 'thread' || value === 'kanban' ? value : null
+}
+
+function normalizeWorkspaceArtifacts(value: unknown): WorkspaceArtifact[] {
+  const envelope = asRecord(value)
+  const rows = Array.isArray(envelope?.data) ? envelope.data : []
+  return rows
+    .map((item) => normalizeWorkspaceArtifact(item))
+    .filter((artifact): artifact is WorkspaceArtifact => artifact !== null)
 }
 
 function buildTurnIndexByTurnId(payload: ThreadReadResponse): ThreadTurnIndexById {
@@ -2222,6 +2263,23 @@ export async function getWorkspaceRootsState(): Promise<WorkspaceRootsState> {
       ? (payload as Record<string, unknown>)
       : {}
   return normalizeWorkspaceRootsState(envelope.data)
+}
+
+export async function listWorkspaceArtifacts(query: WorkspaceArtifactQuery = {}): Promise<WorkspaceArtifact[]> {
+  const params = new URLSearchParams()
+  if (query.source) params.set('source', query.source)
+  if (query.kind) params.set('kind', query.kind)
+  if (query.taskId) params.set('taskId', query.taskId)
+  if (query.runId) params.set('runId', query.runId)
+  if (query.threadId) params.set('threadId', query.threadId)
+  const suffix = params.toString()
+  const response = await fetch(`/codex-api/artifacts${suffix ? `?${suffix}` : ''}`)
+  const payload = await response.json() as unknown
+  if (!response.ok) {
+    const error = asRecord(payload)
+    throw new Error(readString(error?.error) || 'Failed to load workspace artifacts')
+  }
+  return normalizeWorkspaceArtifacts(payload)
 }
 
 export async function getThreadQueueState(): Promise<ThreadQueueState> {

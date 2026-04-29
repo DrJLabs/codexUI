@@ -14,6 +14,7 @@ import { parseCreateProposalInput } from './schema'
 import { parseKanbanMarkers } from './markerParser'
 import type { KanbanEventBus } from './eventBus'
 import type { KanbanStateFileV1 } from './migrations'
+import { assertKnownKanbanRunProfile } from './runProfiles'
 import { KanbanStorage } from './storage'
 import { KanbanTaskService } from './taskService'
 
@@ -178,6 +179,8 @@ export class KanbanProposalService {
       const task = state.tasks[payload.taskId]
       if (!task) throw new KanbanNotFoundError(`Kanban task not found: ${payload.taskId}`)
       const patch = payload.patch
+      const runProfileId = patch.runProfileId !== undefined ? patch.runProfileId.trim() : task.runProfileId
+      if (runProfileId) assertKnownKanbanRunProfile(runProfileId, state.settings.kanbanConfig.runProfiles)
       state.tasks[payload.taskId] = {
         ...task,
         title: patch.title !== undefined ? patch.title.trim() : task.title,
@@ -188,6 +191,7 @@ export class KanbanProposalService {
         assignee: patch.assignee ?? task.assignee,
         model: patch.model !== undefined ? patch.model.trim() : task.model,
         thinking: patch.thinking ?? task.thinking,
+        runProfileId,
         dueAtIso: patch.dueAtIso !== undefined ? patch.dueAtIso : task.dueAtIso,
         estimateMinutes: patch.estimateMinutes !== undefined ? patch.estimateMinutes : task.estimateMinutes,
         actualMinutes: patch.actualMinutes !== undefined ? patch.actualMinutes : task.actualMinutes,

@@ -35,3 +35,11 @@ export class KanbanInvalidProposalError extends Error {
     super(message)
   }
 }
+
+export class KanbanRunProfilePolicyError extends Error {
+  readonly code = 'run_profile_policy'
+
+  constructor(message = 'Kanban run profile is blocked by execution policy') {
+    super(message)
+  }
+}

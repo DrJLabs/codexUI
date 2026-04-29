@@ -497,6 +497,24 @@
           </template>
           <template #actions>
             <button
+              v-if="canShowArtifactDrawerToggle"
+              class="content-header-artifact-toggle"
+              type="button"
+              :aria-expanded="isArtifactDrawerOpen"
+              :title="isArtifactDrawerOpen ? t('Close artifacts') : t('Open artifacts')"
+              :aria-label="isArtifactDrawerOpen ? t('Close artifacts') : t('Open artifacts')"
+              @click="toggleArtifactDrawer"
+            >
+              <IconTablerLayoutSidebarFilled
+                v-if="isArtifactDrawerOpen"
+                class="content-header-artifact-toggle-icon"
+              />
+              <IconTablerLayoutSidebar
+                v-else
+                class="content-header-artifact-toggle-icon"
+              />
+            </button>
+            <button
               v-if="canShowTerminalToggle"
               class="content-header-terminal-toggle"
               type="button"
@@ -793,17 +811,67 @@
               />
 
               <template v-else>
-                <div class="content-thread">
-                  <ThreadConversation ref="threadConversationRef" :messages="filteredMessages" :is-loading="isLoadingMessages"
-                    :active-thread-id="composerThreadContextId" :cwd="composerCwd" :scroll-state="selectedThreadScrollState"
-                    :live-overlay="liveOverlay"
-                    :pending-requests="selectedThreadServerRequests"
-                    @update-scroll-state="onUpdateThreadScrollState"
-                    @fork-thread="onForkThreadFromMessage"
-                    @rollback="onRollback"
-                    @implement-plan="onImplementPlan"
-                    @respond-server-request="onRespondServerRequest" />
+                <div class="content-workspace">
+                  <div class="content-thread">
+                    <ThreadConversation ref="threadConversationRef" :messages="filteredMessages" :is-loading="isLoadingMessages"
+                      :active-thread-id="composerThreadContextId" :cwd="composerCwd" :scroll-state="selectedThreadScrollState"
+                      :live-overlay="liveOverlay"
+                      :pending-requests="selectedThreadServerRequests"
+                      @update-scroll-state="onUpdateThreadScrollState"
+                      @fork-thread="onForkThreadFromMessage"
+                      @rollback="onRollback"
+                      @implement-plan="onImplementPlan"
+                      @respond-server-request="onRespondServerRequest" />
+                  </div>
                 </div>
+
+                <button
+                  v-if="canShowArtifactDrawerToggle && !isArtifactDrawerOpen"
+                  class="artifact-drawer-edge-toggle"
+                  type="button"
+                  :aria-label="t('Open artifacts')"
+                  :title="t('Open artifacts')"
+                  @click="openArtifactDrawer"
+                >
+                  <IconTablerLayoutSidebar class="artifact-drawer-edge-toggle-icon" />
+                </button>
+                <div
+                  v-if="canShowArtifactDrawerToggle && !isArtifactDrawerOpen && isMobile"
+                  class="artifact-drawer-edge-swipe-zone"
+                  aria-hidden="true"
+                  @pointerdown="onArtifactDrawerEdgePointerDown"
+                />
+
+                <Transition name="artifact-drawer">
+                  <div
+                    v-if="canShowArtifactDrawerToggle && isArtifactDrawerOpen"
+                    class="artifact-drawer-backdrop"
+                    @click="closeArtifactDrawer"
+                  >
+                    <aside
+                      class="artifact-drawer-panel"
+                      aria-label="Thread artifacts"
+                      @click.stop
+                    >
+                      <div class="artifact-drawer-header">
+                        <button
+                          class="artifact-drawer-close"
+                          type="button"
+                          :aria-label="t('Close artifacts')"
+                          :title="t('Close artifacts')"
+                          @click="closeArtifactDrawer"
+                        >
+                          <IconTablerX class="artifact-drawer-close-icon" />
+                        </button>
+                      </div>
+                      <ThreadArtifactSidebar
+                        class="artifact-drawer-sidebar"
+                        :thread-id="selectedThreadId"
+                        :artifacts="selectedThreadArtifacts"
+                      />
+                    </aside>
+                  </div>
+                </Transition>
 
                 <div class="composer-with-queue">
                   <QueuedMessages
@@ -880,6 +948,8 @@ import ComposerRuntimeDropdown from './components/content/ComposerRuntimeDropdow
 import SidebarThreadControls from './components/sidebar/SidebarThreadControls.vue'
 import IconTablerBolt from './components/icons/IconTablerBolt.vue'
 import IconTablerLayoutKanban from './components/icons/IconTablerLayoutKanban.vue'
+import IconTablerLayoutSidebar from './components/icons/IconTablerLayoutSidebar.vue'
+import IconTablerLayoutSidebarFilled from './components/icons/IconTablerLayoutSidebarFilled.vue'
 import IconTablerSearch from './components/icons/IconTablerSearch.vue'
 import IconTablerSettings from './components/icons/IconTablerSettings.vue'
 import IconTablerTerminal from './components/icons/IconTablerTerminal.vue'
@@ -903,6 +973,7 @@ import {
   getTelegramStatus,
   getThreadTerminalStatus,
   getWorkspaceRootsState,
+  listWorkspaceArtifacts,
   listLocalDirectories,
   openProjectRoot,
   persistFirstLaunchPluginsCardPreference,
@@ -912,6 +983,7 @@ import {
   switchAccount,
 } from './api/codexGateway'
 import type { ReasoningEffort, SpeedMode, ThreadScrollState, UiAccountEntry, UiRateLimitWindow, UiServerRequest, UiServerRequestReply, UiThreadTokenUsage } from './types/codex'
+import type { WorkspaceArtifact } from './types/workspaceArtifacts'
 import type { ComposerDraftPayload, ThreadComposerExposed } from './components/content/ThreadComposer.vue'
 import type { LocalDirectoryEntry, TelegramStatus, WorktreeBranchOption } from './api/codexGateway'
 import { getFreeModeStatus, setFreeMode, setFreeModeCustomKey, setCustomProvider } from './api/codexGateway'
@@ -922,6 +994,7 @@ const ThreadTerminalPanel = defineAsyncComponent(() => import('./components/cont
 const ReviewPane = defineAsyncComponent(() => import('./components/content/ReviewPane.vue'))
 const DirectoryHub = defineAsyncComponent(() => import('./components/content/DirectoryHub.vue'))
 const KanbanBoardPage = defineAsyncComponent(() => import('./components/kanban/KanbanBoardPage.vue'))
+const ThreadArtifactSidebar = defineAsyncComponent(() => import('./components/artifacts/ThreadArtifactSidebar.vue'))
 const { t, uiLanguage, uiLanguageOptions, setUiLanguage } = useUiLanguage()
 
 const SIDEBAR_COLLAPSED_STORAGE_KEY = 'codex-web-local.sidebar-collapsed.v1'
@@ -1178,10 +1251,17 @@ const homeDirectory = ref('')
 const isSettingsOpen = ref(false)
 const isAccountsSectionCollapsed = ref(loadAccountsSectionCollapsed())
 const isReviewPaneOpen = ref(false)
+const isArtifactDrawerOpen = ref(false)
 const threadBranchOptions = ref<WorktreeBranchOption[]>([])
 const currentThreadBranch = ref<string | null>(null)
 const isLoadingThreadBranches = ref(false)
 const isSwitchingThreadBranch = ref(false)
+const selectedThreadArtifacts = ref<WorkspaceArtifact[]>([])
+let threadArtifactLoadSequence = 0
+let threadArtifactRefreshTimer: ReturnType<typeof setTimeout> | null = null
+let threadArtifactRefreshInterval: ReturnType<typeof setInterval> | null = null
+let artifactDrawerPointerStartX = 0
+let artifactDrawerPointerStartY = 0
 const createFolderInputRef = ref<HTMLInputElement | null>(null)
 const accounts = ref<UiAccountEntry[]>([])
 const isRefreshingAccounts = ref(false)
@@ -1199,6 +1279,11 @@ const DICTATION_LANGUAGE_KEY = 'codex-web-local.dictation-language.v1'
 
 const CHAT_WIDTH_KEY = 'codex-web-local.chat-width.v1'
 const MOBILE_RESUME_RELOAD_MIN_HIDDEN_MS = 400
+const THREAD_ARTIFACT_REFRESH_DEBOUNCE_MS = 750
+const THREAD_ARTIFACT_REFRESH_INTERVAL_MS = 10_000
+const ARTIFACT_DRAWER_EDGE_WIDTH_PX = 32
+const ARTIFACT_DRAWER_SWIPE_OPEN_DISTANCE_PX = 56
+const ARTIFACT_DRAWER_SWIPE_VERTICAL_TOLERANCE_PX = 48
 const sendWithEnter = ref(loadBoolPref(SEND_WITH_ENTER_KEY, true))
 const inProgressSendMode = ref<'steer' | 'queue'>(loadInProgressSendModePref())
 const darkMode = ref<'system' | 'light' | 'dark'>(loadDarkModePref())
@@ -1269,6 +1354,7 @@ const routeThreadId = computed(() => {
 const isHomeRoute = computed(() => route.name === 'home')
 const isSkillsRoute = computed(() => route.name === 'skills')
 const isKanbanRoute = computed(() => route.name === 'kanban')
+const canShowArtifactDrawerToggle = computed(() => route.name === 'thread' && selectedThreadId.value.trim().length > 0 && !isReviewPaneOpen.value)
 const contentTitle = computed(() => {
   if (isSkillsRoute.value) return t('Skills')
   if (isKanbanRoute.value) return t('Kanban')
@@ -1603,6 +1689,8 @@ onUnmounted(() => {
     clearTimeout(threadSearchTimer)
     threadSearchTimer = null
   }
+  clearThreadArtifactRefreshTimer()
+  stopThreadArtifactRefreshInterval()
   clearTerminalKeyboardFocusFallbackTimer()
   stopPolling()
 })
@@ -2125,8 +2213,109 @@ function setSidebarCollapsed(nextValue: boolean): void {
   saveSidebarCollapsed(nextValue)
 }
 
+function openArtifactDrawer(): void {
+  isArtifactDrawerOpen.value = true
+}
+
+function closeArtifactDrawer(): void {
+  isArtifactDrawerOpen.value = false
+}
+
+function toggleArtifactDrawer(): void {
+  isArtifactDrawerOpen.value = !isArtifactDrawerOpen.value
+}
+
+function onArtifactDrawerEdgePointerDown(event: PointerEvent): void {
+  if (isArtifactDrawerOpen.value || !canShowArtifactDrawerToggle.value) return
+  if (event.pointerType === 'mouse' && event.button !== 0) return
+  const viewportWidth = window.innerWidth
+  if (event.clientX < viewportWidth - ARTIFACT_DRAWER_EDGE_WIDTH_PX) return
+  artifactDrawerPointerStartX = event.clientX
+  artifactDrawerPointerStartY = event.clientY
+
+  const onPointerMove = (moveEvent: PointerEvent) => {
+    const deltaX = moveEvent.clientX - artifactDrawerPointerStartX
+    const deltaY = Math.abs(moveEvent.clientY - artifactDrawerPointerStartY)
+    if (deltaY > ARTIFACT_DRAWER_SWIPE_VERTICAL_TOLERANCE_PX) {
+      cleanup()
+      return
+    }
+    if (deltaX <= -ARTIFACT_DRAWER_SWIPE_OPEN_DISTANCE_PX) {
+      moveEvent.preventDefault()
+      cleanup()
+      openArtifactDrawer()
+    }
+  }
+
+  const cleanup = () => {
+    window.removeEventListener('pointermove', onPointerMove)
+    window.removeEventListener('pointerup', cleanup)
+    window.removeEventListener('pointercancel', cleanup)
+  }
+
+  window.addEventListener('pointermove', onPointerMove, { passive: false })
+  window.addEventListener('pointerup', cleanup)
+  window.addEventListener('pointercancel', cleanup)
+}
+
+function scheduleSelectedThreadArtifactsRefresh(): void {
+  const threadId = selectedThreadId.value.trim()
+  if (!threadId) {
+    selectedThreadArtifacts.value = []
+    clearThreadArtifactRefreshTimer()
+    return
+  }
+  clearThreadArtifactRefreshTimer()
+  threadArtifactRefreshTimer = setTimeout(() => {
+    threadArtifactRefreshTimer = null
+    void loadSelectedThreadArtifacts(threadId)
+  }, THREAD_ARTIFACT_REFRESH_DEBOUNCE_MS)
+}
+
+function clearThreadArtifactRefreshTimer(): void {
+  if (threadArtifactRefreshTimer === null) return
+  clearTimeout(threadArtifactRefreshTimer)
+  threadArtifactRefreshTimer = null
+}
+
+function startThreadArtifactRefreshInterval(): void {
+  stopThreadArtifactRefreshInterval()
+  if (!selectedThreadId.value.trim()) return
+  threadArtifactRefreshInterval = setInterval(() => {
+    if (!isArtifactDrawerOpen.value || !selectedThreadId.value.trim()) return
+    void loadSelectedThreadArtifacts(selectedThreadId.value)
+  }, THREAD_ARTIFACT_REFRESH_INTERVAL_MS)
+}
+
+function stopThreadArtifactRefreshInterval(): void {
+  if (threadArtifactRefreshInterval === null) return
+  clearInterval(threadArtifactRefreshInterval)
+  threadArtifactRefreshInterval = null
+}
+
+async function loadSelectedThreadArtifacts(threadId: string): Promise<void> {
+  const normalizedThreadId = threadId.trim()
+  const sequence = ++threadArtifactLoadSequence
+  if (!normalizedThreadId) {
+    selectedThreadArtifacts.value = []
+    return
+  }
+  try {
+    const artifacts = await listWorkspaceArtifacts({ threadId: normalizedThreadId })
+    if (sequence !== threadArtifactLoadSequence) return
+    selectedThreadArtifacts.value = artifacts
+  } catch {
+    if (sequence !== threadArtifactLoadSequence) return
+    selectedThreadArtifacts.value = []
+  }
+}
+
 function onWindowKeyDown(event: KeyboardEvent): void {
   if (event.defaultPrevented) return
+  if (event.key === 'Escape' && isArtifactDrawerOpen.value) {
+    isArtifactDrawerOpen.value = false
+    return
+  }
   if (event.key === 'Escape' && isSettingsOpen.value) {
     isSettingsOpen.value = false
     return
@@ -3399,14 +3588,45 @@ watch(
     }
     if (name !== 'thread') {
       isReviewPaneOpen.value = false
+      isArtifactDrawerOpen.value = false
     }
   },
 )
 
+watch(canShowArtifactDrawerToggle, (canShow) => {
+  if (!canShow) {
+    isArtifactDrawerOpen.value = false
+  }
+})
+
+watch(isArtifactDrawerOpen, (isOpen) => {
+  if (!isOpen) {
+    stopThreadArtifactRefreshInterval()
+    return
+  }
+  scheduleSelectedThreadArtifactsRefresh()
+  startThreadArtifactRefreshInterval()
+})
+
 watch(
   () => selectedThreadId.value,
-  () => {
+  (threadId) => {
     worktreeInitStatus.value = { phase: 'idle', title: '', message: '' }
+    isArtifactDrawerOpen.value = false
+    void loadSelectedThreadArtifacts(threadId)
+  },
+  { immediate: true },
+)
+
+watch(
+  () => [
+    selectedThread.value?.updatedAtIso ?? '',
+    selectedThread.value?.inProgress === true,
+    messages.value.length,
+  ] as const,
+  () => {
+    if (!selectedThreadId.value.trim()) return
+    scheduleSelectedThreadArtifactsRefresh()
   },
 )
 
@@ -3704,6 +3924,14 @@ async function loadWorktreeBranches(sourceCwd: string): Promise<void> {
   @apply flex-1 min-h-0;
 }
 
+.content-workspace {
+  @apply flex flex-1 min-h-0 flex-col px-2 sm:px-6;
+}
+
+.content-workspace .content-thread {
+  @apply px-0;
+}
+
 .composer-with-queue {
   @apply w-full shrink-0 px-2 sm:px-6 flex flex-col gap-2;
 }
@@ -3716,6 +3944,19 @@ async function loadWorktreeBranches(sourceCwd: string): Promise<void> {
   @apply flex h-8 items-center gap-1.5 rounded-full border border-zinc-200 bg-white px-2.5 text-xs text-zinc-700 transition hover:bg-zinc-50;
 }
 
+.content-header-artifact-toggle {
+  @apply flex h-8 w-8 items-center justify-center rounded-full border border-zinc-200 bg-white text-zinc-700 transition hover:bg-zinc-50;
+}
+
+.content-header-artifact-toggle[aria-expanded='true'] {
+  @apply border-zinc-300 bg-zinc-100 text-zinc-950;
+}
+
+.content-header-artifact-toggle-icon {
+  @apply h-4 w-4;
+  transform: scaleX(-1);
+}
+
 .content-header-terminal-toggle[aria-pressed='true'] {
   @apply border-zinc-300 bg-zinc-100 text-zinc-950;
 }
@@ -3726,6 +3967,106 @@ async function loadWorktreeBranches(sourceCwd: string): Promise<void> {
 
 .content-header-terminal-shortcut {
   @apply hidden text-[11px] text-zinc-500 sm:inline;
+}
+
+.artifact-drawer-edge-toggle {
+  @apply fixed right-0 top-1/2 z-30 flex h-12 w-7 -translate-y-1/2 items-center justify-center rounded-l-lg border border-r-0 border-zinc-200 bg-white text-zinc-600 shadow-lg transition hover:bg-zinc-50 hover:text-zinc-950;
+}
+
+.artifact-drawer-edge-toggle-icon {
+  @apply h-4 w-4;
+  transform: scaleX(-1);
+}
+
+.artifact-drawer-edge-swipe-zone {
+  @apply fixed bottom-0 right-0 top-0 z-20 w-8 touch-pan-y bg-transparent;
+}
+
+.artifact-drawer-backdrop {
+  @apply fixed inset-0 z-40 bg-black/20;
+}
+
+.artifact-drawer-panel {
+  @apply absolute bottom-0 right-0 top-0 flex w-[min(24rem,calc(100vw-1.5rem))] flex-col border-l border-zinc-200 bg-zinc-50 shadow-2xl;
+  padding-top: env(safe-area-inset-top);
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+.artifact-drawer-header {
+  @apply flex h-10 shrink-0 items-center justify-end border-b border-zinc-200 bg-white px-2;
+}
+
+.artifact-drawer-close {
+  @apply flex h-7 w-7 items-center justify-center rounded-md border border-transparent text-zinc-500 transition hover:border-zinc-200 hover:bg-zinc-50 hover:text-zinc-900;
+}
+
+.artifact-drawer-close-icon {
+  @apply h-4 w-4;
+}
+
+.artifact-drawer-sidebar {
+  @apply min-h-0 flex-1 overflow-y-auto p-2;
+}
+
+:global(:root.dark) .content-header-artifact-toggle,
+:global(:root.dark) .content-header-terminal-toggle,
+:global(:root.dark) .artifact-drawer-edge-toggle {
+  @apply border-zinc-700 bg-zinc-900 text-zinc-200 hover:bg-zinc-800 hover:text-white;
+}
+
+:global(:root.dark) .content-header-artifact-toggle[aria-expanded='true'],
+:global(:root.dark) .content-header-terminal-toggle[aria-pressed='true'] {
+  @apply border-zinc-600 bg-zinc-800 text-white;
+}
+
+:global(:root.dark) .artifact-drawer-backdrop {
+  @apply bg-black/45;
+}
+
+:global(:root.dark) .artifact-drawer-panel {
+  @apply border-zinc-800 bg-zinc-950;
+}
+
+:global(:root.dark) .artifact-drawer-header {
+  @apply border-zinc-800 bg-zinc-950;
+}
+
+:global(:root.dark) .artifact-drawer-close {
+  @apply text-zinc-400 hover:border-zinc-700 hover:bg-zinc-900 hover:text-zinc-100;
+}
+
+.artifact-drawer-enter-active,
+.artifact-drawer-leave-active {
+  @apply transition-opacity duration-200;
+}
+
+.artifact-drawer-enter-active .artifact-drawer-panel,
+.artifact-drawer-leave-active .artifact-drawer-panel {
+  transition: transform 200ms ease;
+}
+
+.artifact-drawer-enter-from,
+.artifact-drawer-leave-to {
+  @apply opacity-0;
+}
+
+.artifact-drawer-enter-from .artifact-drawer-panel,
+.artifact-drawer-leave-to .artifact-drawer-panel {
+  transform: translateX(100%);
+}
+
+@media (max-width: 640px) {
+  .artifact-drawer-backdrop {
+    @apply bg-black/30;
+  }
+
+  .artifact-drawer-panel {
+    @apply w-[min(22rem,calc(100vw-1rem))];
+  }
+
+  .artifact-drawer-edge-toggle {
+    @apply h-11 w-7;
+  }
 }
 
 .content-header-branch-dropdown :deep(.composer-dropdown-trigger) {

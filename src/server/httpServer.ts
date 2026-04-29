@@ -6,7 +6,11 @@ import { writeFile, stat } from 'node:fs/promises'
 import express, { type Express } from 'express'
 import { createCodexBridgeMiddleware } from './codexAppServerBridge.js'
 import { createAuthSession } from './authMiddleware.js'
+import { createArtifactRouter } from './artifacts/routes.js'
+import { resolveKanbanConfig } from './kanban/config.js'
 import { createKanbanMiddleware } from './kanban/index.js'
+import { resolveKanbanDataDir } from './kanban/paths.js'
+import { KanbanStorage } from './kanban/storage.js'
 import { createDirectoryListingHtml, createTextEditorHtml, decodeBrowsePath, getLocalDirectoryListing, isTextEditableFile, normalizeLocalPath } from './localBrowseUi.js'
 import { WebSocketServer, type WebSocket } from 'ws'
 
@@ -78,7 +82,11 @@ export function createServer(options: ServerOptions = {}): ServerInstance {
   const app = express()
   const bridge = createCodexBridgeMiddleware()
   const projectRoot = options.projectRoot ?? process.cwd()
-  const kanban = createKanbanMiddleware({ bridge, projectRoot })
+  const kanbanConfig = resolveKanbanConfig()
+  const kanbanDataDir = resolveKanbanDataDir(kanbanConfig.dataDir)
+  const kanbanStorage = new KanbanStorage({ dataDir: kanbanDataDir, projectRoot })
+  const kanban = createKanbanMiddleware({ bridge, projectRoot, dataDir: kanbanDataDir })
+  const artifacts = createArtifactRouter({ storage: kanbanStorage })
   const authSession = options.password ? createAuthSession(options.password) : null
 
   // 1. Auth middleware (if password is set)
@@ -86,8 +94,9 @@ export function createServer(options: ServerOptions = {}): ServerInstance {
     app.use(authSession.middleware)
   }
 
-  // 2. Kanban owns /codex-api/kanban/* before the generic bridge.
+  // 2. Kanban and indexed artifacts own their API paths before the generic bridge.
   app.use('/codex-api/kanban', kanban)
+  app.use('/codex-api/artifacts', artifacts)
 
   // 3. Bridge middleware for /codex-api/*
   app.use(bridge)

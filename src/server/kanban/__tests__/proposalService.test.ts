@@ -3,12 +3,14 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import type { KanbanExecutionPolicy } from '../../../types/kanban'
+import { listKanbanWorkspaceProposals, listPendingKanbanWorkspaceProposals } from '../../proposals/adapters/kanbanProposals'
 import { KanbanStorage } from '../storage'
 import { KanbanProposalService } from '../proposalService'
 import { KanbanTaskService } from '../taskService'
 
 const policy: KanbanExecutionPolicy = {
   enabled: true,
+  executionMode: 'disabled',
   executionEnabled: false,
   requireTrustedAccessForExecution: true,
   allowTailscaleAccess: true,
@@ -86,6 +88,55 @@ describe('KanbanProposalService', () => {
     })
   })
 
+  it('maps kanban proposals to inert workspace proposal summaries', async () => {
+    const { proposalService } = await createHarness()
+    const pending = await proposalService.createProposal({
+      type: 'create',
+      payload: {
+        title: 'Summarized task',
+        description: 'Visible outside Kanban',
+        priority: 'normal',
+      },
+      sourceRunId: 'run_summary',
+      sourceThreadId: 'thread_summary',
+      proposedBy: 'codex:auto',
+    })
+    const rejected = await proposalService.createProposal({
+      type: 'update',
+      payload: {
+        taskId: 'task_summary',
+        patch: { blockedReason: 'Need operator decision' },
+      },
+      sourceRunId: 'run_summary',
+      sourceThreadId: 'thread_summary',
+      proposedBy: 'codex:auto',
+    })
+    await proposalService.rejectProposal(rejected.id, { reason: 'Not now' })
+    const proposals = await proposalService.listProposals()
+
+    expect(listKanbanWorkspaceProposals(proposals)).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        id: pending.id,
+        type: 'create',
+        status: 'pending',
+        title: 'Summarized task',
+        summary: 'Visible outside Kanban | priority: normal',
+        sourceRunId: 'run_summary',
+        sourceThreadId: 'thread_summary',
+      }),
+      expect.objectContaining({
+        id: rejected.id,
+        type: 'update',
+        status: 'rejected',
+        title: 'Update task_summary',
+        summary: 'blockedReason: Need operator decision',
+        taskId: 'task_summary',
+        reason: 'Not now',
+      }),
+    ]))
+    expect(listPendingKanbanWorkspaceProposals(proposals).map((proposal) => proposal.id)).toEqual([pending.id])
+  })
+
   it('applies update proposal patches when approved', async () => {
     const { proposalService, taskService } = await createHarness()
     const task = await taskService.createTask({ title: 'Needs credentials' })
@@ -110,6 +161,28 @@ describe('KanbanProposalService', () => {
     })
     await expect(taskService.getTask(task.id)).resolves.toMatchObject({
       blockedReason: 'Needs credentials',
+      version: task.version + 1,
+    })
+  })
+
+  it('applies update proposal run profile patches when approved', async () => {
+    const { proposalService, taskService } = await createHarness()
+    const task = await taskService.createTask({ title: 'Needs planning profile' })
+    const proposal = await proposalService.createProposal({
+      type: 'update',
+      payload: {
+        taskId: task.id,
+        patch: { runProfileId: 'read-only-planning' },
+      },
+      sourceRunId: 'run_2',
+      sourceThreadId: 'thread_2',
+      proposedBy: 'codex:auto',
+    })
+
+    await proposalService.approveProposal(proposal.id, { resolvedBy: 'operator' })
+
+    await expect(taskService.getTask(task.id)).resolves.toMatchObject({
+      runProfileId: 'read-only-planning',
       version: task.version + 1,
     })
   })

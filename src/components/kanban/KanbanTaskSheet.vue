@@ -13,7 +13,10 @@
         <KanbanTaskInspector
           :task="task"
           :execution-policy="executionPolicy"
+          :run-profiles="runProfiles"
+          :default-run-profile-id="defaultRunProfileId"
           :run-log="runLog"
+          :review-packet="reviewPacket"
           @close="emit('close')"
           @archive="emit('archive')"
           @start-run="emit('start-run')"
@@ -35,13 +38,16 @@
 
 <script setup lang="ts">
 import { nextTick, ref, watch } from 'vue'
-import type { KanbanExecutionPolicy, KanbanMetadataPatch, KanbanStatus, KanbanTask, KanbanTaskLabel } from '../../types/kanban'
+import type { CodexRunProfile, KanbanExecutionPolicy, KanbanMetadataPatch, KanbanReviewPacket, KanbanStatus, KanbanTask, KanbanTaskLabel } from '../../types/kanban'
 import KanbanTaskInspector from './KanbanTaskInspector.vue'
 
 const props = defineProps<{
   task: KanbanTask | null
   executionPolicy: KanbanExecutionPolicy | null
+  runProfiles: CodexRunProfile[]
+  defaultRunProfileId: string
   runLog: string
+  reviewPacket: KanbanReviewPacket | null
 }>()
 
 const emit = defineEmits<{
