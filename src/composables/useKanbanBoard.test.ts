@@ -554,27 +554,41 @@ describe('useKanbanBoard', () => {
     expect(board.runLogsByRunId.value.run_1).toBe('log output')
   })
 
-  it('clears stale board state when loading fails after a prior success', async () => {
+  it('clears stale board state, proposals, and conflicts when loading fails after a prior success', async () => {
     let shouldFail = false
-    const gateway = createGateway(createState([createTask({ id: 'task_a' })]))
+    const task = createTask({ id: 'task_a', version: 3 })
+    const conflict = Object.assign(new Error('version_conflict'), {
+      serverVersion: 4,
+      latest: { ...task, version: 4 },
+    })
+    const gateway = createGateway(createState([task]))
     const board = useKanbanBoard({
       gateway: {
         ...gateway,
+        listKanbanProposals: async () => [createProposal({ id: 'proposal_a' })],
         loadKanbanState: async () => {
           if (shouldFail) throw new Error('offline')
           return await gateway.loadKanbanState()
+        },
+        updateKanbanTask: async () => {
+          throw conflict
         },
       },
       storage: null,
     })
 
     await board.loadBoard()
-    board.selectTask('task_a')
+    expect(board.proposals.value).toHaveLength(1)
+    await expect(board.updateTask(task.id, { title: 'Renamed' })).rejects.toThrow('version_conflict')
+    expect(board.versionConflict.value).not.toBeNull()
+    board.selectTask(task.id)
     shouldFail = true
     await board.loadBoard()
 
     expect(board.tasks.value).toEqual([])
     expect(board.executionPolicy.value).toBeNull()
+    expect(board.proposals.value).toEqual([])
+    expect(board.versionConflict.value).toBeNull()
     expect(board.selectedTaskId.value).toBe('')
     expect(board.errorMessage.value).toBe('offline')
   })
