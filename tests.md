@@ -396,6 +396,30 @@ This file tracks manual regression and feature verification steps.
 #### Rollback/Cleanup
 - Decline or cancel the MCP request after verification, and close any opened authorization URL if it was only used for testing.
 
+### Feature: Kanban Codex Agent Reference
+
+#### Prerequisites
+- Repository checkout is available.
+- `docs/kanban-codex-agent-reference.md` exists.
+
+#### Steps
+1. Open `docs/kanban-codex-agent-reference.md`.
+2. Confirm the lifecycle section documents `backlog -> ready -> running -> review -> done`, with `rework` and `cancelled`.
+3. Confirm the assignee section uses only `operator`, `codex:auto`, and `codex:thread:<threadId>`.
+4. Confirm the safe execution section covers trusted local/Tailscale access, CSRF, managed worktrees, and no automatic merge, push, or pull request creation.
+5. Confirm marker examples use `kanban:create` and `kanban:update` fenced JSON blocks.
+6. Confirm completion behavior covers result capture, marker parsing, proposal creation, and review packet generation.
+7. Confirm API examples cover create, update, reorder, execute, complete, approve proposal, and reject proposal.
+8. Run `rg -n "OpenClaw|nerve root|root session" docs/kanban-codex-agent-reference.md`.
+
+#### Expected Results
+- The reference is Codex-specific and avoids unrelated agent terminology.
+- The API examples match `/codex-api/kanban` routes and use the Kanban CSRF header where required.
+- The `rg` check produces no output.
+
+#### Rollback/Cleanup
+- Remove `docs/kanban-codex-agent-reference.md` only if rolling back this documentation task.
+
 ### Feature: pnpm dev script installs dependencies and starts Vite
 
 ### Feature: Tailscale CIDRs bypass password and Cloudflare tunnel is opt-in
