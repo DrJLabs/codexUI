@@ -862,7 +862,7 @@ git commit -m "feat: add kanban execution safety gate"
 - Test: `src/server/kanban/__tests__/worktreeManager.test.ts`
 - Test: `src/server/kanban/__tests__/taskQueue.test.ts`
 
-- [ ] **Step 1: Write temp Git repo tests**
+- [x] **Step 1: Write temp Git repo tests**
 
 Use `mkdtemp`, `git init`, `git commit --allow-empty`, and `git worktree list --porcelain` in the test setup. Verify:
 
@@ -871,7 +871,7 @@ Use `mkdtemp`, `git init`, `git commit --allow-empty`, and `git worktree list --
 - existing active worktree blocks a second active run for the same task
 - dirty worktree cleanup is refused
 
-- [ ] **Step 2: Implement worktree creation**
+- [x] **Step 2: Implement worktree creation**
 
 Rules:
 
@@ -881,11 +881,11 @@ Rules:
 - never run directly on `main`
 - write lock metadata with run ID, PID, task ID, heartbeat timestamp
 
-- [ ] **Step 3: Implement queue**
+- [x] **Step 3: Implement queue**
 
 Concurrency is fixed at one global active run, one active run per repo, one active run per task.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add src/server/kanban/worktreeManager.ts src/server/kanban/taskQueue.ts src/server/kanban/recoveryService.ts src/server/kanban/__tests__/worktreeManager.test.ts src/server/kanban/__tests__/taskQueue.test.ts

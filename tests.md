@@ -3907,3 +3907,37 @@ Loopback-only execution preflight with per-router CSRF token and append-only aud
 #### Rollback/Cleanup
 - Stop the dev server and restart without `CODEXUI_KANBAN_EXECUTION_ENABLED=1`
 - Remove local test audit data under `${CODEX_HOME:-$HOME/.codex}/codexui-kanban/audit/` if needed
+
+---
+
+### Kanban v0.2 Managed Worktree Queue
+
+#### Feature/Change Name
+Managed Git worktree creation, one-active-run queue limits, and conservative startup recovery classification for Kanban execution.
+
+#### Prerequisites/Setup
+1. A Git-backed project is available with a committed `main` or `master` branch
+2. Dev server can be started with `CODEXUI_KANBAN_EXECUTION_ENABLED=1 pnpm run dev -- --host 0.0.0.0 --port 4173`
+3. Light theme and dark theme are both available from Settings
+
+#### Steps
+1. Create or choose a Kanban task that would be eligible for execution
+2. Trigger managed-worktree creation through the execution flow once later runner wiring is available
+3. Confirm the created branch follows `codexui/task/<task-id>-<slug>`
+4. Confirm the worktree path lives under `${CODEX_HOME:-$HOME/.codex}/codexui-kanban/worktrees/`
+5. Confirm a second active run for the same task is blocked or queued
+6. Add an uncommitted file inside the managed worktree and attempt cleanup
+7. Switch between light theme and dark theme and confirm the Kanban page remains readable while run controls show queued or blocked state in later UI tasks
+
+#### Expected Results
+- Worktrees are created under the Kanban-managed data root, not directly inside the source repo
+- The manager creates a task-scoped branch and writes lock metadata with run ID, task ID, PID, and heartbeat timestamp
+- Only one global active run, one active run per repo, and one active run per task can proceed
+- Dirty worktree cleanup is refused
+- Startup recovery never auto-accepts approvals or auto-deletes dirty worktrees
+- Light theme and dark theme remain unchanged by the server-only queue foundation
+
+#### Rollback/Cleanup
+- Remove clean test worktrees with `git -C <repo-root> worktree remove <worktree-path>`
+- Remove test branches with `git -C <repo-root> branch -D <branch-name>` after the worktree is removed
+- Remove local test metadata under `${CODEX_HOME:-$HOME/.codex}/codexui-kanban/worktrees/` if needed
