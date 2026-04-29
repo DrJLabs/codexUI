@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import express from 'express'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { KanbanExecutionPolicy } from '../../../types/kanban'
+import type { CodexBridgeRuntime } from '../../codexAppServerBridge'
 import { createKanbanMiddleware, type CreateKanbanMiddlewareOptions } from '../index'
 
 const servers: Server[] = []
@@ -31,6 +32,12 @@ const disabledPolicy: KanbanExecutionPolicy = {
 const enabledPolicy: KanbanExecutionPolicy = {
   ...disabledPolicy,
   executionEnabled: true,
+}
+
+const bridge: CodexBridgeRuntime = {
+  rpc: async <T = unknown>() => ({} as T),
+  subscribeNotifications: vi.fn(() => () => {}),
+  dispose: vi.fn(),
 }
 
 async function createTestServer(options: Partial<CreateKanbanMiddlewareOptions> = {}) {
@@ -180,6 +187,23 @@ describe('Kanban execution policy', () => {
 
     expect(response.status).toBe(403)
     expect(response.body.error).toContain('Kanban execution requires trusted local or Tailscale access')
+  })
+
+  it('accepts trusted CSRF-protected manual completion with an error-only body', async () => {
+    const { baseUrl } = await createTestServer({ policy: enabledPolicy, bridge })
+    const csrf = await requestJson<{ data: { csrfToken: string } }>(`${baseUrl}/codex-api/kanban/csrf`)
+
+    const response = await requestJson<{ error: string }>(
+      `${baseUrl}/codex-api/kanban/runs/run_missing/complete`,
+      {
+        method: 'POST',
+        headers: { 'x-codexui-kanban-csrf': csrf.body.data.csrfToken },
+        body: JSON.stringify({ error: 'manual failure only' }),
+      },
+    )
+
+    expect(response.status).toBe(404)
+    expect(response.body.error).toContain('Kanban run not found: run_missing')
   })
 
   it('fails closed when audit append fails before the runner is wired', async () => {

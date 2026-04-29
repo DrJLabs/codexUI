@@ -14,7 +14,7 @@ import { KanbanStorage } from '../storage'
 import { KanbanTaskService } from '../taskService'
 import { KanbanWorktreeManager } from '../worktreeManager'
 import type { KanbanRemoteAccess } from '../remoteAccess'
-import type { KanbanExecutionPolicy } from '../../../types/kanban'
+import type { KanbanExecutionPolicy, KanbanProposal } from '../../../types/kanban'
 import type { CodexBridgeNotification } from '../../codexAppServerBridge'
 
 const execFileAsync = promisify(execFile)
@@ -53,7 +53,13 @@ async function runGit(cwd: string, args: string[]): Promise<string> {
   return stdout
 }
 
-async function createHarness() {
+type HarnessOptions = {
+  readThreadResponse?: unknown
+  reviewPacketService?: Pick<KanbanReviewPacketService, 'generateForTask'>
+  proposalService?: Pick<KanbanProposalService, 'createProposalsFromMarkers'>
+}
+
+async function createHarness(options: HarnessOptions = {}) {
   const dataDir = await mkdtemp(join(tmpdir(), 'codexui-kanban-runner-data-'))
   const projectRoot = await mkdtemp(join(tmpdir(), 'codexui-kanban-runner-repo-'))
   await runGit(projectRoot, ['init', '-b', 'main'])
@@ -63,17 +69,25 @@ async function createHarness() {
   const storage = new KanbanStorage({ dataDir, projectRoot })
   const service = new KanbanTaskService({ storage, projectRoot, policy })
   const eventBus = new KanbanEventBus()
-  const proposalService = new KanbanProposalService({ storage, taskService: service, eventBus })
-  const reviewPacketService = new KanbanReviewPacketService({ storage })
+  const proposalService = options.proposalService ?? new KanbanProposalService({ storage, taskService: service, eventBus })
+  const reviewPacketService = options.reviewPacketService ?? new KanbanReviewPacketService({ storage })
   const rpcCalls: Array<{ method: string; params: unknown }> = []
   const notificationListeners: Array<(notification: CodexBridgeNotification) => void> = []
+  let threadStartCount = 0
+  let turnStartCount = 0
   const bridge: CodexBridgeRuntime = {
     rpc: async <T = unknown>(method: string, params?: unknown) => {
       rpcCalls.push({ method, params })
-      if (method === 'thread/start') return { threadId: 'thread_1' } as T
-      if (method === 'turn/start') return { turnId: 'turn_1' } as T
+      if (method === 'thread/start') {
+        threadStartCount += 1
+        return { threadId: `thread_${threadStartCount}` } as T
+      }
+      if (method === 'turn/start') {
+        turnStartCount += 1
+        return { turnId: `turn_${turnStartCount}` } as T
+      }
       if (method === 'thread/read') {
-        return {
+        return (options.readThreadResponse ?? {
           thread: {
             turns: [
               {
@@ -91,7 +105,7 @@ async function createHarness() {
               },
             ],
           },
-        } as T
+        }) as T
       }
       return {} as T
     },
@@ -204,5 +218,116 @@ describe('CodexKanbanRunner', () => {
     expect(failedTask.errorMessage).toBe('manual completion failed')
     expect(Object.values(state.proposals)).toHaveLength(0)
     expect(Object.values(state.reviewPackets)).toHaveLength(0)
+  })
+
+  it('does not duplicate completion side effects across manual and notification entrypoints', async () => {
+    let releaseProposal: () => void = () => {}
+    const proposalGate = new Promise<void>((resolve) => {
+      releaseProposal = resolve
+    })
+    const createProposalsFromMarkers = vi.fn(async () => {
+      await proposalGate
+      return {
+        cleanText: 'Locked result text',
+        proposals: [{ id: 'proposal_locked' } as KanbanProposal],
+      }
+    })
+    const generateForTask = vi.fn(async (taskId: string) => ({
+      packet: {
+        id: 'review_packet_locked',
+        taskId,
+        runId: '',
+        packetHash: 'hash',
+        generatedAtIso: new Date().toISOString(),
+        baseCommit: '',
+        headCommit: '',
+        rawDiffPatch: '',
+        summary: { fileCount: 0, addedLineCount: 0, removedLineCount: 0 },
+        testResults: [],
+        unresolvedProposalIds: ['proposal_locked'],
+      },
+      task: { id: taskId } as Awaited<ReturnType<KanbanReviewPacketService['generateForTask']>>['task'],
+    }))
+    const { service, storage, runner, notificationListeners } = await createHarness({
+      proposalService: { createProposalsFromMarkers },
+      reviewPacketService: { generateForTask },
+      readThreadResponse: {
+        thread: {
+          turns: [
+            { id: 'turn_1', items: [{ type: 'agentMessage', text: 'Notification result text' }] },
+          ],
+        },
+      },
+    })
+    const task = await service.createTask({ title: 'Idempotent completion task' })
+    const started = await runner.startTaskRun(task.id, { access, sessionId: 'session_1' })
+
+    const manual = runner.completeRun(started.run.id, { result: 'Manual result text' })
+    const notification = Promise.resolve(notificationListeners[0]!({
+      method: 'turn/completed',
+      params: { threadId: 'thread_1', turnId: 'turn_1' },
+      atIso: new Date().toISOString(),
+    }))
+    releaseProposal()
+    await Promise.all([manual, notification])
+
+    const state = await storage.load()
+    expect(createProposalsFromMarkers).toHaveBeenCalledOnce()
+    expect(generateForTask).toHaveBeenCalledOnce()
+    expect(state.tasks[task.id]!.proposalIds).toEqual(['proposal_locked'])
+  })
+
+  it('records review packet generation errors and still promotes queued runs', async () => {
+    const generateForTask = vi.fn(async () => {
+      throw new Error('review packet unavailable')
+    })
+    const { service, storage, runner } = await createHarness({
+      reviewPacketService: { generateForTask },
+    })
+    const firstTask = await service.createTask({ title: 'First queued task' })
+    const secondTask = await service.createTask({ title: 'Second queued task' })
+    const firstRun = await runner.startTaskRun(firstTask.id, { access, sessionId: 'session_1' })
+    const secondRun = await runner.startTaskRun(secondTask.id, { access, sessionId: 'session_1' })
+
+    expect(secondRun.run.state).toBe('queued')
+    await runner.completeRun(firstRun.run.id, { result: 'Completed first task' })
+
+    const state = await storage.load()
+    expect(state.runs[firstRun.run.id]).toMatchObject({ state: 'succeeded', errorMessage: 'Review packet generation failed: review packet unavailable' })
+    expect(state.tasks[firstTask.id]).toMatchObject({
+      status: 'review',
+      runState: 'succeeded',
+      reviewPacketId: '',
+      errorMessage: 'Review packet generation failed: review packet unavailable',
+    })
+    expect(state.runs[secondRun.run.id]).toMatchObject({ state: 'running', threadId: 'thread_2', turnId: 'turn_2' })
+    expect(state.tasks[secondTask.id]).toMatchObject({ status: 'running', runState: 'running' })
+    await expect(runner.readRunEvents(firstRun.run.id)).resolves.toContain('review_packet.failed')
+  })
+
+  it('uses snake_case completion ids and extracts text from the completed turn only', async () => {
+    const { service, storage, runner, notificationListeners } = await createHarness({
+      readThreadResponse: {
+        thread: {
+          turns: [
+            { id: 'turn_1', items: [{ type: 'agentMessage', text: 'Correct completed turn text' }] },
+            { id: 'turn_2', items: [{ type: 'agentMessage', text: 'Wrong latest turn text' }] },
+          ],
+        },
+      },
+    })
+    const task = await service.createTask({ title: 'Snake notification task' })
+    const started = await runner.startTaskRun(task.id, { access, sessionId: 'session_1' })
+
+    await Promise.resolve(notificationListeners[0]!({
+      method: 'turn/completed',
+      params: { thread_id: 'thread_1', turn_id: 'turn_1' },
+      atIso: new Date().toISOString(),
+    }))
+
+    const state = await storage.load()
+    expect(state.runs[started.run.id]).toMatchObject({ state: 'succeeded' })
+    expect(state.tasks[task.id]!.result).toBe('Correct completed turn text')
+    expect(state.tasks[task.id]!.result).not.toContain('Wrong latest')
   })
 })

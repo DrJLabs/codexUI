@@ -405,11 +405,15 @@ function readRouteParam(value: string | string[] | undefined, name: string): str
 }
 
 function parseCompleteRunInput(value: unknown): { result: string; error?: string } {
-  if (!isRecord(value) || typeof value.result !== 'string') {
+  if (!isRecord(value)) {
     throw createHttpError(400, 'Kanban run completion result is required')
   }
+  const result = typeof value.result === 'string' ? value.result : ''
   const error = typeof value.error === 'string' ? value.error.trim() : ''
-  return error ? { result: value.result, error } : { result: value.result }
+  if (!result && !error) {
+    throw createHttpError(400, 'Kanban run completion result or error is required')
+  }
+  return error ? { result, error } : { result }
 }
 
 function assertTrustedAccessRequest(req: Request): KanbanRemoteAccess {

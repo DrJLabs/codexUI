@@ -55,7 +55,7 @@ export class CodexKanbanRunner {
   private readonly reviewPacketService?: Pick<KanbanReviewPacketService, 'generateForTask'>
   private readonly eventBus?: KanbanEventBus
   private readonly queue = new KanbanTaskQueue()
-  private readonly completingRunIds = new Set<string>()
+  private readonly completionLocks = new Map<string, Promise<void>>()
 
   constructor(options: CodexKanbanRunnerOptions) {
     this.dataDir = options.dataDir
@@ -89,44 +89,9 @@ export class CodexKanbanRunner {
     }
 
     try {
-      await this.persistRun(run, { runState: 'preparing_worktree' })
-      const worktree = await this.worktreeManager.createManagedWorktree({
-        taskId,
-        taskTitle: task.title,
-        runId: run.id,
-        baseBranch: task.baseBranch || undefined,
-      })
-      const preparingRun = {
-        ...run,
-        state: 'starting_codex' as const,
-        worktreePath: worktree.worktreePath,
-        branchName: worktree.branchName,
-        updatedAtIso: new Date().toISOString(),
-      }
-      await this.writeRunEvent(preparingRun, { type: 'worktree.created', worktreePath: worktree.worktreePath, branchName: worktree.branchName })
-      await this.persistRun(preparingRun, { runState: 'starting_codex', worktreePath: worktree.worktreePath, branchName: worktree.branchName })
-
-      const threadId = await this.startOrResumeThread(task, preparingRun)
-      const turnId = await this.startTurn(task, { ...preparingRun, threadId })
-      const runningRun = {
-        ...preparingRun,
-        state: 'running' as const,
-        threadId,
-        turnId,
-        updatedAtIso: new Date().toISOString(),
-      }
-      await this.writeRunLog(runningRun, `Started Codex turn ${turnId || '(unknown turn)'} in ${worktree.worktreePath}\n`)
-      await this.writeRunEvent(runningRun, { type: 'run.started', threadId, turnId })
-      const runningTask = await this.persistRun(runningRun, {
-        status: 'running',
-        runState: 'running',
-        worktreePath: worktree.worktreePath,
-        branchName: worktree.branchName,
-        codexThreadId: threadId,
-      })
-      return { run: runningRun, task: runningTask }
+      return await this.startActiveRun(run, task)
     } catch (error) {
-      this.queue.complete(run.id)
+      await this.releaseRunAndStartPromoted(run.id)
       const message = error instanceof Error ? error.message : 'Kanban run failed to start'
       const failedRun = { ...run, state: 'failed' as const, errorMessage: message, updatedAtIso: new Date().toISOString() }
       await this.writeRunLog(failedRun, `Run failed: ${message}\n`).catch(() => {})
@@ -152,7 +117,7 @@ export class CodexKanbanRunner {
     await this.writeRunLog(cancelledRun, 'Run interrupted by local user.\n')
     await this.writeRunEvent(cancelledRun, { type: 'run.cancelled' })
     const task = await this.persistRun(cancelledRun, { status: 'cancelled', runState: 'cancelled' })
-    this.queue.complete(runId)
+    await this.releaseRunAndStartPromoted(runId)
     return { run: cancelledRun, task }
   }
 
@@ -161,8 +126,10 @@ export class CodexKanbanRunner {
   }
 
   async completeRun(runId: string, input: CompleteKanbanRunInput): Promise<CompleteKanbanRunResponse> {
-    const run = await this.readRun(runId)
-    return await this.completeRunFromText(run, input)
+    return await this.withCompletionLock(runId, async () => {
+      const run = await this.readRun(runId)
+      return await this.completeRunFromText(run, input)
+    })
   }
 
   async readRunLogs(runId: string): Promise<string> {
@@ -203,16 +170,11 @@ export class CodexKanbanRunner {
       const turnId = extractTurnId(notification.params)
       if (!threadId || !turnId) return
       const run = await this.findActiveRunForTurn(threadId, turnId)
-      if (!run || this.completingRunIds.has(run.id)) return
-      this.completingRunIds.add(run.id)
-      try {
-        const response = await this.bridge.rpc('thread/read', { threadId, includeTurns: true })
-        const result = extractLatestAssistantMessageText(response)
-        if (!result) return
-        await this.completeRunFromText(run, { result })
-      } finally {
-        this.completingRunIds.delete(run.id)
-      }
+      if (!run) return
+      const response = await this.bridge.rpc('thread/read', { threadId, includeTurns: true })
+      const result = extractLatestAssistantMessageText(response, turnId)
+      if (!result) return
+      await this.completeRun(run.id, { result })
     } catch {
       // Completion notifications are best-effort; the manual completion route remains available.
     }
@@ -232,17 +194,21 @@ export class CodexKanbanRunner {
   private async completeRunFromText(run: KanbanRun, input: CompleteKanbanRunInput): Promise<CompleteKanbanRunResponse> {
     const currentRun = await this.readRun(run.id)
     if (!isActiveRunState(currentRun.state)) {
-      return {
-        run: currentRun,
-        task: await this.readTask(currentRun.taskId).catch(() => null),
-        proposalIds: [],
-        reviewPacketId: '',
+      return await this.readCompletedRunResponse(currentRun)
+    }
+    try {
+      if (input.error?.trim()) {
+        return await this.completeFailedRun(currentRun, input)
       }
+      return await this.completeSucceededRun(currentRun, input.result)
+    } catch (error) {
+      return await this.completeFailedRun(currentRun, {
+        result: input.result,
+        error: error instanceof Error ? error.message : 'Kanban run completion failed',
+      })
+    } finally {
+      await this.releaseRunAndStartPromoted(currentRun.id)
     }
-    if (input.error?.trim()) {
-      return await this.completeFailedRun(currentRun, input)
-    }
-    return await this.completeSucceededRun(currentRun, input.result)
   }
 
   private async completeSucceededRun(run: KanbanRun, resultText: string): Promise<CompleteKanbanRunResponse> {
@@ -260,7 +226,7 @@ export class CodexKanbanRunner {
     })
     const proposalIds = proposalResult.proposals.map((proposal) => proposal.id)
     const now = new Date().toISOString()
-    const completedRun = { ...run, state: 'succeeded' as const, errorMessage: '', updatedAtIso: now }
+    let completedRun = { ...run, state: 'succeeded' as const, errorMessage: '', updatedAtIso: now }
     await this.storage.mutate((state: KanbanStateFileV1) => {
       const task = state.tasks[run.taskId]
       if (!task) throw new Error(`Kanban task not found: ${run.taskId}`)
@@ -277,24 +243,50 @@ export class CodexKanbanRunner {
         version: task.version + 1,
       }
     })
-    const reviewResult = await this.reviewPacketService.generateForTask(run.taskId)
-    await this.writeRunLog(completedRun, 'Run completed successfully.\n')
+    let completedTask = await this.readTask(run.taskId)
+    let reviewPacketId = ''
+    let reviewPacketError = ''
+    try {
+      const reviewResult = await this.reviewPacketService.generateForTask(run.taskId)
+      completedTask = reviewResult.task
+      reviewPacketId = reviewResult.packet.id
+    } catch (error) {
+      reviewPacketError = `Review packet generation failed: ${error instanceof Error ? error.message : 'unknown error'}`
+      completedRun = { ...completedRun, errorMessage: reviewPacketError, updatedAtIso: new Date().toISOString() }
+      await this.storage.mutate((state: KanbanStateFileV1) => {
+        const task = state.tasks[run.taskId]
+        if (!task) throw new Error(`Kanban task not found: ${run.taskId}`)
+        state.runs[run.id] = completedRun
+        completedTask = {
+          ...task,
+          errorMessage: reviewPacketError,
+          updatedAtIso: completedRun.updatedAtIso,
+          version: task.version + 1,
+        }
+        state.tasks[task.id] = completedTask
+      })
+      await this.writeRunEvent(completedRun, { type: 'review_packet.failed', error: reviewPacketError })
+    }
+    await this.writeRunLog(
+      completedRun,
+      reviewPacketError ? `Run completed successfully. ${reviewPacketError}\n` : 'Run completed successfully.\n',
+    )
     await this.writeRunEvent(completedRun, {
       type: 'run.completed',
       result: 'succeeded',
       proposalIds,
-      reviewPacketId: reviewResult.packet.id,
+      reviewPacketId,
+      reviewPacketError,
     })
     this.eventBus?.emit({
       type: 'task.updated',
-      payload: { taskId: reviewResult.task.id, runId: run.id, proposalIds, reviewPacketId: reviewResult.packet.id },
+      payload: { taskId: completedTask.id, runId: run.id, proposalIds, reviewPacketId, reviewPacketError },
     })
     this.eventBus?.emit({
       type: 'run.completed',
-      payload: { runId: run.id, taskId: run.taskId, state: 'succeeded', proposalIds, reviewPacketId: reviewResult.packet.id },
+      payload: { runId: run.id, taskId: run.taskId, state: 'succeeded', proposalIds, reviewPacketId, reviewPacketError },
     })
-    this.queue.complete(run.id)
-    return { run: completedRun, task: reviewResult.task, proposalIds, reviewPacketId: reviewResult.packet.id }
+    return { run: completedRun, task: completedTask, proposalIds, reviewPacketId }
   }
 
   private async completeFailedRun(run: KanbanRun, input: CompleteKanbanRunInput): Promise<CompleteKanbanRunResponse> {
@@ -322,8 +314,97 @@ export class CodexKanbanRunner {
     await this.writeRunEvent(failedRun, { type: 'run.completed', result: 'failed', error: errorMessage })
     this.eventBus?.emit({ type: 'task.updated', payload: { taskId: run.taskId, runId: run.id } })
     this.eventBus?.emit({ type: 'run.completed', payload: { runId: run.id, taskId: run.taskId, state: 'failed', error: errorMessage } })
-    this.queue.complete(run.id)
     return { run: failedRun, task: failedTask, proposalIds: [], reviewPacketId: '' }
+  }
+
+  private async startActiveRun(run: KanbanRun, task: KanbanTask): Promise<StartKanbanRunResponse> {
+    await this.persistRun(run, { runState: 'preparing_worktree' })
+    const worktree = await this.worktreeManager.createManagedWorktree({
+      taskId: task.id,
+      taskTitle: task.title,
+      runId: run.id,
+      baseBranch: task.baseBranch || undefined,
+    })
+    const preparingRun = {
+      ...run,
+      state: 'starting_codex' as const,
+      worktreePath: worktree.worktreePath,
+      branchName: worktree.branchName,
+      updatedAtIso: new Date().toISOString(),
+    }
+    await this.writeRunEvent(preparingRun, { type: 'worktree.created', worktreePath: worktree.worktreePath, branchName: worktree.branchName })
+    await this.persistRun(preparingRun, { runState: 'starting_codex', worktreePath: worktree.worktreePath, branchName: worktree.branchName })
+
+    const threadId = await this.startOrResumeThread(task, preparingRun)
+    const turnId = await this.startTurn(task, { ...preparingRun, threadId })
+    const runningRun = {
+      ...preparingRun,
+      state: 'running' as const,
+      threadId,
+      turnId,
+      updatedAtIso: new Date().toISOString(),
+    }
+    await this.writeRunLog(runningRun, `Started Codex turn ${turnId || '(unknown turn)'} in ${worktree.worktreePath}\n`)
+    await this.writeRunEvent(runningRun, { type: 'run.started', threadId, turnId })
+    const runningTask = await this.persistRun(runningRun, {
+      status: 'running',
+      runState: 'running',
+      worktreePath: worktree.worktreePath,
+      branchName: worktree.branchName,
+      codexThreadId: threadId,
+    })
+    return { run: runningRun, task: runningTask }
+  }
+
+  private async releaseRunAndStartPromoted(runId: string): Promise<void> {
+    const promoted = this.queue.complete(runId)
+    for (const item of promoted) {
+      await this.startPromotedRun(item.runId, item.taskId).catch(() => {})
+    }
+  }
+
+  private async startPromotedRun(runId: string, taskId: string): Promise<void> {
+    const run = await this.readRun(runId)
+    if (run.state !== 'queued') return
+    const task = await this.readTask(taskId)
+    try {
+      await this.startActiveRun(run, task)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Kanban run failed to start'
+      const failedRun = { ...run, state: 'failed' as const, errorMessage: message, updatedAtIso: new Date().toISOString() }
+      await this.writeRunLog(failedRun, `Run failed: ${message}\n`).catch(() => {})
+      await this.persistRun(failedRun, { runState: 'failed', errorMessage: message })
+      await this.releaseRunAndStartPromoted(run.id)
+    }
+  }
+
+  private async readCompletedRunResponse(run: KanbanRun): Promise<CompleteKanbanRunResponse> {
+    const task = await this.readTask(run.taskId).catch(() => null)
+    return {
+      run,
+      task,
+      proposalIds: task?.proposalIds ?? [],
+      reviewPacketId: task?.reviewPacketId ?? '',
+    }
+  }
+
+  private async withCompletionLock<T>(runId: string, operation: () => Promise<T>): Promise<T> {
+    const previous = this.completionLocks.get(runId) ?? Promise.resolve()
+    let release: () => void = () => {}
+    const gate = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const next = previous.catch(() => {}).then(() => gate)
+    this.completionLocks.set(runId, next)
+    await previous.catch(() => {})
+    try {
+      return await operation()
+    } finally {
+      release()
+      if (this.completionLocks.get(runId) === next) {
+        this.completionLocks.delete(runId)
+      }
+    }
   }
 
   private async readTask(taskId: string): Promise<KanbanTask> {
@@ -433,37 +514,52 @@ function isActiveRunState(state: string): boolean {
 function extractThreadId(params: unknown): string {
   const record = asRecord(params)
   if (!record) return ''
-  const directThreadId = readString(record.threadId)
+  const directThreadId = readString(record.threadId) || readString(record.thread_id)
   if (directThreadId) return directThreadId
   const thread = asRecord(record.thread)
   const threadId = readString(thread?.id)
   if (threadId) return threadId
   const turn = asRecord(record.turn)
-  return readString(turn?.threadId)
+  return readString(turn?.threadId) || readString(turn?.thread_id)
 }
 
 function extractTurnId(params: unknown): string {
   const record = asRecord(params)
   if (!record) return ''
-  const directTurnId = readString(record.turnId)
+  const directTurnId = readString(record.turnId) || readString(record.turn_id)
   if (directTurnId) return directTurnId
   const turn = asRecord(record.turn)
-  return readString(turn?.id)
+  return readString(turn?.id) || readString(turn?.turnId) || readString(turn?.turn_id)
 }
 
-function extractLatestAssistantMessageText(payload: unknown): string {
+function extractLatestAssistantMessageText(payload: unknown, completedTurnId = ''): string {
   const turns = readTurns(payload)
+  if (completedTurnId) {
+    const completedTurn = turns.map(asRecord).find((turn) => readTurnId(turn) === completedTurnId)
+    const completedText = completedTurn ? extractLatestAssistantMessageFromTurn(completedTurn) : ''
+    if (completedText) return completedText
+  }
   for (let turnIndex = turns.length - 1; turnIndex >= 0; turnIndex -= 1) {
     const turn = asRecord(turns[turnIndex])
-    const items = [...readArray(turn?.items), ...readArray(turn?.messages)]
-    for (let itemIndex = items.length - 1; itemIndex >= 0; itemIndex -= 1) {
-      const item = asRecord(items[itemIndex])
-      if (!isAssistantItem(item)) continue
-      const text = readMessageText(item).trim()
-      if (text) return text
-    }
+    const text = extractLatestAssistantMessageFromTurn(turn)
+    if (text) return text
   }
   return ''
+}
+
+function extractLatestAssistantMessageFromTurn(turn: Record<string, unknown> | null): string {
+  const items = [...readArray(turn?.items), ...readArray(turn?.messages)]
+  for (let itemIndex = items.length - 1; itemIndex >= 0; itemIndex -= 1) {
+    const item = asRecord(items[itemIndex])
+    if (!isAssistantItem(item)) continue
+    const text = readMessageText(item).trim()
+    if (text) return text
+  }
+  return ''
+}
+
+function readTurnId(turn: Record<string, unknown> | null): string {
+  return readString(turn?.id) || readString(turn?.turnId) || readString(turn?.turn_id)
 }
 
 function readTurns(payload: unknown): unknown[] {
