@@ -4283,3 +4283,37 @@ Kanban proposal inbox tabs, compact proposal previews, and approve/reject action
 #### Rollback/Cleanup
 - Archive or delete temporary tasks created by proposal approval
 - Reject temporary pending proposals that were only used for testing
+
+---
+
+### Kanban Parity Final Verification
+
+#### Feature/Change Name
+Final verification for the CodexUI Kanban parity implementation.
+
+#### Prerequisites/Setup
+1. Use the `feature/kanban-board-dev` worktree.
+2. Start the dev server with `CODEXUI_KANBAN_EXECUTION_ENABLED=1 pnpm run dev -- --host 0.0.0.0 --port 5173`.
+3. Ensure the Tailscale Serve host is configured as an allowed Vite host.
+
+#### Steps
+1. Run `pnpm run test:unit`.
+2. Run `pnpm run build`.
+3. Run `git diff --check`.
+4. Call `GET /codex-api/kanban/health` on `127.0.0.1:5173`.
+5. Call `GET /codex-api/kanban/csrf` with `x-forwarded-for: 100.100.100.100` and confirm `200`.
+6. Call `GET /codex-api/kanban/csrf` with `x-forwarded-for: 203.0.113.10` and confirm `403`.
+7. In light theme, open `#/kanban` and smoke check metadata editing, filters, drag reorder, config panel, proposal inbox, and review packet access.
+8. Repeat the UI smoke in dark theme.
+9. From a phone over Tailscale Serve, open the Kanban route and confirm board loading, proposal inbox visibility, and guarded mutation access.
+
+#### Expected Results
+- Unit tests, build, and whitespace check pass.
+- Local health endpoint returns `{"data":{"ok":true}}`.
+- Tailscale-range forwarded CSRF request is trusted and non-Tailscale forwarded request is rejected.
+- Kanban parity UI remains readable and usable in both light and dark theme.
+- Phone-over-Tailscale access can load the board and use trusted guarded mutations with CSRF.
+
+#### Rollback/Cleanup
+- Stop the port `5173` dev server if it was only started for verification.
+- Archive or delete temporary Kanban tasks and proposals created during smoke testing.
