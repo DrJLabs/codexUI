@@ -868,7 +868,7 @@
                       <ThreadArtifactSidebar
                         class="artifact-drawer-sidebar"
                         :thread-id="threadWorkspaceModel.threadId"
-                        :artifacts="selectedThreadArtifacts"
+                        :artifacts="selectedThreadScopedArtifacts"
                         :workspace-model="threadWorkspaceModel"
                       />
                     </aside>
@@ -1261,11 +1261,16 @@ const currentThreadBranch = ref<string | null>(null)
 const isLoadingThreadBranches = ref(false)
 const isSwitchingThreadBranch = ref(false)
 const selectedThreadArtifacts = ref<WorkspaceArtifact[]>([])
+const selectedThreadScopedArtifacts = computed(() => {
+  const threadId = selectedThreadId.value.trim()
+  if (!threadId) return []
+  return selectedThreadArtifacts.value.filter((artifact) => artifact.threadId === threadId)
+})
 const threadWorkspaceModel = useThreadWorkspace({
   threadId: selectedThreadId,
-  artifacts: selectedThreadArtifacts,
-  proposalCount: computed(() => selectedThreadArtifacts.value.filter((artifact) => artifact.kind === 'proposal').length),
-  activeWorktreeCount: computed(() => selectedThreadArtifacts.value.filter((artifact) => artifact.kind === 'worktree').length),
+  artifacts: selectedThreadScopedArtifacts,
+  proposalCount: computed(() => selectedThreadScopedArtifacts.value.filter((artifact) => artifact.kind === 'proposal').length),
+  activeWorktreeCount: computed(() => selectedThreadScopedArtifacts.value.filter((artifact) => artifact.kind === 'worktree').length),
 })
 let threadArtifactLoadSequence = 0
 let threadArtifactRefreshTimer: ReturnType<typeof setTimeout> | null = null

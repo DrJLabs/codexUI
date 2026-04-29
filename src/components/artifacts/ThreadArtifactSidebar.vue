@@ -20,9 +20,19 @@
           class="thread-artifact-section-button"
           :disabled="!section.enabled"
           :title="section.reason"
+          :aria-describedby="section.reason && !section.enabled ? `thread-artifact-section-reason-${section.id}` : undefined"
           @click="selectThreadWorkspaceSection(section)"
         >
-          <span>{{ section.label }}</span>
+          <span class="thread-artifact-section-label">
+            <span>{{ section.label }}</span>
+            <span
+              v-if="section.reason && !section.enabled"
+              :id="`thread-artifact-section-reason-${section.id}`"
+              class="thread-artifact-section-reason"
+            >
+              {{ section.reason }}
+            </span>
+          </span>
           <small>{{ section.deferred ? 'Later' : section.count }}</small>
         </button>
       </section>
@@ -35,9 +45,19 @@
           class="thread-artifact-section-button"
           :disabled="!section.enabled"
           :title="section.reason"
+          :aria-describedby="section.reason && !section.enabled ? `thread-artifact-section-reason-${section.id}` : undefined"
           @click="selectProjectWorkspaceSection(section)"
         >
-          <span>{{ section.label }}</span>
+          <span class="thread-artifact-section-label">
+            <span>{{ section.label }}</span>
+            <span
+              v-if="section.reason && !section.enabled"
+              :id="`thread-artifact-section-reason-${section.id}`"
+              class="thread-artifact-section-reason"
+            >
+              {{ section.reason }}
+            </span>
+          </span>
           <small>{{ section.deferred ? 'Later' : section.count }}</small>
         </button>
       </section>
@@ -209,7 +229,7 @@ function toThreadArtifactTab(sectionId: ThreadWorkspaceDrawerSection['id']): Thr
 .thread-artifact-section-button {
   display: flex;
   min-height: 34px;
-  align-items: center;
+  align-items: start;
   justify-content: space-between;
   gap: 8px;
   border: 1px solid #e4e4e7;
@@ -220,6 +240,19 @@ function toThreadArtifactTab(sectionId: ThreadWorkspaceDrawerSection['id']): Thr
   font-size: 12px;
   font-weight: 800;
   cursor: pointer;
+}
+
+.thread-artifact-section-label {
+  display: grid;
+  gap: 3px;
+  text-align: left;
+}
+
+.thread-artifact-section-reason {
+  color: #71717a;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.25;
 }
 
 .thread-artifact-section-button:disabled {
@@ -277,6 +310,7 @@ function toThreadArtifactTab(sectionId: ThreadWorkspaceDrawerSection['id']): Thr
 :global(:root.dark) .thread-artifact-item p,
 :global(:root.dark) .thread-artifact-section-group h3,
 :global(:root.dark) .thread-artifact-section-button small,
+:global(:root.dark) .thread-artifact-section-reason,
 :global(:root.dark) .thread-artifact-deferred-note {
   color: #a1a1aa;
 }

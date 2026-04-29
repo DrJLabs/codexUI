@@ -4538,12 +4538,13 @@ Thread workspace model and workspace-scoped right drawer sections.
 3. In light theme, open a normal chat thread and click the right drawer icon.
 4. Confirm the drawer opens without hiding the chat composer.
 5. Confirm the drawer shows a compact workspace header, Thread sections, Workspace sections, and the deferred chat integration marker.
-6. Click the Worktrees row when it is enabled and confirm the Run tab is selected.
-7. Close the drawer and reopen it by dragging from the right screen edge on mobile.
-8. At 768x1024, confirm the drawer remains usable and the composer remains visible.
-9. Navigate to the home/new-thread route and confirm right drawer entry points are hidden and right-edge swipe does not open the drawer.
-10. Switch to dark theme and repeat steps 3-9.
-11. Select a different thread and confirm the header and artifact counts refresh.
+6. Confirm disabled/deferred rows show their reason as visible drawer text, not only as browser title text.
+7. Click the Worktrees row when it is enabled and confirm the Run tab is selected.
+8. Close the drawer and reopen it by dragging from the right screen edge on mobile.
+9. At 768x1024, confirm the drawer remains usable and the composer remains visible.
+10. Navigate to the home/new-thread route and confirm right drawer entry points are hidden and right-edge swipe does not open the drawer.
+11. Switch to dark theme and repeat steps 3-10.
+12. Select a different thread and confirm the header and artifact counts refresh without stale proposal/worktree counts from the previous thread.
 
 #### Expected Results
 - The right drawer opens by icon and by right-edge swipe on mobile.
@@ -4552,6 +4553,7 @@ Thread workspace model and workspace-scoped right drawer sections.
 - Thread sections select the matching artifact tabs.
 - Workspace rows render inside the selected-thread drawer; Worktrees switches to the Run tab when enabled.
 - Actions, Permissions, and Automations are visible but disabled/deferred.
+- Disabled/deferred row reasons are visible in the drawer and exposed through `aria-describedby`.
 - Chat integration is only surfaced as a deferred marker; no task, proposal approval, or run starts from chat.
 - The chat composer remains visible after switching threads and after opening/closing the drawer.
 - Light and dark themes have readable surfaces and controls.
