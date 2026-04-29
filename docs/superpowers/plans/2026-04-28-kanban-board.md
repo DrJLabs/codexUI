@@ -408,10 +408,10 @@ Write mutation flow:
 1. `mkdir -p` state and backup directories.
 2. Load current file or create empty state.
 3. Apply mutation.
-4. Write `<state>.tmp`.
+4. Write a unique temporary file derived from the state path, process id, timestamp, and random suffix.
 5. Rename tmp to final.
 
-If JSON parse fails, copy the bad file to `backups/<timestamp>-<projectHash>.json` before throwing `Kanban state file is corrupt; backup written to <path>`.
+Serialize concurrent `mutate()` calls through a per-instance async queue so read-modify-write operations cannot overwrite each other. If JSON parse or migration validation fails, copy the bad file to `backups/<timestamp>-<projectHash>.json` and throw an operator-visible internal error. The route layer must log the detailed backup path server-side and return a generic `Kanban request failed` message to clients for `500` responses so filesystem paths are not exposed.
 
 - [ ] **Step 4: Implement task service**
 
@@ -439,6 +439,8 @@ const ALLOWED_STATUS_TRANSITIONS: Record<KanbanStatus, KanbanStatus[]> = {
   cancelled: ['backlog'],
 }
 ```
+
+Use a single timestamp per create/update operation. Status changes that omit `reason` must preserve the existing `blockedReason`; only an explicit `reason` field should update it.
 
 - [ ] **Step 5: Run focused tests and commit**
 
@@ -487,6 +489,7 @@ POST   /codex-api/kanban/tasks/:taskId/criteria/replace
 ```
 
 All JSON responses use `{ data: ... }` except errors, which use `{ error: "message" }`.
+The SSE route must use streaming-friendly headers (`Content-Type: text/event-stream`, `Cache-Control: no-store`, `X-Accel-Buffering: no`), clean up subscriptions on write/socket errors, and skip subscribing if the initial ready event write has already failed. The event bus should support normal multi-tab fan-out without Node max-listener warnings.
 
 - [ ] **Step 3: Mount in production before the bridge**
 
@@ -542,6 +545,9 @@ Cover:
 - search filters by title/description/label
 - selected task follows `selectTask`
 - `createTask`, `setTaskStatus`, and `archiveTask` refresh state or patch local state consistently
+- archived patches clear stale selected task ids
+- failed loads clear stale tasks, policy, and selection
+- event subscriptions reload board state when Kanban SSE events arrive
 
 - [ ] **Step 2: Implement gateway**
 
@@ -588,10 +594,11 @@ setCriterionChecked
 setSearchQuery
 toggleLabelFilter
 clearFilters
+subscribeToEvents
 ```
 
 Persist only filters to `localStorage` key `codex-web-local.kanban.filters.v1`.
-Exclude archived tasks from status groups, visible filtered groups, counts, selected task resolution, and label filter options.
+Exclude archived tasks from status groups, visible filtered groups, counts, selected task resolution, and label filter options. `patchTask()` must reconcile selection after updates so an archived selected task clears `selectedTaskId` and any `#/kanban?task=` sync. `loadBoard()` failure must clear stale in-memory board state. `subscribeToEvents()` should use `subscribeKanbanEvents()` and reload the board on incoming Kanban mutation events while leaving EventSource reconnect behavior to the browser.
 
 - [ ] **Step 4: Run focused tests**
 
@@ -650,6 +657,7 @@ In `src/App.vue`:
 - empty state with create-task action
 - execution-disabled banner from policy
 - selection sync for `#/kanban?task=<id>`: initialize `selectedTaskId` from the query parameter, update the query when selection changes, and remove the query when selection clears or the task is missing/archived after load
+- live event subscription on mount and teardown on unmount, so updates from another tab or local process refresh the board
 
 - [ ] **Step 4: Verify static route behavior**
 
@@ -742,7 +750,7 @@ git commit -m "feat: render kanban board shell"
 
 - [ ] **Step 1: Add editors and actions**
 
-Implement create/edit/archive, acceptance criteria replace, label editing, and explicit status action buttons using the allowed transition table from Task 2.
+Implement create/edit/archive, acceptance criteria replace, label editing, and explicit status action buttons using the allowed transition table from Task 2. Label editing must dedupe normalized label ids before saving, and the server parser must generate stable unique label ids for API clients that provide label names without ids. Status updates that omit `reason` must preserve the existing `blockedReason`; only an explicit `reason` field should update it.
 Async mutation failures must be caught and surfaced in the page instead of being discarded. The mobile task sheet must behave as a dialog with `role="dialog"`, `aria-modal="true"`, focus-on-open, Escape close, and backdrop click close.
 
 - [ ] **Step 2: Manual verification**
