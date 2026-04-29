@@ -48,6 +48,7 @@
       <option value="operator" />
       <option value="codex:auto" />
       <option v-if="threadAssignee" :value="threadAssignee" />
+      <option v-if="currentThreadAssignee && currentThreadAssignee !== threadAssignee" :value="currentThreadAssignee" />
     </datalist>
     <p v-if="assigneeError || dueAtIsoError" class="kanban-metadata-editor-error" role="alert">
       {{ assigneeError || dueAtIsoError }}
@@ -80,6 +81,9 @@ const dueAtIsoError = ref('')
 const threadAssignee = computed<KanbanActor | ''>(() => props.task.codexThreadId
   ? `codex:thread:${props.task.codexThreadId}` as KanbanActor
   : '')
+const currentThreadAssignee = computed<KanbanActor | ''>(() => isValidKanbanActor(props.task.assignee) && props.task.assignee.startsWith('codex:thread:')
+  ? props.task.assignee
+  : '')
 
 watch(() => props.task, (task) => {
   priority.value = task.priority
@@ -99,10 +103,16 @@ function parseMinutes(value: string): number | null {
 
 function readValidAssignee(): KanbanActor | null {
   const value = assignee.value.trim()
-  if (value === 'operator' || value === 'codex:auto' || (threadAssignee.value && value === threadAssignee.value)) {
+  if (isValidKanbanActor(value)) {
     return value as KanbanActor
   }
   return null
+}
+
+function isValidKanbanActor(value: string): value is KanbanActor {
+  return value === 'operator'
+    || value === 'codex:auto'
+    || (value.startsWith('codex:thread:') && value.slice('codex:thread:'.length).trim().length > 0)
 }
 
 function readValidDueDate(): KanbanDueDateIso | null {
@@ -120,7 +130,7 @@ function save(): void {
   const nextAssignee = readValidAssignee()
   const nextDueAtIso = readValidDueDate()
   if (!nextAssignee) {
-    assigneeError.value = 'Assignee must be operator, codex:auto, or the current task thread.'
+    assigneeError.value = 'Assignee must be operator, codex:auto, or codex:thread:<threadId>.'
     return
   }
   if (nextDueAtIso === null) {
