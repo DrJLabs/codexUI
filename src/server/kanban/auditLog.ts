@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto'
-import { appendFile, mkdir, readFile } from 'node:fs/promises'
+import { appendFile, mkdir, open } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { projectHash } from './paths'
 import { redactKanbanAuditValue } from './redaction'
@@ -69,16 +69,7 @@ export class KanbanAuditLog implements KanbanAuditSink {
 
   private async readPreviousEventHash(): Promise<string | null> {
     if (this.lastEventHash !== undefined) return this.lastEventHash
-    let content = ''
-    try {
-      content = await readFile(this.filePath, 'utf8')
-    } catch (error) {
-      if (error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT') {
-        return null
-      }
-      throw error
-    }
-    const lastLine = content.trim().split('\n').filter(Boolean).at(-1)
+    const lastLine = await readLastNonEmptyLine(this.filePath)
     if (!lastLine) return null
     const lastRecord = JSON.parse(lastLine) as { eventHash?: unknown }
     if (typeof lastRecord.eventHash !== 'string' || !/^[a-f0-9]{64}$/u.test(lastRecord.eventHash)) {
@@ -86,6 +77,39 @@ export class KanbanAuditLog implements KanbanAuditSink {
     }
     this.lastEventHash = lastRecord.eventHash
     return lastRecord.eventHash
+  }
+}
+
+async function readLastNonEmptyLine(filePath: string): Promise<string | null> {
+  let file: Awaited<ReturnType<typeof open>>
+  try {
+    file = await open(filePath, 'r')
+  } catch (error) {
+    if (error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT') {
+      return null
+    }
+    throw error
+  }
+  try {
+    const { size } = await file.stat()
+    if (size === 0) return null
+    const chunkSize = 4096
+    let position = size
+    let text = ''
+    while (position > 0) {
+      const readSize = Math.min(chunkSize, position)
+      position -= readSize
+      const buffer = Buffer.alloc(readSize)
+      const { bytesRead } = await file.read(buffer, 0, readSize, position)
+      text = buffer.subarray(0, bytesRead).toString('utf8') + text
+      const lines = text.split(/\r?\n/u).filter((line) => line.trim().length > 0)
+      if (lines.length > 0 && (position === 0 || text.includes('\n'))) {
+        return lines.at(-1) ?? null
+      }
+    }
+    return text.trim() || null
+  } finally {
+    await file.close()
   }
 }
 

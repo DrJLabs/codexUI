@@ -192,6 +192,17 @@ describe('KanbanStorage', () => {
     expect(snapshot.tasks).toHaveLength(8)
   })
 
+  it('continues processing mutations after a failed mutation', async () => {
+    const { storage, service } = await createHarness()
+
+    await expect(storage.mutate(() => {
+      throw new Error('planned mutation failure')
+    })).rejects.toThrow('planned mutation failure')
+    const task = await service.createTask({ title: 'After failed mutation' })
+
+    expect(task.title).toBe('After failed mutation')
+  })
+
   it('increments version on update and archives without deleting', async () => {
     const { service } = await createHarness()
 

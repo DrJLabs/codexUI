@@ -4367,7 +4367,7 @@ Duplicate queued-run protection and metadata validation affordances.
 3. Open `http://127.0.0.1:5173/#/kanban`.
 
 #### Steps
-1. Run `pnpm vitest run src/server/kanban/__tests__/taskQueue.test.ts src/server/kanban/__tests__/routes.test.ts src/server/kanban/__tests__/taskService.test.ts src/server/kanban/__tests__/remoteAccess.test.ts src/server/kanban/__tests__/codexKanbanRunner.test.ts src/server/kanban/__tests__/storage.test.ts src/server/kanban/__tests__/worktreeManager.test.ts`.
+1. Run `pnpm vitest run src/server/kanban/__tests__/taskQueue.test.ts src/server/kanban/__tests__/routes.test.ts src/server/kanban/__tests__/taskService.test.ts src/server/kanban/__tests__/remoteAccess.test.ts src/server/kanban/__tests__/codexKanbanRunner.test.ts src/server/kanban/__tests__/storage.test.ts src/server/kanban/__tests__/worktreeManager.test.ts src/server/kanban/__tests__/policy.test.ts src/server/kanban/__tests__/auditLog.test.ts`.
 2. Run `pnpm run test:unit`.
 3. Run `pnpm run build`.
 4. In light theme, open a task's metadata editor, enter an invalid estimate or actual minute value, and press Save.
@@ -4381,6 +4381,8 @@ Duplicate queued-run protection and metadata validation affordances.
 - Spoofed left-most `X-Forwarded-For` values do not grant Tailscale trusted mutation access.
 - Archived queued tasks fail instead of being promoted into hidden execution.
 - Corrupt-state backups and long managed-worktree branch segments include collision-resistant suffixes.
+- Storage mutation queues recover after a failed mutation and audit log hash chaining avoids full-file reads after the cached hash is initialized.
+- Execution access honors policy toggles for Tailscale and loopback-only runs while ordinary trusted board mutations remain available.
 - Unit tests and build pass.
 - Metadata validation errors are visible and field-level invalid styling appears in both light and dark theme.
 - Switching selected tasks resets stale metadata validation messages.

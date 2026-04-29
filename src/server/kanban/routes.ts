@@ -203,7 +203,7 @@ export function createKanbanRouter(options: CreateKanbanRouterOptions = {}): Rou
     if (!policy.executionEnabled) {
       throw createHttpError(403, 'Kanban execution is disabled')
     }
-    const access = assertTrustedAccessRequest(req)
+    const access = assertTrustedAccessRequest(req, policy)
     if (!csrf.verifyRequest(req)) {
       throw createHttpError(403, 'Invalid Kanban CSRF token')
     }
@@ -236,7 +236,7 @@ export function createKanbanRouter(options: CreateKanbanRouterOptions = {}): Rou
     if (!policy.executionEnabled) {
       throw createHttpError(403, 'Kanban execution is disabled')
     }
-    const access = assertTrustedAccessRequest(req)
+    const access = assertTrustedAccessRequest(req, policy)
     if (!csrf.verifyRequest(req)) {
       throw createHttpError(403, 'Invalid Kanban CSRF token')
     }
@@ -256,7 +256,7 @@ export function createKanbanRouter(options: CreateKanbanRouterOptions = {}): Rou
     if (!policy.executionEnabled) {
       throw createHttpError(403, 'Kanban execution is disabled')
     }
-    assertTrustedAccessMutation(req, csrf)
+    assertTrustedAccessMutation(req, csrf, policy)
     if (!runner) {
       res.status(409).json({ error: 'Kanban runner is not available yet' })
       return
@@ -441,16 +441,28 @@ function parseCompleteRunInput(value: unknown): { result: string; error?: string
   return error ? { result, error } : { result }
 }
 
-function assertTrustedAccessRequest(req: Request): KanbanRemoteAccess {
+function assertTrustedAccessRequest(req: Request, policy?: KanbanExecutionPolicy): KanbanRemoteAccess {
   const access = classifyKanbanRemoteAccess(req)
+  if (policy?.requireLoopbackForExecution && !access.loopback) {
+    throw createHttpError(403, 'Kanban execution requires loopback access')
+  }
+  if (policy?.disableExecutionWhenRemote && !access.loopback) {
+    throw createHttpError(403, 'Kanban execution is disabled for remote access')
+  }
+  if (policy?.allowTailscaleAccess === false && access.tailscale) {
+    throw createHttpError(403, 'Kanban execution does not allow Tailscale access')
+  }
+  if (policy?.requireTrustedAccessForExecution === false) {
+    return access
+  }
   if (!access.trusted) {
     throw createHttpError(403, 'Kanban execution requires trusted local or Tailscale access')
   }
   return access
 }
 
-function assertTrustedAccessMutation(req: Request, csrf: KanbanCsrfProtection): KanbanRemoteAccess {
-  const access = assertTrustedAccessRequest(req)
+function assertTrustedAccessMutation(req: Request, csrf: KanbanCsrfProtection, policy?: KanbanExecutionPolicy): KanbanRemoteAccess {
+  const access = assertTrustedAccessRequest(req, policy)
   if (!csrf.verifyRequest(req)) {
     throw createHttpError(403, 'Invalid Kanban CSRF token')
   }

@@ -40,14 +40,14 @@ export class KanbanStorage {
 
   async mutate(mutator: (state: KanbanStateFileV1) => void): Promise<KanbanStateFileV1> {
     let nextState: KanbanStateFileV1 | null = null
-    const operation = this.mutationQueue.then(async () => {
+    const operation = this.mutationQueue.catch(() => undefined).then(async () => {
       const state = await this.load()
       mutator(state)
       state.updatedAtIso = new Date().toISOString()
       await this.writeState(state)
       nextState = state
     })
-    this.mutationQueue = operation.then(() => undefined, () => undefined)
+    this.mutationQueue = operation.catch(() => undefined)
     await operation
     if (!nextState) throw new Error('Kanban state mutation did not complete')
     return nextState

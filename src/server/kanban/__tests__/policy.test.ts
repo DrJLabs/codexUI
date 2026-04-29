@@ -146,6 +146,48 @@ describe('Kanban execution policy', () => {
     expect(response.body.error).toContain('Kanban runner is not available yet')
   })
 
+  it('honors policy that disables Tailscale execution access', async () => {
+    const { baseUrl } = await createTestServer({
+      policy: {
+        ...enabledPolicy,
+        allowTailscaleAccess: false,
+      },
+    })
+
+    const response = await requestJson<{ error: string }>(
+      `${baseUrl}/codex-api/kanban/tasks/task_1/run`,
+      {
+        method: 'POST',
+        headers: { 'x-forwarded-for': '100.100.100.100' },
+        body: '{}',
+      },
+    )
+
+    expect(response.status).toBe(403)
+    expect(response.body.error).toContain('Kanban execution does not allow Tailscale access')
+  })
+
+  it('honors policy that requires loopback execution access', async () => {
+    const { baseUrl } = await createTestServer({
+      policy: {
+        ...enabledPolicy,
+        requireLoopbackForExecution: true,
+      },
+    })
+
+    const response = await requestJson<{ error: string }>(
+      `${baseUrl}/codex-api/kanban/tasks/task_1/run`,
+      {
+        method: 'POST',
+        headers: { 'x-forwarded-for': '100.100.100.100' },
+        body: '{}',
+      },
+    )
+
+    expect(response.status).toBe(403)
+    expect(response.body.error).toContain('Kanban execution requires loopback access')
+  })
+
   it('blocks execution mutations without a CSRF token', async () => {
     const { baseUrl } = await createTestServer({ policy: enabledPolicy })
 
