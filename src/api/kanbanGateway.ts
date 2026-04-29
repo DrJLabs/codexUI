@@ -3,6 +3,8 @@ import type {
   KanbanApiResponse,
   KanbanStateSnapshot,
   KanbanRun,
+  KanbanReviewPacket,
+  KanbanProposal,
   KanbanStatus,
   KanbanTask,
   ReplaceKanbanAcceptanceCriteriaInput,
@@ -119,6 +121,19 @@ export async function loadKanbanRunLogs(runId: string): Promise<string> {
 
 export async function loadKanbanRunEvents(runId: string): Promise<string> {
   return await requestKanbanText(`/runs/${encodeURIComponent(runId)}/events`)
+}
+
+export async function regenerateKanbanReviewPacket(taskId: string): Promise<{ packet: KanbanReviewPacket; task: KanbanTask }> {
+  const token = await readCsrfToken()
+  return await requestKanban<{ packet: KanbanReviewPacket; task: KanbanTask }>(`/tasks/${encodeURIComponent(taskId)}/review-packet/regenerate`, {
+    method: 'POST',
+    headers: { 'x-codexui-kanban-csrf': token },
+    body: JSON.stringify({}),
+  })
+}
+
+export async function listKanbanProposals(): Promise<KanbanProposal[]> {
+  return await requestKanban<KanbanProposal[]>('/proposals')
 }
 
 type KanbanEventSubscriptionOptions = {

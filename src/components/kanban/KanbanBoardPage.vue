@@ -54,6 +54,7 @@
           @start-run="startSelectedTaskRun"
           @interrupt-run="interruptSelectedTaskRun"
           @refresh-run-log="refreshSelectedRunLog"
+          @regenerate-review-packet="regenerateSelectedReviewPacket"
           @set-status="setSelectedTaskStatus"
           @save-summary="saveSelectedSummary"
           @add-criterion="addSelectedCriterion"
@@ -70,6 +71,7 @@
           @start-run="startSelectedTaskRun"
           @interrupt-run="interruptSelectedTaskRun"
           @refresh-run-log="refreshSelectedRunLog"
+          @regenerate-review-packet="regenerateSelectedReviewPacket"
           @set-status="setSelectedTaskStatus"
           @save-summary="saveSelectedSummary"
           @add-criterion="addSelectedCriterion"
@@ -118,6 +120,7 @@ const {
   startTaskRun,
   interruptTaskRun,
   refreshRunLog,
+  regenerateReviewPacket,
   setSearchQuery,
   toggleLabelFilter,
   clearFilters,
@@ -234,6 +237,12 @@ function refreshSelectedRunLog(): void {
   const runId = selectedTask.value?.currentRunId ?? ''
   if (!runId) return
   void runMutation('Refresh run log failed', () => refreshRunLog(runId))
+}
+
+function regenerateSelectedReviewPacket(): void {
+  const taskId = readSelectedTaskId()
+  if (!taskId) return
+  void runMutation('Regenerate review packet failed', () => regenerateReviewPacket(taskId))
 }
 
 async function runMutation<T>(label: string, operation: () => Promise<T>): Promise<T | null> {

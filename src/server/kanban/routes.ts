@@ -16,6 +16,8 @@ import {
   parseStatusInput,
   parseUpdateTaskInput,
 } from './schema'
+import { KanbanProposalService } from './proposalService'
+import { KanbanReviewPacketService } from './reviewPacketService'
 import { KanbanStorage } from './storage'
 import { KanbanTaskService } from './taskService'
 import { KanbanWorktreeManager } from './worktreeManager'
@@ -46,6 +48,8 @@ export function createKanbanRouter(options: CreateKanbanRouterOptions = {}): Rou
     projectRoot,
     policy,
   })
+  const reviewPackets = new KanbanReviewPacketService({ storage })
+  const proposals = new KanbanProposalService({ storage, taskService: service })
   const runner = options.bridge ? new CodexKanbanRunner({
     dataDir,
     projectRoot,
@@ -211,6 +215,60 @@ export function createKanbanRouter(options: CreateKanbanRouterOptions = {}): Rou
     res.status(200).type('application/x-ndjson').send(await runner.readRunEvents(readRouteParam(req.params.runId, 'runId')))
   }))
 
+  router.get('/tasks/:taskId/review-packet', asyncHandler(async (req, res) => {
+    const packet = await reviewPackets.getPacketForTask(readRouteParam(req.params.taskId, 'taskId'))
+    if (!packet) {
+      res.status(404).json({ error: 'Kanban review packet not found' })
+      return
+    }
+    res.status(200).json({ data: packet })
+  }))
+
+  router.post('/tasks/:taskId/review-packet/regenerate', asyncHandler(async (req, res) => {
+    assertLoopbackMutation(req, csrf)
+    const result = await reviewPackets.generateForTask(readRouteParam(req.params.taskId, 'taskId'))
+    eventBus.emit({ type: 'task.updated', payload: { taskId: result.task.id } })
+    res.status(200).json({ data: result })
+  }))
+
+  router.post('/tasks/:taskId/rework', asyncHandler(async (req, res) => {
+    assertLoopbackMutation(req, csrf)
+    const task = await service.setTaskStatus(readRouteParam(req.params.taskId, 'taskId'), { status: 'rework' })
+    eventBus.emit({ type: 'task.status_changed', payload: { taskId: task.id, status: task.status } })
+    res.status(200).json({ data: task })
+  }))
+
+  router.post('/tasks/:taskId/review/approve', asyncHandler(async (req, res) => {
+    assertLoopbackMutation(req, csrf)
+    const task = await service.setTaskStatus(readRouteParam(req.params.taskId, 'taskId'), { status: 'done' })
+    eventBus.emit({ type: 'task.status_changed', payload: { taskId: task.id, status: task.status } })
+    res.status(200).json({ data: task })
+  }))
+
+  router.post('/tasks/:taskId/review/reject', asyncHandler(async (req, res) => {
+    assertLoopbackMutation(req, csrf)
+    const task = await service.setTaskStatus(readRouteParam(req.params.taskId, 'taskId'), { status: 'rework' })
+    eventBus.emit({ type: 'task.status_changed', payload: { taskId: task.id, status: task.status } })
+    res.status(200).json({ data: task })
+  }))
+
+  router.get('/proposals', asyncHandler(async (_req, res) => {
+    res.status(200).json({ data: await proposals.listProposals() })
+  }))
+
+  router.post('/proposals/:proposalId/accept', asyncHandler(async (req, res) => {
+    assertLoopbackMutation(req, csrf)
+    const proposal = await proposals.acceptProposal(readRouteParam(req.params.proposalId, 'proposalId'))
+    eventBus.emit({ type: 'task.created', payload: { proposalId: proposal.id } })
+    res.status(200).json({ data: proposal })
+  }))
+
+  router.post('/proposals/:proposalId/reject', asyncHandler(async (req, res) => {
+    assertLoopbackMutation(req, csrf)
+    const proposal = await proposals.rejectProposal(readRouteParam(req.params.proposalId, 'proposalId'))
+    res.status(200).json({ data: proposal })
+  }))
+
   router.use((error: unknown, _req: Request, res: Response, _next: express.NextFunction) => {
     const message = error instanceof Error && error.message.trim().length > 0 ? error.message : 'Kanban request failed'
     const status = resolveErrorStatus(error, message)
@@ -245,6 +303,14 @@ function assertLoopbackRequest(req: Request): KanbanRemoteAccess {
   const access = classifyKanbanRemoteAccess(req)
   if (!access.loopback) {
     throw createHttpError(403, 'Kanban execution requires loopback access')
+  }
+  return access
+}
+
+function assertLoopbackMutation(req: Request, csrf: KanbanCsrfProtection): KanbanRemoteAccess {
+  const access = assertLoopbackRequest(req)
+  if (!csrf.verifyRequest(req)) {
+    throw createHttpError(403, 'Invalid Kanban CSRF token')
   }
   return access
 }

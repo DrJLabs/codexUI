@@ -19,6 +19,8 @@
       :log-text="runLog"
       @refresh="$emit('refresh-run-log')"
     />
+    <TaskReviewPacketPanel :packet-id="task.reviewPacketId" @regenerate="$emit('regenerate-review-packet')" />
+    <TaskProposalList :count="task.proposalIds.length" />
     <TaskSummaryEditor :task="task" @save="$emit('save-summary', $event)" @archive="$emit('archive')" />
     <AcceptanceCriteriaEditor
       :task="task"
@@ -39,6 +41,8 @@ import AcceptanceCriteriaEditor from './AcceptanceCriteriaEditor.vue'
 import TaskStatusActions from './TaskStatusActions.vue'
 import TaskRunControls from './TaskRunControls.vue'
 import TaskRunLogPanel from './TaskRunLogPanel.vue'
+import TaskReviewPacketPanel from './TaskReviewPacketPanel.vue'
+import TaskProposalList from './TaskProposalList.vue'
 import TaskSummaryEditor from './TaskSummaryEditor.vue'
 
 defineProps<{
@@ -53,6 +57,7 @@ defineEmits<{
   'start-run': []
   'interrupt-run': []
   'refresh-run-log': []
+  'regenerate-review-packet': []
   'set-status': [status: KanbanStatus]
   'save-summary': [patch: { title: string; description: string; labels: KanbanTaskLabel[] }]
   'add-criterion': [text: string]

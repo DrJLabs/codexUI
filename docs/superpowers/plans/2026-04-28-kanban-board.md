@@ -1021,11 +1021,11 @@ git commit -m "feat: run kanban tasks through codex safely"
 - Modify: `src/server/kanban/routes.ts`
 - Test: `src/server/kanban/__tests__/reviewPacketService.test.ts`
 
-- [ ] **Step 1: Export reusable review helpers**
+- [x] **Step 1: Export reusable review helpers**
 
 From `src/server/reviewGit.ts`, export focused helpers for Git root detection, base branch detection, and diff snapshot generation. Keep existing review routes working.
 
-- [ ] **Step 2: Generate review packet**
+- [x] **Step 2: Generate review packet**
 
 Packet hash includes:
 
@@ -1039,7 +1039,7 @@ test command IDs and exit codes
 approval/proposal unresolved state
 ```
 
-- [ ] **Step 3: Add review routes**
+- [x] **Step 3: Add review routes**
 
 ```text
 GET  /codex-api/kanban/tasks/:taskId/review-packet
@@ -1051,7 +1051,7 @@ POST /codex-api/kanban/tasks/:taskId/review/reject
 
 Approval means "mark task done" in v0. It does not merge or push.
 
-- [ ] **Step 4: Add proposal routes**
+- [x] **Step 4: Add proposal routes**
 
 ```text
 GET  /codex-api/kanban/proposals
@@ -1061,7 +1061,7 @@ POST /codex-api/kanban/proposals/:proposalId/reject
 
 Accepted agent-created task proposals become human-promoted backlog tasks. They do not run until a human starts them.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/server/kanban/reviewPacketService.ts src/server/kanban/proposalService.ts src/server/kanban/testRunner.ts src/components/kanban/TaskReviewPacketPanel.vue src/components/kanban/TaskProposalList.vue src/server/reviewGit.ts src/server/kanban/routes.ts src/server/kanban/__tests__/reviewPacketService.test.ts

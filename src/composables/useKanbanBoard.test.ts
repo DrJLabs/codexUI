@@ -157,6 +157,28 @@ function createGateway(state: KanbanStateSnapshot): KanbanBoardGateway {
       return { run, task: updated }
     },
     loadKanbanRunLogs: async () => 'log output',
+    regenerateKanbanReviewPacket: async (taskId) => {
+      const task = currentState.tasks.find((item) => item.id === taskId)
+      if (!task) throw new Error('missing')
+      const updated = { ...task, reviewPacketId: 'review_packet_1', status: 'review' as const }
+      currentState = createState(currentState.tasks.map((item) => item.id === taskId ? updated : item))
+      return {
+        packet: {
+          id: 'review_packet_1',
+          taskId,
+          runId: task.currentRunId,
+          packetHash: 'a'.repeat(64),
+          generatedAtIso: task.updatedAtIso,
+          baseCommit: 'base',
+          headCommit: 'head',
+          rawDiffPatch: '',
+          summary: { fileCount: 0, addedLineCount: 0, removedLineCount: 0 },
+          testResults: [],
+          unresolvedProposalIds: [],
+        },
+        task: updated,
+      }
+    },
     subscribeKanbanEvents: () => () => {},
   }
 }

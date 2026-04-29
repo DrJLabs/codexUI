@@ -19,6 +19,7 @@
           @start-run="emit('start-run')"
           @interrupt-run="emit('interrupt-run')"
           @refresh-run-log="emit('refresh-run-log')"
+          @regenerate-review-packet="emit('regenerate-review-packet')"
           @set-status="emit('set-status', $event)"
           @save-summary="emit('save-summary', $event)"
           @add-criterion="emit('add-criterion', $event)"
@@ -48,6 +49,7 @@ const emit = defineEmits<{
   'start-run': []
   'interrupt-run': []
   'refresh-run-log': []
+  'regenerate-review-packet': []
   'set-status': [status: KanbanStatus]
   'save-summary': [patch: { title: string; description: string; labels: KanbanTaskLabel[] }]
   'add-criterion': [text: string]

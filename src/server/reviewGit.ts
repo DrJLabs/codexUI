@@ -4,8 +4,8 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import { tmpdir } from 'node:os'
 import { isAbsolute, join, resolve } from 'node:path'
 
-type ReviewScope = 'workspace' | 'baseBranch'
-type ReviewWorkspaceView = 'unstaged' | 'staged'
+export type ReviewScope = 'workspace' | 'baseBranch'
+export type ReviewWorkspaceView = 'unstaged' | 'staged'
 type ReviewAction = 'stage' | 'unstage' | 'revert'
 type ReviewActionLevel = 'all' | 'file' | 'hunk'
 
@@ -43,7 +43,7 @@ type ReviewSnapshotFile = {
   hunks: ReviewSnapshotHunk[]
 }
 
-type ReviewSnapshot = {
+export type ReviewSnapshot = {
   cwd: string
   gitRoot: string | null
   isGitRepo: boolean
@@ -187,7 +187,7 @@ async function ensureDirectory(cwd: string): Promise<void> {
   }
 }
 
-async function resolveGitRoot(cwd: string): Promise<string | null> {
+export async function resolveReviewGitRoot(cwd: string): Promise<string | null> {
   try {
     return await runCommandCapture('git', ['rev-parse', '--show-toplevel'], { cwd })
   } catch (error) {
@@ -254,7 +254,7 @@ async function listBaseBranchOptions(repoRoot: string): Promise<string[]> {
   return options
 }
 
-async function resolveBaseBranch(repoRoot: string, requestedBaseBranch = ''): Promise<DetectedBaseBranch | null> {
+export async function resolveReviewBaseBranch(repoRoot: string, requestedBaseBranch = ''): Promise<DetectedBaseBranch | null> {
   const normalizedRequested = normalizeBaseBranchDisplayName(requestedBaseBranch)
   if (normalizedRequested) {
     for (const candidate of [normalizedRequested, `origin/${normalizedRequested}`]) {
@@ -612,7 +612,7 @@ function parseReviewSnapshotFiles(repoRoot: string, diffText: string): ReviewSna
     .filter((entry): entry is ReviewSnapshotFile => entry !== null)
 }
 
-async function buildReviewSnapshot(
+export async function buildReviewSnapshot(
   cwd: string,
   scope: ReviewScope,
   workspaceView: ReviewWorkspaceView,
@@ -621,7 +621,7 @@ async function buildReviewSnapshot(
   const normalizedCwd = normalizeInputCwd(cwd)
   await ensureDirectory(normalizedCwd)
 
-  const gitRoot = await resolveGitRoot(normalizedCwd)
+  const gitRoot = await resolveReviewGitRoot(normalizedCwd)
   if (!gitRoot) {
     return {
       cwd: normalizedCwd,
@@ -644,7 +644,7 @@ async function buildReviewSnapshot(
   }
 
   const [baseBranch, baseBranchOptions, headBranch] = await Promise.all([
-    resolveBaseBranch(gitRoot, requestedBaseBranch),
+    resolveReviewBaseBranch(gitRoot, requestedBaseBranch),
     listBaseBranchOptions(gitRoot),
     detectHeadBranch(gitRoot),
   ])
@@ -777,7 +777,7 @@ async function applyReviewAction(payload: unknown): Promise<ReviewSnapshot> {
 
   const normalizedCwd = normalizeInputCwd(cwd)
   await ensureDirectory(normalizedCwd)
-  const repoRoot = await resolveGitRoot(normalizedCwd)
+  const repoRoot = await resolveReviewGitRoot(normalizedCwd)
   if (!repoRoot) {
     throw new Error('Not a Git repository')
   }

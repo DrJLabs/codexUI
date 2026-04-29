@@ -5,6 +5,7 @@ import {
   interruptKanbanRun,
   loadKanbanState,
   loadKanbanRunLogs,
+  regenerateKanbanReviewPacket,
   replaceKanbanAcceptanceCriteria,
   setKanbanTaskStatus,
   startKanbanTaskRun,
@@ -25,6 +26,7 @@ export type KanbanBoardGateway = {
   startKanbanTaskRun: typeof startKanbanTaskRun
   interruptKanbanRun: typeof interruptKanbanRun
   loadKanbanRunLogs: typeof loadKanbanRunLogs
+  regenerateKanbanReviewPacket: typeof regenerateKanbanReviewPacket
   subscribeKanbanEvents: typeof subscribeKanbanEvents
 }
 
@@ -50,6 +52,7 @@ const defaultGateway: KanbanBoardGateway = {
   startKanbanTaskRun,
   interruptKanbanRun,
   loadKanbanRunLogs,
+  regenerateKanbanReviewPacket,
   subscribeKanbanEvents,
 }
 
@@ -255,6 +258,12 @@ export function useKanbanBoard(options: UseKanbanBoardOptions = {}) {
     return log
   }
 
+  async function regenerateReviewPacket(taskId: string): Promise<KanbanTask> {
+    const result = await gateway.regenerateKanbanReviewPacket(taskId)
+    patchTask(result.task)
+    return result.task
+  }
+
   function selectTask(taskId: string): void {
     selectedTaskId.value = taskId
   }
@@ -325,6 +334,7 @@ export function useKanbanBoard(options: UseKanbanBoardOptions = {}) {
     startTaskRun,
     interruptTaskRun,
     refreshRunLog,
+    regenerateReviewPacket,
     setSearchQuery,
     toggleLabelFilter,
     clearFilters,

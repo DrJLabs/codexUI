@@ -4005,3 +4005,36 @@ Kanban task run controls, managed worktree runner start, interrupt route, and pe
 - Stop the dev server and restart without `CODEXUI_KANBAN_EXECUTION_ENABLED=1`
 - Remove clean test worktrees with `git -C <repo-root> worktree remove <worktree-path>`
 - Remove test branches with `git -C <repo-root> branch -D <branch-name>` after worktree removal
+
+---
+
+### Kanban v0.2 Review Packets And Proposals
+
+#### Feature/Change Name
+Review packet generation from managed worktree diffs, review approve/reject routes, and inert proposal accept/reject routes.
+
+#### Prerequisites/Setup
+1. A Kanban run has produced a managed worktree with local file changes
+2. Dev server running locally with `CODEXUI_KANBAN_EXECUTION_ENABLED=1 pnpm run dev -- --host 0.0.0.0 --port 4173`
+3. Open `http://127.0.0.1:4173/#/kanban`
+4. Light theme and dark theme are both available from Settings
+
+#### Steps
+1. Select the task with a completed or active run
+2. Click `Regenerate` in the review packet panel
+3. Confirm `GET /codex-api/kanban/tasks/<task-id>/review-packet` returns a packet with `packetHash`, summary counts, and raw diff patch
+4. Approve the review through `POST /codex-api/kanban/tasks/<task-id>/review/approve` and confirm the task moves to `done`
+5. Repeat with another review task and reject it through `POST /codex-api/kanban/tasks/<task-id>/review/reject`; confirm the task moves to `rework`
+6. Confirm `GET /codex-api/kanban/proposals` lists inert proposals without starting execution
+7. Switch to dark theme and confirm the review packet and proposal panels remain readable
+
+#### Expected Results
+- Review packet hash changes when task update time, run ID, diff, or test results change
+- Approval only marks the task done; it does not merge, push, or open a PR
+- Rejection marks the task for rework
+- Accepted proposals become backlog tasks and do not run automatically
+- Light theme and dark theme remain readable
+
+#### Rollback/Cleanup
+- Move test tasks back to the intended status or archive them
+- Remove clean test worktrees and branches after review verification

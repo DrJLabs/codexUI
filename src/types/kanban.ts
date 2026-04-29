@@ -127,6 +127,33 @@ export type InterruptKanbanRunResponse = {
   task: KanbanTask | null
 }
 
+export type KanbanReviewPacket = {
+  id: string
+  taskId: string
+  runId: string
+  packetHash: string
+  generatedAtIso: string
+  baseCommit: string
+  headCommit: string
+  rawDiffPatch: string
+  summary: {
+    fileCount: number
+    addedLineCount: number
+    removedLineCount: number
+  }
+  testResults: Array<{ id: string; command: string; exitCode: number | null }>
+  unresolvedProposalIds: string[]
+}
+
+export type KanbanProposal = {
+  id: string
+  title: string
+  description: string
+  status: 'pending' | 'accepted' | 'rejected'
+  createdAtIso: string
+  updatedAtIso: string
+}
+
 export type CreateKanbanTaskInput = {
   title: string
   description?: string
