@@ -403,7 +403,7 @@ export function createKanbanRouter(options: CreateKanbanRouterOptions = {}): Rou
     const message = error instanceof Error && error.message.trim().length > 0 ? error.message : 'Kanban request failed'
     const status = resolveErrorStatus(error, message)
     if (status >= 500) {
-      console.error('Kanban API error:', error)
+      console.error('Kanban API error:', error instanceof Error ? error.stack ?? error.message : error)
     }
     res.status(status).json({ error: status >= 500 ? 'Kanban request failed' : message })
   })

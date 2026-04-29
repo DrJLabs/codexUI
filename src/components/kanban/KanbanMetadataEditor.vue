@@ -37,11 +37,11 @@
       </label>
       <label>
         <span>Estimate</span>
-        <input v-model="estimateMinutes" type="number" min="0" step="1" inputmode="numeric" />
+        <input v-model="estimateMinutes" type="number" min="0" step="1" inputmode="numeric" :aria-invalid="minutesError ? 'true' : undefined" />
       </label>
       <label>
         <span>Actual</span>
-        <input v-model="actualMinutes" type="number" min="0" step="1" inputmode="numeric" />
+        <input v-model="actualMinutes" type="number" min="0" step="1" inputmode="numeric" :aria-invalid="minutesError ? 'true' : undefined" />
       </label>
     </div>
     <datalist id="kanban-assignee-options">
@@ -94,6 +94,9 @@ watch(() => props.task, (task) => {
   dueAtIso.value = task.dueAtIso.slice(0, 10)
   estimateMinutes.value = task.estimateMinutes === null ? '' : String(task.estimateMinutes)
   actualMinutes.value = task.actualMinutes === null ? '' : String(task.actualMinutes)
+  assigneeError.value = ''
+  dueAtIsoError.value = ''
+  minutesError.value = ''
 }, { immediate: true })
 
 function parseMinutes(value: string, label: string): number | null {

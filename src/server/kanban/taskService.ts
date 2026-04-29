@@ -356,8 +356,9 @@ function compareTasks(left: KanbanTask, right: KanbanTask, config: KanbanBoardCo
   config.columns.filter((column) => column.visible).forEach((column, index) => {
     configOrder.set(column.key, index)
   })
-  const leftStatusOrder = configOrder.get(left.status) ?? defaultOrder.get(left.status) ?? Number.MAX_SAFE_INTEGER
-  const rightStatusOrder = configOrder.get(right.status) ?? defaultOrder.get(right.status) ?? Number.MAX_SAFE_INTEGER
+  const fallbackStatusOrder = KANBAN_STATUSES.length
+  const leftStatusOrder = configOrder.get(left.status) ?? defaultOrder.get(left.status) ?? fallbackStatusOrder
+  const rightStatusOrder = configOrder.get(right.status) ?? defaultOrder.get(right.status) ?? fallbackStatusOrder
   return leftStatusOrder - rightStatusOrder
     || left.columnOrder - right.columnOrder
     || right.updatedAtIso.localeCompare(left.updatedAtIso)

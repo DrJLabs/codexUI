@@ -4353,3 +4353,33 @@ Kanban CSRF coverage, review approval validation, startup recovery, and failed-s
 #### Rollback/Cleanup
 - Archive or delete temporary Kanban tasks created during testing.
 - Use the explicit worktree cleanup action for preserved failed-start worktrees after inspecting them.
+
+---
+
+### Kanban Review Fix Round - Queue and Metadata Validation
+
+#### Feature/Change Name
+Duplicate queued-run protection and metadata validation affordances.
+
+#### Prerequisites/Setup
+1. Use the `feature/kanban-board-dev` worktree.
+2. Start this worktree's dev server on loopback: `CODEXUI_KANBAN_EXECUTION_ENABLED=1 node scripts/dev.cjs --host 127.0.0.1 --port 5173`.
+3. Open `http://127.0.0.1:5173/#/kanban`.
+
+#### Steps
+1. Run `pnpm vitest run src/server/kanban/__tests__/taskQueue.test.ts src/server/kanban/__tests__/routes.test.ts src/server/kanban/__tests__/taskService.test.ts`.
+2. Run `pnpm run test:unit`.
+3. Run `pnpm run build`.
+4. In light theme, open a task's metadata editor, enter an invalid estimate or actual minute value, and press Save.
+5. Confirm the displayed validation error also marks the estimate and actual inputs invalid.
+6. Switch to another task and confirm stale validation errors clear.
+7. Repeat steps 4-6 in dark theme.
+
+#### Expected Results
+- Duplicate queued runs for the same task are rejected before a second queued item is stored.
+- Unit tests and build pass.
+- Metadata validation errors are visible and field-level invalid styling appears in both light and dark theme.
+- Switching selected tasks resets stale metadata validation messages.
+
+#### Rollback/Cleanup
+- Revert temporary metadata edits or archive/delete tasks created for the smoke check.

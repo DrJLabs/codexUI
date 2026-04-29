@@ -80,6 +80,7 @@ function getWorktreeName(): string {
 const worktreeName = getWorktreeName();
 const appVersion = typeof pkg.version === "string" ? pkg.version : "unknown";
 const WS_UPGRADE_ATTACHED_KEY = "__codexBridgeWsAttached__";
+const appProjectRoot = process.cwd();
 
 function readEnvValueFromFile(filePath: string, key: string): string {
   if (!existsSync(filePath)) return "";
@@ -132,7 +133,7 @@ export default defineConfig({
       configureServer(server) {
         process.env.CODEXUI_SERVER_PORT = String(server.config.server.port ?? 5173);
         const bridge = createCodexBridgeMiddleware();
-        const kanban = createKanbanMiddleware({ bridge });
+        const kanban = createKanbanMiddleware({ bridge, projectRoot: appProjectRoot });
         const kanbanApp = express();
         kanbanApp.use("/codex-api/kanban", kanban);
         const httpServer = server.httpServer;

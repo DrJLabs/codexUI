@@ -31,6 +31,7 @@ export class KanbanTaskQueue {
 
   enqueue(item: KanbanTaskQueueItem): KanbanTaskQueueEnqueueResult {
     this.assertUniqueRun(item.runId)
+    this.assertNoDuplicateQueuedTask(item.taskId)
     const blockReason = this.getBlockReason(item)
     if (!blockReason) {
       this.active.set(item.runId, item)
@@ -89,6 +90,12 @@ export class KanbanTaskQueue {
   private assertUniqueRun(runId: string): void {
     if (this.active.has(runId) || this.queued.some((item) => item.runId === runId)) {
       throw new Error(`Kanban run ${runId} is already queued`)
+    }
+  }
+
+  private assertNoDuplicateQueuedTask(taskId: string): void {
+    if (this.queued.some((item) => item.taskId === taskId)) {
+      throw new Error(`Kanban task ${taskId} already has a queued run`)
     }
   }
 }
