@@ -75,7 +75,7 @@ describe('createKanbanMiddleware', () => {
   it('creates tasks, normalizes labels, and rejects invalid status transitions', async () => {
     const { baseUrl } = await createTestServer()
 
-    const created = await requestJson<{ data: { id: string; title: string; status: string; labels: Array<{ id: string; name: string }> } }>(
+    const created = await requestJson<{ data: { id: string; title: string; status: string; version: number; labels: Array<{ id: string; name: string }> } }>(
       `${baseUrl}/codex-api/kanban/tasks`,
       {
         method: 'POST',
@@ -90,7 +90,7 @@ describe('createKanbanMiddleware', () => {
       `${baseUrl}/codex-api/kanban/tasks/${created.body.data.id}/status`,
       {
         method: 'POST',
-        body: JSON.stringify({ status: 'done' }),
+        body: JSON.stringify({ version: created.body.data.version, status: 'done' }),
       },
     )
     const emptyTitle = await requestJson<{ error: string }>(
@@ -112,12 +112,129 @@ describe('createKanbanMiddleware', () => {
     expect(created.body.data.title).toBe('Route task')
     expect(created.body.data.status).toBe('backlog')
     expect(created.body.data.labels.map((label) => label.id)).toEqual(['label_bug', 'label_bug_2'])
-    expect(invalidTransition.status).toBe(400)
+    expect(invalidTransition.status).toBe(409)
     expect(invalidTransition.body.error).toContain('Invalid status transition')
     expect(emptyTitle.status).toBe(400)
     expect(emptyTitle.body.error).toContain('Task title is required')
     expect(missingCriteria.status).toBe(400)
     expect(missingCriteria.body.error).toContain('Acceptance criteria must be an array')
+  })
+
+  it('lists tasks with pagination metadata', async () => {
+    const { baseUrl } = await createTestServer()
+    await requestJson<{ data: unknown }>(`${baseUrl}/codex-api/kanban/tasks`, {
+      method: 'POST',
+      body: JSON.stringify({ title: 'Deploy dashboard' }),
+    })
+
+    const listed = await requestJson<{
+      data: { items: Array<{ title: string }>; total: number; limit: number; offset: number; hasMore: boolean }
+    }>(`${baseUrl}/codex-api/kanban/tasks?q=deploy&limit=20&offset=0`)
+
+    expect(listed.status).toBe(200)
+    expect(listed.body.data.items.map((task) => task.title)).toEqual(['Deploy dashboard'])
+    expect(listed.body.data.total).toBe(1)
+    expect(listed.body.data.limit).toBe(20)
+    expect(listed.body.data.offset).toBe(0)
+    expect(listed.body.data.hasMore).toBe(false)
+  })
+
+  it('returns conflict details for stale task patches', async () => {
+    const { baseUrl } = await createTestServer()
+    const created = await requestJson<{ data: { id: string; version: number; title: string } }>(
+      `${baseUrl}/codex-api/kanban/tasks`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ title: 'Original task' }),
+      },
+    )
+    const fresh = await requestJson<{ data: { version: number; title: string } }>(
+      `${baseUrl}/codex-api/kanban/tasks/${created.body.data.id}`,
+      {
+        method: 'PATCH',
+        body: JSON.stringify({ version: created.body.data.version, title: 'Fresh task' }),
+      },
+    )
+
+    const stale = await requestJson<{ error: string; serverVersion: number; latest: { title: string; version: number } }>(
+      `${baseUrl}/codex-api/kanban/tasks/${created.body.data.id}`,
+      {
+        method: 'PATCH',
+        body: JSON.stringify({ version: created.body.data.version, title: 'Stale task' }),
+      },
+    )
+
+    expect(fresh.status).toBe(200)
+    expect(stale.status).toBe(409)
+    expect(stale.body.error).toBe('version_conflict')
+    expect(stale.body.serverVersion).toBe(fresh.body.data.version)
+    expect(stale.body.latest.title).toBe('Fresh task')
+    expect(stale.body.latest.version).toBe(fresh.body.data.version)
+  })
+
+  it('reads and updates board config', async () => {
+    const { baseUrl } = await createTestServer()
+
+    const initial = await requestJson<{ data: { columns: Array<{ key: string; wipLimit: number | null }> } }>(
+      `${baseUrl}/codex-api/kanban/config`,
+    )
+    const updated = await requestJson<{ data: { columns: Array<{ key: string; wipLimit: number | null }> } }>(
+      `${baseUrl}/codex-api/kanban/config`,
+      {
+        method: 'PUT',
+        body: JSON.stringify({
+          columns: initial.body.data.columns.map((column) => (
+            column.key === 'ready' ? { ...column, wipLimit: 3 } : column
+          )),
+        }),
+      },
+    )
+
+    expect(initial.status).toBe(200)
+    expect(initial.body.data.columns.find((column) => column.key === 'ready')?.wipLimit).toBeNull()
+    expect(updated.status).toBe(200)
+    expect(updated.body.data.columns.find((column) => column.key === 'ready')?.wipLimit).toBe(3)
+  })
+
+  it('reorders a task into a new status over HTTP', async () => {
+    const { baseUrl } = await createTestServer()
+    const anchor = await requestJson<{ data: { id: string; version: number; columnOrder: number } }>(
+      `${baseUrl}/codex-api/kanban/tasks`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ title: 'Ready anchor' }),
+      },
+    )
+    const moving = await requestJson<{ data: { id: string; version: number } }>(
+      `${baseUrl}/codex-api/kanban/tasks`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ title: 'Move over HTTP' }),
+      },
+    )
+    const readyAnchor = await requestJson<{ data: { id: string; version: number; columnOrder: number } }>(
+      `${baseUrl}/codex-api/kanban/tasks/${anchor.body.data.id}/reorder`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ version: anchor.body.data.version, status: 'ready' }),
+      },
+    )
+
+    const moved = await requestJson<{ data: { id: string; status: string; columnOrder: number } }>(
+      `${baseUrl}/codex-api/kanban/tasks/${moving.body.data.id}/reorder`,
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          version: moving.body.data.version,
+          status: 'ready',
+          afterTaskId: readyAnchor.body.data.id,
+        }),
+      },
+    )
+
+    expect(moved.status).toBe(200)
+    expect(moved.body.data.status).toBe('ready')
+    expect(moved.body.data.columnOrder).toBeGreaterThan(readyAnchor.body.data.columnOrder)
   })
 
   it('preserves 400 status for malformed JSON request bodies', async () => {

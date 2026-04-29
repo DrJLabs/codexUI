@@ -196,8 +196,8 @@ describe('KanbanStorage', () => {
     const { service } = await createHarness()
 
     const task = await service.createTask({ title: 'Original' })
-    const updated = await service.updateTask(task.id, { title: 'Updated' })
-    const archived = await service.archiveTask(task.id)
+    const updated = await service.updateTask(task.id, { version: task.version, title: 'Updated' })
+    const archived = await service.archiveTask(task.id, { version: updated.version })
     const snapshot = await service.listState()
 
     expect(updated.version).toBe(task.version + 1)
@@ -229,16 +229,16 @@ describe('KanbanStorage', () => {
 
     const task = await service.createTask({ title: 'Transition task' })
 
-    await expect(service.setTaskStatus(task.id, { status: 'done' })).rejects.toThrow('Invalid status transition')
-    await expect(service.setTaskStatus(task.id, { status: 'ready' })).resolves.toMatchObject({ status: 'ready' })
+    await expect(service.setTaskStatus(task.id, { version: task.version, status: 'done' })).rejects.toThrow('Invalid status transition')
+    await expect(service.setTaskStatus(task.id, { version: task.version, status: 'ready' })).resolves.toMatchObject({ status: 'ready' })
   })
 
   it('preserves blocked reason when status update omits a reason', async () => {
     const { service } = await createHarness()
 
     const task = await service.createTask({ title: 'Blocked task' })
-    await service.updateTask(task.id, { blockedReason: 'Waiting on review' })
-    const moved = await service.setTaskStatus(task.id, { status: 'ready' })
+    const updated = await service.updateTask(task.id, { version: task.version, blockedReason: 'Waiting on review' })
+    const moved = await service.setTaskStatus(task.id, { version: updated.version, status: 'ready' })
 
     expect(moved.blockedReason).toBe('Waiting on review')
   })

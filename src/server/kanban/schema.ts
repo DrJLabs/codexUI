@@ -1,20 +1,54 @@
 import type {
+  DeleteKanbanTaskInput,
   CreateKanbanTaskInput,
+  KanbanBoardColumn,
+  KanbanPriority,
+  KanbanStatus,
   KanbanTaskLabel,
+  KanbanTaskListQuery,
   ReplaceKanbanAcceptanceCriteriaInput,
+  ReorderKanbanTaskInput,
   SetKanbanTaskStatusInput,
+  UpdateKanbanBoardConfigInput,
   UpdateKanbanTaskInput,
+  VersionedSetKanbanTaskStatusInput,
+  VersionedUpdateKanbanTaskInput,
 } from '../../types/kanban'
 import { KANBAN_STATUSES } from '../../types/kanban'
 
 const STATUS_IDS = new Set(KANBAN_STATUSES.map((status) => status.id))
+const PRIORITY_IDS = new Set(['critical', 'high', 'normal', 'low'])
+const THINKING_IDS = new Set(['off', 'low', 'medium', 'high'])
 
 function asRecord(value: unknown): Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}
 }
 
 function readString(value: unknown): string {
+  if (Array.isArray(value)) return readString(value[0])
   return typeof value === 'string' ? value.trim() : ''
+}
+
+function readOptionalString(value: unknown): string | undefined {
+  const stringValue = readString(value)
+  return stringValue ? stringValue : undefined
+}
+
+function readInteger(value: unknown, name: string): number {
+  const candidate = Array.isArray(value) ? value[0] : value
+  const numberValue = typeof candidate === 'number'
+    ? candidate
+    : typeof candidate === 'string' && candidate.trim() ? Number(candidate) : NaN
+  if (!Number.isInteger(numberValue)) {
+    throw new Error(`${name} must be an integer`)
+  }
+  return numberValue
+}
+
+function readRequiredVersion(record: Record<string, unknown>): number {
+  const version = readInteger(record.version, 'version')
+  if (version < 1) throw new Error('version must be greater than or equal to 1')
+  return version
 }
 
 function labelIdFromName(name: string): string {
@@ -86,16 +120,113 @@ export function parseUpdateTaskInput(value: unknown): UpdateKanbanTaskInput {
   return patch
 }
 
-export function parseStatusInput(value: unknown): SetKanbanTaskStatusInput {
+export function parseVersionedUpdateTaskInput(value: unknown): VersionedUpdateKanbanTaskInput {
+  const record = asRecord(value)
+  return {
+    ...parseUpdateTaskInput(record),
+    version: readRequiredVersion(record),
+  }
+}
+
+export function parseStatusInput(value: unknown): VersionedSetKanbanTaskStatusInput {
   const record = asRecord(value)
   const status = readString(record.status)
   if (!STATUS_IDS.has(status as never)) {
     throw new Error('Invalid Kanban status')
   }
   return {
+    version: readRequiredVersion(record),
     status: status as SetKanbanTaskStatusInput['status'],
     reason: 'reason' in record ? readString(record.reason) : undefined,
   }
+}
+
+export function parseDeleteTaskInput(value: unknown): DeleteKanbanTaskInput {
+  const record = asRecord(value)
+  return { version: readRequiredVersion(record) }
+}
+
+export function parseListTasksQuery(value: unknown): KanbanTaskListQuery {
+  const record = asRecord(value)
+  const requestedLimit = 'limit' in record ? readInteger(record.limit, 'limit') : 50
+  const requestedOffset = 'offset' in record ? readInteger(record.offset, 'offset') : 0
+  if (requestedLimit < 1) throw new Error('limit must be greater than or equal to 1')
+  if (requestedOffset < 0) throw new Error('offset must be greater than or equal to 0')
+  return {
+    q: readOptionalString(record.q),
+    limit: Math.min(requestedLimit, 200),
+    offset: requestedOffset,
+  }
+}
+
+export function parseReorderTaskInput(value: unknown): ReorderKanbanTaskInput {
+  const record = asRecord(value)
+  const status = readString(record.status)
+  if (!STATUS_IDS.has(status as never)) {
+    throw new Error('Invalid Kanban status')
+  }
+  return {
+    version: readRequiredVersion(record),
+    status: status as ReorderKanbanTaskInput['status'],
+    beforeTaskId: readOptionalString(record.beforeTaskId),
+    afterTaskId: readOptionalString(record.afterTaskId),
+  }
+}
+
+export function parseBoardConfigInput(value: unknown): UpdateKanbanBoardConfigInput {
+  const record = asRecord(value)
+  const input: UpdateKanbanBoardConfigInput = {}
+  if (Array.isArray(record.columns)) {
+    input.columns = record.columns.map((item) => {
+      const column = asRecord(item)
+      const key = readString(column.key)
+      if (!STATUS_IDS.has(key as never)) throw new Error('Invalid Kanban status')
+      const wipLimit = column.wipLimit === null ? null : readInteger(column.wipLimit, 'wipLimit')
+      if (wipLimit !== null && wipLimit < 1) throw new Error('wipLimit must be greater than or equal to 1')
+      return {
+        key: key as KanbanBoardColumn['key'],
+        title: readString(column.title) || KANBAN_STATUSES.find((status) => status.id === key)?.title || key,
+        visible: column.visible === undefined ? true : column.visible === true,
+        wipLimit,
+      }
+    })
+  }
+  if (asRecord(record.defaults) !== record.defaults && 'defaults' in record) {
+    throw new Error('defaults must be an object')
+  }
+  const defaults = asRecord(record.defaults)
+  if ('status' in defaults || 'priority' in defaults) {
+    input.defaults = {}
+    if ('status' in defaults) {
+      const status = readString(defaults.status)
+      if (!STATUS_IDS.has(status as never)) throw new Error('Invalid Kanban status')
+      input.defaults.status = status as KanbanStatus
+    }
+    if ('priority' in defaults) {
+      const priority = readString(defaults.priority)
+      if (!PRIORITY_IDS.has(priority)) throw new Error('Invalid Kanban priority')
+      input.defaults.priority = priority as KanbanPriority
+    }
+  }
+  if ('reviewRequired' in record) input.reviewRequired = record.reviewRequired === true
+  if ('allowDoneDragBypass' in record) input.allowDoneDragBypass = record.allowDoneDragBypass === true
+  if ('quickViewLimit' in record) {
+    const quickViewLimit = readInteger(record.quickViewLimit, 'quickViewLimit')
+    if (quickViewLimit < 1) throw new Error('quickViewLimit must be greater than or equal to 1')
+    input.quickViewLimit = quickViewLimit
+  }
+  if ('proposalPolicy' in record) {
+    const proposalPolicy = readString(record.proposalPolicy)
+    if (proposalPolicy !== 'confirm' && proposalPolicy !== 'auto') throw new Error('Invalid proposal policy')
+    input.proposalPolicy = proposalPolicy
+  }
+  if ('defaultModel' in record) input.defaultModel = readString(record.defaultModel)
+  if ('defaultThinking' in record) {
+    const defaultThinking = readString(record.defaultThinking)
+    if (!THINKING_IDS.has(defaultThinking)) throw new Error('Invalid default thinking')
+    input.defaultThinking = defaultThinking as UpdateKanbanBoardConfigInput['defaultThinking']
+  }
+  return input
 }
 
 export function parseReplaceAcceptanceCriteriaInput(value: unknown): ReplaceKanbanAcceptanceCriteriaInput {

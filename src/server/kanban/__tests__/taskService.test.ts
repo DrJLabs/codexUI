@@ -66,4 +66,130 @@ describe('KanbanTaskService', () => {
     expect(firstTask.feedback).toEqual([])
     expect(secondTask.columnOrder).toBe(1)
   })
+
+  it('rejects stale updates with a version conflict code', async () => {
+    const { service } = await createHarness()
+    const task = await service.createTask({ title: 'Original task' })
+    await service.updateTask(task.id, { version: task.version, title: 'Fresh title' })
+
+    await expect(service.updateTask(task.id, { version: task.version, title: 'Stale title' }))
+      .rejects
+      .toMatchObject({ code: 'version_conflict' })
+  })
+
+  it('rejects forced unversioned public updates at runtime', async () => {
+    const { service } = await createHarness()
+    const task = await service.createTask({ title: 'Original task' })
+
+    await expect(service.updateTask(task.id, { title: 'Missing version' } as never))
+      .rejects
+      .toThrow('version is required')
+  })
+
+  it('rejects forced unversioned public status updates at runtime', async () => {
+    const { service } = await createHarness()
+    const task = await service.createTask({ title: 'Original task' })
+
+    await expect(service.setTaskStatus(task.id, { status: 'ready' } as never))
+      .rejects
+      .toThrow('version is required')
+  })
+
+  it('rejects forced unversioned public archive and delete calls at runtime', async () => {
+    const { service } = await createHarness()
+    const archiveTask = await service.createTask({ title: 'Archive task' })
+    const deleteTask = await service.createTask({ title: 'Delete task' })
+
+    await expect(service.archiveTask(archiveTask.id, undefined as never))
+      .rejects
+      .toThrow('version is required')
+    await expect(service.deleteTask(deleteTask.id, undefined as never))
+      .rejects
+      .toThrow('version is required')
+  })
+
+  it('lists matching tasks with total and hasMore metadata', async () => {
+    const { service } = await createHarness()
+    await service.createTask({ title: 'Deploy production bundle' })
+    await service.createTask({ title: 'Refine settings panel' })
+
+    const result = await service.listTasks({ q: 'deploy', limit: 20, offset: 0 })
+
+    expect(result.items).toHaveLength(1)
+    expect(result.items[0]?.title).toBe('Deploy production bundle')
+    expect(result.total).toBe(1)
+    expect(result.limit).toBe(20)
+    expect(result.offset).toBe(0)
+    expect(result.hasMore).toBe(false)
+  })
+
+  it('reorders a task into a new status after another task', async () => {
+    const { service } = await createHarness()
+    const other = await service.createTask({ title: 'Ready anchor' })
+    const task = await service.createTask({ title: 'Move me' })
+    const readyOther = await service.reorderTask(other.id, { version: other.version, status: 'ready' })
+
+    const moved = await service.reorderTask(task.id, {
+      version: task.version,
+      status: 'ready',
+      afterTaskId: readyOther.id,
+    })
+
+    expect(moved.status).toBe('ready')
+    expect(moved.columnOrder).toBeGreaterThan(readyOther.columnOrder)
+  })
+
+  it('enforces transition policy when reorder changes status', async () => {
+    const { service } = await createHarness()
+    const task = await service.createTask({ title: 'Invalid reorder transition' })
+
+    await expect(service.reorderTask(task.id, { version: task.version, status: 'done' }))
+      .rejects
+      .toThrow('Invalid status transition')
+  })
+
+  it('allows reorder directly to done only when done drag bypass is enabled', async () => {
+    const { service } = await createHarness()
+    await service.updateConfig({ allowDoneDragBypass: true })
+    const task = await service.createTask({ title: 'Bypass done reorder' })
+
+    const moved = await service.reorderTask(task.id, { version: task.version, status: 'done' })
+
+    expect(moved.status).toBe('done')
+  })
+
+  it('bumps sibling versions when reorder changes their column order', async () => {
+    const { service } = await createHarness()
+    const taskA = await service.createTask({ title: 'Task A' })
+    const taskB = await service.createTask({ title: 'Task B' })
+
+    await service.reorderTask(taskB.id, {
+      version: taskB.version,
+      status: 'backlog',
+      beforeTaskId: taskA.id,
+    })
+
+    await expect(service.updateTask(taskA.id, { version: taskA.version, title: 'Stale A' }))
+      .rejects
+      .toMatchObject({ code: 'version_conflict' })
+    await expect(service.reorderTask(taskA.id, { version: taskA.version, status: 'backlog' }))
+      .rejects
+      .toMatchObject({ code: 'version_conflict' })
+  })
+
+  it('uses board default status and priority for created tasks', async () => {
+    const { service } = await createHarness()
+    await service.updateConfig({
+      defaults: {
+        status: 'ready',
+        priority: 'high',
+      },
+    })
+
+    const task = await service.createTask({ title: 'Default configured task' })
+
+    expect(task.status).toBe('ready')
+    expect(task.priority).toBe('high')
+    expect(task.columnOrder).toBe(0)
+  })
 })

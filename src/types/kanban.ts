@@ -213,9 +213,44 @@ export type CreateKanbanTaskInput = {
 
 export type UpdateKanbanTaskInput = Partial<Pick<KanbanTask, 'title' | 'description' | 'labels' | 'blockedReason'>>
 
+export type KanbanVersionedInput = {
+  version: number
+}
+
+export type VersionedUpdateKanbanTaskInput = UpdateKanbanTaskInput & KanbanVersionedInput
+
 export type SetKanbanTaskStatusInput = {
   status: KanbanStatus
   reason?: string
+}
+
+export type VersionedSetKanbanTaskStatusInput = SetKanbanTaskStatusInput & KanbanVersionedInput
+
+export type DeleteKanbanTaskInput = KanbanVersionedInput
+
+export type ReorderKanbanTaskInput = KanbanVersionedInput & {
+  status: KanbanStatus
+  beforeTaskId?: string
+  afterTaskId?: string
+}
+
+export type KanbanTaskListQuery = {
+  q?: string
+  limit: number
+  offset: number
+}
+
+export type KanbanTaskListResult = {
+  items: KanbanTask[]
+  total: number
+  limit: number
+  offset: number
+  hasMore: boolean
+}
+
+export type UpdateKanbanBoardConfigInput = Partial<Omit<KanbanBoardConfig, 'columns' | 'defaults'>> & {
+  columns?: KanbanBoardColumn[]
+  defaults?: Partial<KanbanBoardConfig['defaults']>
 }
 
 export type ReplaceKanbanAcceptanceCriteriaInput = {

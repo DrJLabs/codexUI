@@ -11,11 +11,16 @@ import { createKanbanId } from './ids'
 import { resolveKanbanDataDir } from './paths'
 import { classifyKanbanRemoteAccess, type KanbanRemoteAccess } from './remoteAccess'
 import {
+  parseBoardConfigInput,
   parseCreateTaskInput,
+  parseDeleteTaskInput,
+  parseListTasksQuery,
   parseReplaceAcceptanceCriteriaInput,
+  parseReorderTaskInput,
   parseStatusInput,
-  parseUpdateTaskInput,
+  parseVersionedUpdateTaskInput,
 } from './schema'
+import { KanbanInvalidTransitionError, KanbanNotFoundError, KanbanVersionConflictError } from './errors'
 import { KanbanProposalService } from './proposalService'
 import { KanbanReviewPacketService } from './reviewPacketService'
 import { KanbanStorage } from './storage'
@@ -76,6 +81,18 @@ export function createKanbanRouter(options: CreateKanbanRouterOptions = {}): Rou
     res.status(200).json({ data: await service.listState() })
   }))
 
+  router.get('/tasks', asyncHandler(async (req, res) => {
+    res.status(200).json({ data: await service.listTasks(parseListTasksQuery(req.query)) })
+  }))
+
+  router.get('/config', asyncHandler(async (_req, res) => {
+    res.status(200).json({ data: await service.getConfig() })
+  }))
+
+  router.put('/config', asyncHandler(async (req, res) => {
+    res.status(200).json({ data: await service.updateConfig(parseBoardConfigInput(req.body)) })
+  }))
+
   router.get('/events', (req, res) => {
     res.writeHead(200, {
       'Content-Type': 'text/event-stream; charset=utf-8',
@@ -115,9 +132,19 @@ export function createKanbanRouter(options: CreateKanbanRouterOptions = {}): Rou
     res.status(201).json({ data: task })
   }))
 
+  router.get('/tasks/:taskId', asyncHandler(async (req, res) => {
+    res.status(200).json({ data: await service.getTask(readRouteParam(req.params.taskId, 'taskId')) })
+  }))
+
   router.patch('/tasks/:taskId', asyncHandler(async (req, res) => {
-    const task = await service.updateTask(readRouteParam(req.params.taskId, 'taskId'), parseUpdateTaskInput(req.body))
+    const task = await service.updateTask(readRouteParam(req.params.taskId, 'taskId'), parseVersionedUpdateTaskInput(req.body))
     eventBus.emit({ type: 'task.updated', payload: { taskId: task.id } })
+    res.status(200).json({ data: task })
+  }))
+
+  router.delete('/tasks/:taskId', asyncHandler(async (req, res) => {
+    const task = await service.deleteTask(readRouteParam(req.params.taskId, 'taskId'), parseDeleteTaskInput({ ...req.query, ...req.body }))
+    eventBus.emit({ type: 'task.updated', payload: { taskId: task.id, archived: true } })
     res.status(200).json({ data: task })
   }))
 
@@ -128,8 +155,14 @@ export function createKanbanRouter(options: CreateKanbanRouterOptions = {}): Rou
   }))
 
   router.post('/tasks/:taskId/archive', asyncHandler(async (req, res) => {
-    const task = await service.archiveTask(readRouteParam(req.params.taskId, 'taskId'))
+    const task = await service.archiveTask(readRouteParam(req.params.taskId, 'taskId'), parseDeleteTaskInput(req.body))
     eventBus.emit({ type: 'task.updated', payload: { taskId: task.id, archived: true } })
+    res.status(200).json({ data: task })
+  }))
+
+  router.post('/tasks/:taskId/reorder', asyncHandler(async (req, res) => {
+    const task = await service.reorderTask(readRouteParam(req.params.taskId, 'taskId'), parseReorderTaskInput(req.body))
+    eventBus.emit({ type: 'task.updated', payload: { taskId: task.id, status: task.status } })
     res.status(200).json({ data: task })
   }))
 
@@ -257,21 +290,21 @@ export function createKanbanRouter(options: CreateKanbanRouterOptions = {}): Rou
 
   router.post('/tasks/:taskId/rework', asyncHandler(async (req, res) => {
     assertTrustedAccessMutation(req, csrf)
-    const task = await service.setTaskStatus(readRouteParam(req.params.taskId, 'taskId'), { status: 'rework' })
+    const task = await service.setTaskStatus(readRouteParam(req.params.taskId, 'taskId'), { ...parseDeleteTaskInput(req.body), status: 'rework' })
     eventBus.emit({ type: 'task.status_changed', payload: { taskId: task.id, status: task.status } })
     res.status(200).json({ data: task })
   }))
 
   router.post('/tasks/:taskId/review/approve', asyncHandler(async (req, res) => {
     assertTrustedAccessMutation(req, csrf)
-    const task = await service.setTaskStatus(readRouteParam(req.params.taskId, 'taskId'), { status: 'done' })
+    const task = await service.setTaskStatus(readRouteParam(req.params.taskId, 'taskId'), { ...parseDeleteTaskInput(req.body), status: 'done' })
     eventBus.emit({ type: 'task.status_changed', payload: { taskId: task.id, status: task.status } })
     res.status(200).json({ data: task })
   }))
 
   router.post('/tasks/:taskId/review/reject', asyncHandler(async (req, res) => {
     assertTrustedAccessMutation(req, csrf)
-    const task = await service.setTaskStatus(readRouteParam(req.params.taskId, 'taskId'), { status: 'rework' })
+    const task = await service.setTaskStatus(readRouteParam(req.params.taskId, 'taskId'), { ...parseDeleteTaskInput(req.body), status: 'rework' })
     eventBus.emit({ type: 'task.status_changed', payload: { taskId: task.id, status: task.status } })
     res.status(200).json({ data: task })
   }))
@@ -294,6 +327,10 @@ export function createKanbanRouter(options: CreateKanbanRouterOptions = {}): Rou
   }))
 
   router.use((error: unknown, _req: Request, res: Response, _next: express.NextFunction) => {
+    if (error instanceof KanbanVersionConflictError) {
+      res.status(409).json({ error: error.code, serverVersion: error.serverVersion, latest: error.latest })
+      return
+    }
     const message = error instanceof Error && error.message.trim().length > 0 ? error.message : 'Kanban request failed'
     const status = resolveErrorStatus(error, message)
     if (status >= 500) {
@@ -374,6 +411,8 @@ function readString(value: unknown): string {
 
 function resolveErrorStatus(error: unknown, message: string): number {
   if (isHttpStatusError(error)) return error.status
+  if (error instanceof KanbanNotFoundError) return 404
+  if (error instanceof KanbanInvalidTransitionError) return 409
   const lowerMessage = message.toLowerCase()
   if (lowerMessage.includes('not found')) return 404
   if (
@@ -382,6 +421,12 @@ function resolveErrorStatus(error: unknown, message: string): number {
     || lowerMessage.startsWith('invalid status transition')
     || lowerMessage.startsWith('acceptance criteria must be an array')
     || lowerMessage.startsWith('missing route parameter')
+    || lowerMessage.includes('must be an integer')
+    || lowerMessage.includes('must be greater than or equal to')
+    || lowerMessage.startsWith('invalid kanban priority')
+    || lowerMessage.startsWith('invalid proposal policy')
+    || lowerMessage.startsWith('invalid default thinking')
+    || lowerMessage.startsWith('defaults must be an object')
   ) {
     return 400
   }
