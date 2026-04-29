@@ -3941,3 +3941,32 @@ Managed Git worktree creation, one-active-run queue limits, and conservative sta
 - Remove clean test worktrees with `git -C <repo-root> worktree remove <worktree-path>`
 - Remove test branches with `git -C <repo-root> branch -D <branch-name>` after the worktree is removed
 - Remove local test metadata under `${CODEX_HOME:-$HOME/.codex}/codexui-kanban/worktrees/` if needed
+
+---
+
+### Kanban v0.2 Internal Codex Bridge Adapter
+
+#### Feature/Change Name
+Narrow internal Codex bridge runtime and Kanban adapter allowlist for future runner integration.
+
+#### Prerequisites/Setup
+1. Project dependencies are installed
+2. Dev server can be started with `pnpm run dev -- --host 0.0.0.0 --port 4173`
+3. Light theme and dark theme are both available from Settings
+
+#### Steps
+1. Run `pnpm run test:unit -- src/server/kanban/__tests__/codexBridgeAdapter.test.ts`
+2. Run `pnpm run build`
+3. Run the built CLI import smoke recorded in the implementation notes
+4. Open `#/kanban` in light theme and confirm the board still loads
+5. Switch to dark theme and confirm the board still loads
+
+#### Expected Results
+- The adapter forwards only allowed app-server methods: `thread/start`, `thread/resume`, `turn/start`, `turn/interrupt`, `review/start`, and `command/exec`
+- `thread/shellCommand` is rejected before it reaches the shared runtime
+- Production and Vite dev server setup pass the existing shared bridge runtime into Kanban middleware
+- Public Codex bridge HTTP behavior remains unchanged
+- Light theme and dark theme remain unchanged by the server-only adapter foundation
+
+#### Rollback/Cleanup
+- No persistent cleanup is needed for adapter-only tests

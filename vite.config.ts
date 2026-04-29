@@ -132,7 +132,7 @@ export default defineConfig({
       configureServer(server) {
         process.env.CODEXUI_SERVER_PORT = String(server.config.server.port ?? 5173);
         const bridge = createCodexBridgeMiddleware();
-        const kanban = createKanbanMiddleware();
+        const kanban = createKanbanMiddleware({ bridge });
         const kanbanApp = express();
         kanbanApp.use("/codex-api/kanban", kanban);
         const httpServer = server.httpServer;

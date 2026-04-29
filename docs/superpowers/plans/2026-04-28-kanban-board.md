@@ -900,7 +900,7 @@ git commit -m "feat: add kanban worktree queue"
 - Create: `src/server/kanban/codexBridgeAdapter.ts`
 - Test: `src/server/kanban/__tests__/codexBridgeAdapter.test.ts`
 
-- [ ] **Step 1: Expose narrow bridge runtime**
+- [x] **Step 1: Expose narrow bridge runtime**
 
 Add an exported type:
 
@@ -914,11 +914,11 @@ export type CodexBridgeRuntime = {
 
 Keep public HTTP behavior unchanged.
 
-- [ ] **Step 2: Pass bridge runtime into Kanban middleware**
+- [x] **Step 2: Pass bridge runtime into Kanban middleware**
 
 Update `createKanbanMiddleware({ bridge })` so production and dev share the existing app-server child process.
 
-- [ ] **Step 3: Implement adapter**
+- [x] **Step 3: Implement adapter**
 
 Allowed app-server methods:
 
@@ -933,7 +933,7 @@ command/exec
 
 Explicitly reject `thread/shellCommand`.
 
-- [ ] **Step 4: CJS smoke requirement**
+- [x] **Step 4: CJS smoke requirement**
 
 Because this changes server module loading behavior in an ESM package, do not use `require('./dist-cli/index.js')` as the primary smoke. Run:
 
@@ -945,7 +945,7 @@ node -e "import('./dist/server/codexAppServerBridge.js').then((mod) => console.l
 
 If the emitted server path differs, inspect `dist/` and run the closest import-based smoke for the changed server entry. Record the exact command in the completion report.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/server/codexAppServerBridge.ts src/server/kanban/codexBridgeAdapter.ts src/server/kanban/__tests__/codexBridgeAdapter.test.ts

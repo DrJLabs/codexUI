@@ -4038,10 +4038,15 @@ class MethodCatalog {
   }
 }
 
-type CodexBridgeMiddleware = ((req: IncomingMessage, res: ServerResponse, next: () => void) => Promise<void>) & {
+export type CodexBridgeNotification = { method: string; params: unknown; atIso: string }
+
+export type CodexBridgeRuntime = {
+  rpc<T = unknown>(method: string, params?: unknown): Promise<T>
   dispose: () => void
-  subscribeNotifications: (listener: (value: { method: string; params: unknown; atIso: string }) => void) => () => void
+  subscribeNotifications: (listener: (value: CodexBridgeNotification) => void) => () => void
 }
+
+type CodexBridgeMiddleware = ((req: IncomingMessage, res: ServerResponse, next: () => void) => Promise<void>) & CodexBridgeRuntime
 
 type SharedBridgeState = {
   version: string
@@ -5710,6 +5715,9 @@ export function createCodexBridgeMiddleware(): CodexBridgeMiddleware {
     }
   }
 
+  middleware.rpc = <T = unknown>(method: string, params?: unknown): Promise<T> => {
+    return appServer.rpc(method, params ?? null) as Promise<T>
+  }
   middleware.dispose = () => {
     threadSearchIndex = null
     telegramBridge.stop()

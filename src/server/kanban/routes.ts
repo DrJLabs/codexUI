@@ -1,6 +1,7 @@
 import { isAbsolute, resolve } from 'node:path'
 import express, { type Request, type Response, type Router } from 'express'
 import type { KanbanExecutionPolicy } from '../../types/kanban'
+import type { CodexBridgeRuntime } from '../codexAppServerBridge'
 import { KanbanAuditLog, type KanbanAuditSink } from './auditLog'
 import { resolveKanbanConfig } from './config'
 import { KanbanCsrfProtection } from './csrf'
@@ -23,6 +24,7 @@ export type CreateKanbanRouterOptions = {
   policy?: KanbanExecutionPolicy
   eventBus?: KanbanEventBus
   auditLog?: KanbanAuditSink
+  bridge?: CodexBridgeRuntime
 }
 
 type AsyncRouteHandler = (req: Request, res: Response) => Promise<void>
