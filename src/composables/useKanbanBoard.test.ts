@@ -118,13 +118,21 @@ function createListResult(items: KanbanTask[], overrides: Partial<KanbanTaskList
 function createProposal(overrides: Partial<KanbanProposal> = {}): KanbanProposal {
   return {
     id: 'proposal_1',
-    title: 'Proposal',
-    description: '',
+    type: 'create',
+    payload: { title: 'Proposal', description: '' },
+    sourceRunId: '',
+    sourceThreadId: '',
+    proposedBy: 'operator',
     status: 'pending',
+    version: 2,
     createdAtIso: '2026-04-28T00:00:00.000Z',
     updatedAtIso: '2026-04-28T00:00:00.000Z',
+    resolvedAtIso: '',
+    resolvedBy: '',
+    reason: '',
+    resultTaskId: '',
     ...overrides,
-  }
+  } as KanbanProposal
 }
 
 async function flushBoardRefresh(): Promise<void> {
@@ -565,7 +573,7 @@ describe('useKanbanBoard', () => {
 
   it('loads proposals with the board and event refreshes', async () => {
     let emitEvent: (event: unknown) => void = () => {}
-    let proposals = [createProposal({ id: 'proposal_initial', title: 'Initial' })]
+    let proposals = [createProposal({ id: 'proposal_initial', payload: { title: 'Initial' } })]
     const gateway = withTaskListGateway(createGateway(createState([createTask({ id: 'task_a' })])), async () => createListResult([]))
     gateway.listKanbanProposals = vi.fn(async () => proposals)
     gateway.subscribeKanbanEvents = (nextHandler) => {
@@ -578,7 +586,7 @@ describe('useKanbanBoard', () => {
     expect(board.proposals.value.map((proposal) => proposal.id)).toEqual(['proposal_initial'])
 
     const stop = board.subscribeToEvents()
-    proposals = [createProposal({ id: 'proposal_refreshed', title: 'Refreshed' })]
+    proposals = [createProposal({ id: 'proposal_refreshed', payload: { title: 'Refreshed' } })]
     emitEvent({ type: 'task.updated' })
     await flushBoardRefresh()
 

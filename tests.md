@@ -4186,3 +4186,41 @@ Kanban board configuration panel, config-visible columns, WIP limit display, and
 #### Rollback/Cleanup
 - Re-enable hidden columns and clear temporary WIP limits if they were only used for testing
 - Move or archive temporary Kanban tasks
+
+---
+
+### Kanban Proposal V2 And Marker Parsing
+
+#### Feature/Change Name
+Kanban proposal V2 records, fenced `kanban:create` / `kanban:update` marker parsing, proposal approval/rejection routes, and status filtering.
+
+#### Prerequisites/Setup
+1. Start the dev server with `pnpm run dev -- --host 0.0.0.0 --port 4173`
+2. Open `http://127.0.0.1:4173/#/kanban`
+3. Create at least one task that can receive an update proposal
+4. Light theme and dark theme are both available from Settings
+
+#### Steps
+1. Run `pnpm vitest run src/server/kanban/__tests__/markerParser.test.ts src/server/kanban/__tests__/proposalService.test.ts src/server/kanban/__tests__/routes.test.ts`
+2. Run `pnpm run build`
+3. In light theme, set proposal policy to `Confirm`
+4. Submit or inspect an agent result containing a valid fenced `kanban:create` block and confirm the visible result text no longer includes the marker block
+5. Confirm a pending create proposal appears and approving it creates a task with the proposed metadata
+6. Submit or inspect an agent result containing a valid fenced `kanban:update` block for the existing task
+7. Confirm approving the update proposal patches the target task
+8. Reject a second proposal and confirm it no longer appears when filtering pending proposals
+9. Set proposal policy to `Auto`, submit a valid marker-created proposal, and confirm it is approved immediately
+10. Repeat proposal inbox inspection and approval/rejection readability checks in dark theme
+
+#### Expected Results
+- Valid marker fences are parsed into V2 create/update proposals and removed from clean result text
+- Invalid JSON marker fences remain in clean result text and do not create proposals
+- Create proposal approval creates a task; update proposal approval patches the target task
+- Rejected proposals record resolution metadata
+- Proposal listing honors the `status` filter
+- Light theme and dark theme remain readable for proposal-related UI surfaces
+
+#### Rollback/Cleanup
+- Restore proposal policy to the desired value
+- Archive or delete temporary tasks created during proposal approval
+- Reject or clear temporary pending proposals from local Kanban state if they were only used for testing

@@ -1,6 +1,6 @@
 import { isAbsolute, resolve } from 'node:path'
 import express, { type Request, type Response, type Router } from 'express'
-import type { KanbanExecutionPolicy } from '../../types/kanban'
+import type { KanbanExecutionPolicy, KanbanProposal } from '../../types/kanban'
 import type { CodexBridgeRuntime } from '../codexAppServerBridge'
 import { KanbanAuditLog, type KanbanAuditSink } from './auditLog'
 import { resolveKanbanConfig } from './config'
@@ -12,9 +12,12 @@ import { resolveKanbanDataDir } from './paths'
 import { classifyKanbanRemoteAccess, type KanbanRemoteAccess } from './remoteAccess'
 import {
   parseBoardConfigInput,
+  parseCreateProposalInput,
   parseCreateTaskInput,
   parseDeleteTaskInput,
+  parseListProposalsQuery,
   parseListTasksQuery,
+  parseProposalResolutionInput,
   parseReplaceAcceptanceCriteriaInput,
   parseReorderTaskInput,
   parseStatusInput,
@@ -309,20 +312,42 @@ export function createKanbanRouter(options: CreateKanbanRouterOptions = {}): Rou
     res.status(200).json({ data: task })
   }))
 
-  router.get('/proposals', asyncHandler(async (_req, res) => {
-    res.status(200).json({ data: await proposals.listProposals() })
+  router.get('/proposals', asyncHandler(async (req, res) => {
+    res.status(200).json({ data: await proposals.listProposals(parseListProposalsQuery(req.query)) })
+  }))
+
+  router.post('/proposals', asyncHandler(async (req, res) => {
+    assertTrustedAccessMutation(req, csrf)
+    const proposal = await proposals.createProposal(parseCreateProposalInput(req.body))
+    res.status(201).json({ data: proposal })
+  }))
+
+  router.post('/proposals/:proposalId/approve', asyncHandler(async (req, res) => {
+    assertTrustedAccessMutation(req, csrf)
+    const proposal = await proposals.approveProposal(
+      readRouteParam(req.params.proposalId, 'proposalId'),
+      parseProposalResolutionInput(req.body),
+    )
+    emitProposalResultEvent(eventBus, proposal)
+    res.status(200).json({ data: proposal })
   }))
 
   router.post('/proposals/:proposalId/accept', asyncHandler(async (req, res) => {
     assertTrustedAccessMutation(req, csrf)
-    const proposal = await proposals.acceptProposal(readRouteParam(req.params.proposalId, 'proposalId'))
-    eventBus.emit({ type: 'task.created', payload: { proposalId: proposal.id } })
+    const proposal = await proposals.acceptProposal(
+      readRouteParam(req.params.proposalId, 'proposalId'),
+      parseProposalResolutionInput(req.body),
+    )
+    emitProposalResultEvent(eventBus, proposal)
     res.status(200).json({ data: proposal })
   }))
 
   router.post('/proposals/:proposalId/reject', asyncHandler(async (req, res) => {
     assertTrustedAccessMutation(req, csrf)
-    const proposal = await proposals.rejectProposal(readRouteParam(req.params.proposalId, 'proposalId'))
+    const proposal = await proposals.rejectProposal(
+      readRouteParam(req.params.proposalId, 'proposalId'),
+      parseProposalResolutionInput(req.body),
+    )
     res.status(200).json({ data: proposal })
   }))
 
@@ -389,6 +414,14 @@ function createAuditActor(access: KanbanRemoteAccess, sessionId: string): Record
   }
 }
 
+function emitProposalResultEvent(eventBus: KanbanEventBus, proposal: KanbanProposal): void {
+  if (proposal.status !== 'approved' || !proposal.resultTaskId) return
+  eventBus.emit({
+    type: proposal.type === 'create' ? 'task.created' : 'task.updated',
+    payload: { taskId: proposal.resultTaskId, proposalId: proposal.id },
+  })
+}
+
 function createHttpError(status: number, message: string): Error & { status: number } {
   const error = new Error(message) as Error & { status: number }
   error.status = status
@@ -427,6 +460,11 @@ function resolveErrorStatus(error: unknown, message: string): number {
     || lowerMessage.startsWith('invalid kanban actor')
     || lowerMessage.startsWith('invalid kanban thinking')
     || lowerMessage.startsWith('dueatiso must be empty or yyyy-mm-dd')
+    || lowerMessage.startsWith('invalid kanban proposal')
+    || lowerMessage.startsWith('kanban proposal taskid is required')
+    || lowerMessage.startsWith('kanban proposal patch is required')
+    || lowerMessage.startsWith('invalid kanban proposal type')
+    || lowerMessage.startsWith('invalid kanban proposal status')
     || lowerMessage.startsWith('invalid proposal policy')
     || lowerMessage.startsWith('invalid default thinking')
     || lowerMessage.startsWith('defaults must be an object')

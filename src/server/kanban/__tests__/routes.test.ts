@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import express from 'express'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { KANBAN_CSRF_HEADER } from '../csrf'
 import { createKanbanMiddleware } from '../index'
 import { resolveProjectStatePath } from '../paths'
 
@@ -350,6 +351,96 @@ describe('createKanbanMiddleware', () => {
     expect(initial.body.data.columns.find((column) => column.key === 'ready')?.wipLimit).toBeNull()
     expect(updated.status).toBe(200)
     expect(updated.body.data.columns.find((column) => column.key === 'ready')?.wipLimit).toBe(3)
+  })
+
+  it('creates, filters, approves, and rejects V2 proposals over HTTP', async () => {
+    const { baseUrl } = await createTestServer()
+    const csrf = await requestJson<{ data: { csrfToken: string } }>(`${baseUrl}/codex-api/kanban/csrf`)
+    const csrfHeaders = { [KANBAN_CSRF_HEADER]: csrf.body.data.csrfToken }
+    const task = await requestJson<{ data: { id: string; version: number } }>(
+      `${baseUrl}/codex-api/kanban/tasks`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ title: 'Route proposal target' }),
+      },
+    )
+
+    const created = await requestJson<{
+      data: { id: string; type: string; status: string; payload: { taskId: string; patch: { blockedReason: string } } }
+    }>(
+      `${baseUrl}/codex-api/kanban/proposals`,
+      {
+        method: 'POST',
+        headers: csrfHeaders,
+        body: JSON.stringify({
+          type: 'update',
+          payload: {
+            taskId: task.body.data.id,
+            patch: { blockedReason: 'Needs credentials' },
+          },
+          sourceRunId: 'run_route',
+          sourceThreadId: 'thread_route',
+          proposedBy: 'codex:thread:thread_route',
+        }),
+      },
+    )
+    const pending = await requestJson<{ data: Array<{ id: string; status: string }> }>(
+      `${baseUrl}/codex-api/kanban/proposals?status=pending`,
+    )
+    const approved = await requestJson<{ data: { status: string; resultTaskId: string; resolvedBy: string } }>(
+      `${baseUrl}/codex-api/kanban/proposals/${created.body.data.id}/approve`,
+      {
+        method: 'POST',
+        headers: csrfHeaders,
+        body: JSON.stringify({ resolvedBy: 'operator', reason: 'Apply patch' }),
+      },
+    )
+    const updatedTask = await requestJson<{ data: { blockedReason: string; version: number } }>(
+      `${baseUrl}/codex-api/kanban/tasks/${task.body.data.id}`,
+    )
+    const rejectCandidate = await requestJson<{ data: { id: string } }>(
+      `${baseUrl}/codex-api/kanban/proposals`,
+      {
+        method: 'POST',
+        headers: csrfHeaders,
+        body: JSON.stringify({
+          type: 'create',
+          payload: { title: 'Reject over HTTP' },
+          sourceRunId: 'run_reject',
+          sourceThreadId: 'thread_reject',
+          proposedBy: 'operator',
+        }),
+      },
+    )
+    const rejected = await requestJson<{ data: { status: string; reason: string } }>(
+      `${baseUrl}/codex-api/kanban/proposals/${rejectCandidate.body.data.id}/reject`,
+      {
+        method: 'POST',
+        headers: csrfHeaders,
+        body: JSON.stringify({ resolvedBy: 'operator', reason: 'No longer needed' }),
+      },
+    )
+
+    expect(created.status).toBe(201)
+    expect(created.body.data).toMatchObject({
+      type: 'update',
+      status: 'pending',
+      payload: {
+        taskId: task.body.data.id,
+        patch: { blockedReason: 'Needs credentials' },
+      },
+    })
+    expect(pending.body.data.map((proposal) => proposal.id)).toContain(created.body.data.id)
+    expect(approved.status).toBe(200)
+    expect(approved.body.data).toMatchObject({
+      status: 'approved',
+      resultTaskId: task.body.data.id,
+      resolvedBy: 'operator',
+    })
+    expect(updatedTask.body.data.blockedReason).toBe('Needs credentials')
+    expect(updatedTask.body.data.version).toBe(task.body.data.version + 1)
+    expect(rejected.status).toBe(200)
+    expect(rejected.body.data).toMatchObject({ status: 'rejected', reason: 'No longer needed' })
   })
 
   it('reorders a task into a new status over HTTP', async () => {

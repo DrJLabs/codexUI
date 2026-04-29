@@ -197,21 +197,21 @@ export type KanbanReviewPacket = {
   unresolvedProposalIds: string[]
 }
 
-export type KanbanProposal = {
-  id: string
-  title: string
-  description: string
-  status: 'pending' | 'accepted' | 'rejected'
-  createdAtIso: string
-  updatedAtIso: string
-}
-
 export type CreateKanbanTaskInput = {
   title: string
   description?: string
   labels?: KanbanTaskLabel[]
   acceptanceCriteria?: Array<{ text: string; checked?: boolean }>
-}
+} & Partial<Pick<KanbanTask,
+  | 'priority'
+  | 'assignee'
+  | 'model'
+  | 'thinking'
+  | 'dueAtIso'
+  | 'estimateMinutes'
+  | 'actualMinutes'
+  | 'blockedReason'
+>>
 
 export type KanbanMetadataPatch = Partial<Pick<KanbanTask,
   | 'priority'
@@ -226,6 +226,64 @@ export type KanbanMetadataPatch = Partial<Pick<KanbanTask,
 export type UpdateKanbanTaskInput =
   Partial<Pick<KanbanTask, 'title' | 'description' | 'labels' | 'blockedReason'>>
   & KanbanMetadataPatch
+
+export type KanbanProposalStatus = 'pending' | 'approved' | 'rejected'
+
+export type KanbanCreateProposalPayload = CreateKanbanTaskInput
+
+export type KanbanUpdateProposalPayload = {
+  taskId: string
+  patch: UpdateKanbanTaskInput
+}
+
+export type KanbanProposalPayload = KanbanCreateProposalPayload | KanbanUpdateProposalPayload
+
+export type KanbanProposal =
+  | {
+    id: string
+    type: 'create'
+    payload: KanbanCreateProposalPayload
+    sourceRunId: string
+    sourceThreadId: string
+    proposedBy: KanbanActor
+    status: KanbanProposalStatus
+    version: number
+    createdAtIso: string
+    updatedAtIso: string
+    resolvedAtIso: string
+    resolvedBy: KanbanActor | ''
+    reason: string
+    resultTaskId: string
+  }
+  | {
+    id: string
+    type: 'update'
+    payload: KanbanUpdateProposalPayload
+    sourceRunId: string
+    sourceThreadId: string
+    proposedBy: KanbanActor
+    status: KanbanProposalStatus
+    version: number
+    createdAtIso: string
+    updatedAtIso: string
+    resolvedAtIso: string
+    resolvedBy: KanbanActor | ''
+    reason: string
+    resultTaskId: string
+  }
+
+export type CreateKanbanProposalInput = Pick<KanbanProposal,
+  'type' | 'payload' | 'sourceRunId' | 'sourceThreadId' | 'proposedBy'
+>
+
+export type ResolveKanbanProposalInput = {
+  resolvedBy?: KanbanActor
+  reason?: string
+}
+
+export type KanbanProposalListQuery = {
+  status?: KanbanProposalStatus
+}
 
 export type KanbanVersionedInput = {
   version: number

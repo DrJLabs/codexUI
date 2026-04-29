@@ -1,15 +1,19 @@
 import type {
+  CreateKanbanProposalInput,
   DeleteKanbanTaskInput,
   CreateKanbanTaskInput,
   KanbanActor,
   KanbanBoardColumn,
   KanbanDueDateIso,
   KanbanPriority,
+  KanbanProposalListQuery,
+  KanbanProposalStatus,
   KanbanStatus,
   KanbanTaskLabel,
   KanbanThinkingLevel,
   KanbanTaskListQuery,
   ReplaceKanbanAcceptanceCriteriaInput,
+  ResolveKanbanProposalInput,
   ReorderKanbanTaskInput,
   SetKanbanTaskStatusInput,
   UpdateKanbanBoardConfigInput,
@@ -22,6 +26,7 @@ import { KANBAN_STATUSES } from '../../types/kanban'
 const STATUS_IDS = new Set(KANBAN_STATUSES.map((status) => status.id))
 const PRIORITY_IDS = new Set(['critical', 'high', 'normal', 'low'])
 const THINKING_IDS = new Set(['off', 'low', 'medium', 'high'])
+const PROPOSAL_STATUSES = new Set(['pending', 'approved', 'rejected'])
 
 function asRecord(value: unknown): Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}
@@ -138,12 +143,29 @@ export function parseCreateTaskInput(value: unknown): CreateKanbanTaskInput {
       }
     }).filter((item) => item.text)
     : []
-  return {
+  const input: CreateKanbanTaskInput = {
     title,
     description: readString(record.description),
     labels: readLabels(record.labels),
     acceptanceCriteria: criteria,
   }
+  if ('blockedReason' in record) input.blockedReason = readString(record.blockedReason)
+  if ('priority' in record) {
+    const priority = readString(record.priority)
+    if (!PRIORITY_IDS.has(priority)) throw new Error('Invalid Kanban priority')
+    input.priority = priority as KanbanPriority
+  }
+  if ('assignee' in record) input.assignee = readKanbanActor(record.assignee)
+  if ('model' in record) input.model = readString(record.model)
+  if ('thinking' in record) {
+    const thinking = readString(record.thinking)
+    if (!THINKING_IDS.has(thinking)) throw new Error('Invalid Kanban thinking')
+    input.thinking = thinking as KanbanThinkingLevel
+  }
+  if ('dueAtIso' in record) input.dueAtIso = readDueDateIso(record.dueAtIso)
+  if ('estimateMinutes' in record) input.estimateMinutes = readNullableNonnegativeInteger(record.estimateMinutes, 'estimateMinutes')
+  if ('actualMinutes' in record) input.actualMinutes = readNullableNonnegativeInteger(record.actualMinutes, 'actualMinutes')
+  return input
 }
 
 export function parseUpdateTaskInput(value: unknown): UpdateKanbanTaskInput {
@@ -218,6 +240,48 @@ export function parseListTasksQuery(value: unknown): KanbanTaskListQuery {
     label: readOptionalString(record.label),
     limit: Math.min(requestedLimit, 200),
     offset: requestedOffset,
+  }
+}
+
+export function parseCreateProposalInput(value: unknown): CreateKanbanProposalInput {
+  const record = asRecord(value)
+  const type = readString(record.type)
+  if (type !== 'create' && type !== 'update') {
+    throw new Error('Invalid Kanban proposal type')
+  }
+  return {
+    type,
+    payload: type === 'create' ? parseCreateTaskInput(record.payload) : parseUpdateProposalPayload(record.payload),
+    sourceRunId: readString(record.sourceRunId),
+    sourceThreadId: readString(record.sourceThreadId),
+    proposedBy: 'proposedBy' in record ? readKanbanActor(record.proposedBy) : 'operator',
+  } as CreateKanbanProposalInput
+}
+
+export function parseListProposalsQuery(value: unknown): KanbanProposalListQuery {
+  const record = asRecord(value)
+  if (!('status' in record) || record.status === undefined || record.status === '') return {}
+  const status = readString(record.status)
+  if (!PROPOSAL_STATUSES.has(status)) throw new Error('Invalid Kanban proposal status')
+  return { status: status as KanbanProposalStatus }
+}
+
+export function parseProposalResolutionInput(value: unknown): ResolveKanbanProposalInput {
+  const record = asRecord(value)
+  return {
+    resolvedBy: 'resolvedBy' in record ? readKanbanActor(record.resolvedBy) : 'operator',
+    reason: readString(record.reason),
+  }
+}
+
+function parseUpdateProposalPayload(value: unknown): { taskId: string; patch: UpdateKanbanTaskInput } {
+  const record = asRecord(value)
+  const taskId = readString(record.taskId)
+  if (!taskId) throw new Error('Kanban proposal taskId is required')
+  if (!('patch' in record)) throw new Error('Kanban proposal patch is required')
+  return {
+    taskId,
+    patch: parseUpdateTaskInput(record.patch),
   }
 }
 
