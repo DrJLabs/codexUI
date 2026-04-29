@@ -158,6 +158,25 @@ describe('CodexKanbanRunner', () => {
     expect(rpcCalls.map((call) => call.method)).toContain('turn/interrupt')
   })
 
+  it('removes interrupted queued runs so later queue promotion can continue', async () => {
+    const { service, storage, runner } = await createHarness()
+    const firstTask = await service.createTask({ title: 'Active before queued interrupt' })
+    const secondTask = await service.createTask({ title: 'Queued interrupt target' })
+    const thirdTask = await service.createTask({ title: 'Runs after queued interrupt' })
+    const firstRun = await runner.startTaskRun(firstTask.id, { access, sessionId: 'session_1' })
+    const secondRun = await runner.startTaskRun(secondTask.id, { access, sessionId: 'session_1' })
+
+    expect(secondRun.run.state).toBe('queued')
+    await runner.interruptRun(secondRun.run.id, { access, sessionId: 'session_1' })
+    await runner.completeRun(firstRun.run.id, { result: 'Finished active run' })
+    const thirdRun = await runner.startTaskRun(thirdTask.id, { access, sessionId: 'session_1' })
+
+    const state = await storage.load()
+    expect(state.runs[secondRun.run.id]).toMatchObject({ state: 'cancelled' })
+    expect(thirdRun.run.state).toBe('running')
+    expect(state.tasks[thirdTask.id]).toMatchObject({ status: 'running', runState: 'running' })
+  })
+
   it('completes a matching active run from a turn completion notification', async () => {
     const { service, storage, runner, rpcCalls, notificationListeners, bridge } = await createHarness()
     const task = await service.createTask({ title: 'Completion task' })
@@ -288,6 +307,13 @@ describe('CodexKanbanRunner', () => {
     const secondTask = await service.createTask({ title: 'Second queued task' })
     const firstRun = await runner.startTaskRun(firstTask.id, { access, sessionId: 'session_1' })
     const secondRun = await runner.startTaskRun(secondTask.id, { access, sessionId: 'session_1' })
+    await storage.mutate((state) => {
+      state.tasks[firstTask.id] = {
+        ...state.tasks[firstTask.id]!,
+        reviewPacketId: 'review_packet_stale',
+      }
+      state.reviewPackets.review_packet_stale = { id: 'review_packet_stale' }
+    })
 
     expect(secondRun.run.state).toBe('queued')
     await runner.completeRun(firstRun.run.id, { result: 'Completed first task' })
@@ -329,5 +355,31 @@ describe('CodexKanbanRunner', () => {
     expect(state.runs[started.run.id]).toMatchObject({ state: 'succeeded' })
     expect(state.tasks[task.id]!.result).toBe('Correct completed turn text')
     expect(state.tasks[task.id]!.result).not.toContain('Wrong latest')
+  })
+
+  it('does not fall back to another turn when the completed turn has no assistant text', async () => {
+    const { service, storage, runner, notificationListeners } = await createHarness({
+      readThreadResponse: {
+        thread: {
+          turns: [
+            { id: 'turn_1', items: [{ type: 'userMessage', content: [{ type: 'text', text: 'No assistant here' }] }] },
+            { id: 'turn_2', items: [{ type: 'agentMessage', text: 'Wrong latest assistant text' }] },
+          ],
+        },
+      },
+    })
+    const task = await service.createTask({ title: 'No fallback notification task' })
+    const started = await runner.startTaskRun(task.id, { access, sessionId: 'session_1' })
+
+    await Promise.resolve(notificationListeners[0]!({
+      method: 'turn/completed',
+      params: { threadId: 'thread_1', turnId: 'turn_1' },
+      atIso: new Date().toISOString(),
+    }))
+
+    const state = await storage.load()
+    expect(state.runs[started.run.id]).toMatchObject({ state: 'running' })
+    expect(state.tasks[task.id]!.result).toBe('')
+    expect(state.tasks[task.id]!.status).toBe('running')
   })
 })

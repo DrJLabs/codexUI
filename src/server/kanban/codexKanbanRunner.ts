@@ -117,7 +117,11 @@ export class CodexKanbanRunner {
     await this.writeRunLog(cancelledRun, 'Run interrupted by local user.\n')
     await this.writeRunEvent(cancelledRun, { type: 'run.cancelled' })
     const task = await this.persistRun(cancelledRun, { status: 'cancelled', runState: 'cancelled' })
-    await this.releaseRunAndStartPromoted(runId)
+    if (run.state === 'queued') {
+      await this.cancelRunAndStartPromoted(runId)
+    } else {
+      await this.releaseRunAndStartPromoted(runId)
+    }
     return { run: cancelledRun, task }
   }
 
@@ -238,6 +242,7 @@ export class CodexKanbanRunner {
         result: proposalResult.cleanText,
         resultAtIso: now,
         errorMessage: '',
+        reviewPacketId: '',
         proposalIds: mergeUnique(task.proposalIds, proposalIds),
         updatedAtIso: now,
         version: task.version + 1,
@@ -260,6 +265,7 @@ export class CodexKanbanRunner {
         completedTask = {
           ...task,
           errorMessage: reviewPacketError,
+          reviewPacketId: '',
           updatedAtIso: completedRun.updatedAtIso,
           version: task.version + 1,
         }
@@ -359,13 +365,27 @@ export class CodexKanbanRunner {
   private async releaseRunAndStartPromoted(runId: string): Promise<void> {
     const promoted = this.queue.complete(runId)
     for (const item of promoted) {
-      await this.startPromotedRun(item.runId, item.taskId).catch(() => {})
+      await this.startPromotedRun(item.runId, item.taskId).catch(async () => {
+        await this.releaseRunAndStartPromoted(item.runId)
+      })
+    }
+  }
+
+  private async cancelRunAndStartPromoted(runId: string): Promise<void> {
+    const promoted = this.queue.cancel(runId)
+    for (const item of promoted) {
+      await this.startPromotedRun(item.runId, item.taskId).catch(async () => {
+        await this.releaseRunAndStartPromoted(item.runId)
+      })
     }
   }
 
   private async startPromotedRun(runId: string, taskId: string): Promise<void> {
     const run = await this.readRun(runId)
-    if (run.state !== 'queued') return
+    if (run.state !== 'queued') {
+      await this.releaseRunAndStartPromoted(run.id)
+      return
+    }
     const task = await this.readTask(taskId)
     try {
       await this.startActiveRun(run, task)
@@ -536,8 +556,7 @@ function extractLatestAssistantMessageText(payload: unknown, completedTurnId = '
   const turns = readTurns(payload)
   if (completedTurnId) {
     const completedTurn = turns.map(asRecord).find((turn) => readTurnId(turn) === completedTurnId)
-    const completedText = completedTurn ? extractLatestAssistantMessageFromTurn(completedTurn) : ''
-    if (completedText) return completedText
+    return completedTurn ? extractLatestAssistantMessageFromTurn(completedTurn) : ''
   }
   for (let turnIndex = turns.length - 1; turnIndex >= 0; turnIndex -= 1) {
     const turn = asRecord(turns[turnIndex])
