@@ -39,7 +39,7 @@ defineEmits<{
   'interrupt-run': []
 }>()
 
-const isActive = computed(() => ['queued', 'preparing_worktree', 'starting_codex', 'running', 'waiting_for_approval', 'running_tests', 'collecting_artifacts'].includes(props.task.runState))
+const isActive = computed(() => ['queued', 'preparing_worktree', 'starting_codex', 'running', 'waiting_for_approval', 'running_tests', 'collecting_artifacts', 'stopping'].includes(props.task.runState))
 const runDisabledReason = computed(() => {
   if (!props.policy?.executionEnabled) return 'Execution is disabled for this session.'
   if (isActive.value) return 'This task already has an active run.'

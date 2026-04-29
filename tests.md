@@ -4377,9 +4377,11 @@ Duplicate queued-run protection and metadata validation affordances.
 
 #### Expected Results
 - Duplicate queued runs for the same task are rejected before a second queued item is stored.
+- Queued-run promotion emits board refresh events when capacity opens.
 - Unit tests and build pass.
 - Metadata validation errors are visible and field-level invalid styling appears in both light and dark theme.
 - Switching selected tasks resets stale metadata validation messages.
+- Tasks in `stopping` run state still disable Run/Stop controls as active work in both light and dark theme.
 
 #### Rollback/Cleanup
 - Revert temporary metadata edits or archive/delete tasks created for the smoke check.

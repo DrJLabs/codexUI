@@ -55,7 +55,7 @@ export class KanbanStorage {
 
   private async writeState(state: KanbanStateFileV1): Promise<void> {
     await mkdir(dirname(this.statePath), { recursive: true })
-    const tmpPath = `${this.statePath}.${process.pid}.${Date.now()}.${randomUUID()}.tmp`
+    const tmpPath = join(dirname(this.statePath), `.state-${randomUUID()}.tmp`)
     await writeFile(tmpPath, `${JSON.stringify(state, null, 2)}\n`, 'utf8')
     await rename(tmpPath, this.statePath)
   }

@@ -418,7 +418,9 @@ export class CodexKanbanRunner {
     }
     const task = await this.readTask(taskId)
     try {
-      await this.startActiveRun(run, task)
+      const result = await this.startActiveRun(run, task)
+      this.eventBus?.emit({ type: 'task.updated', payload: { taskId: result.task.id, runId: result.run.id } })
+      this.eventBus?.emit({ type: 'run.started', payload: { runId: result.run.id, taskId: result.task.id, state: result.run.state } })
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Kanban run failed to start'
       const latestRun = await this.readRun(run.id).catch(() => run)

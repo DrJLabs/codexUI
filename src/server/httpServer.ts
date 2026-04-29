@@ -77,7 +77,8 @@ function readWildcardPathParam(value: unknown): string {
 export function createServer(options: ServerOptions = {}): ServerInstance {
   const app = express()
   const bridge = createCodexBridgeMiddleware()
-  const kanban = createKanbanMiddleware({ bridge, projectRoot: options.projectRoot ?? process.cwd() })
+  const projectRoot = options.projectRoot ?? process.cwd()
+  const kanban = createKanbanMiddleware({ bridge, projectRoot })
   const authSession = options.password ? createAuthSession(options.password) : null
 
   // 1. Auth middleware (if password is set)

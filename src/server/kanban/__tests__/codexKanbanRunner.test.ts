@@ -128,9 +128,10 @@ async function createHarness(options: HarnessOptions = {}) {
     auditLog: new KanbanAuditLog({ dataDir, projectRoot }),
     proposalService,
     reviewPacketService,
+    eventBus,
     queueLimits: options.queueLimits,
   })
-  return { projectRoot, service, storage, runner, rpcCalls, notificationListeners, bridge }
+  return { projectRoot, service, storage, runner, rpcCalls, notificationListeners, bridge, eventBus }
 }
 
 describe('CodexKanbanRunner', () => {
@@ -222,6 +223,29 @@ describe('CodexKanbanRunner', () => {
     expect(state.runs[secondRun.run.id]).toMatchObject({ state: 'cancelled' })
     expect(thirdRun.run.state).toBe('running')
     expect(state.tasks[thirdTask.id]).toMatchObject({ status: 'running', runState: 'running' })
+  })
+
+  it('emits refresh events when a queued run is promoted', async () => {
+    const { service, runner, eventBus } = await createHarness()
+    const events: Array<{ type: string; payload: unknown }> = []
+    const unsubscribe = eventBus.subscribe((event) => events.push(event))
+    const firstTask = await service.createTask({ title: 'Active before promotion' })
+    const secondTask = await service.createTask({ title: 'Promoted queued run' })
+    const firstRun = await runner.startTaskRun(firstTask.id, { access, sessionId: 'session_1' })
+    const secondRun = await runner.startTaskRun(secondTask.id, { access, sessionId: 'session_1' })
+
+    await runner.completeRun(firstRun.run.id, { result: 'Finished active run' })
+    unsubscribe()
+
+    expect(secondRun.run.state).toBe('queued')
+    expect(events).toContainEqual(expect.objectContaining({
+      type: 'task.updated',
+      payload: { taskId: secondTask.id, runId: secondRun.run.id },
+    }))
+    expect(events).toContainEqual(expect.objectContaining({
+      type: 'run.started',
+      payload: { runId: secondRun.run.id, taskId: secondTask.id, state: 'running' },
+    }))
   })
 
   it('applies configured queue limits when starting runs', async () => {
