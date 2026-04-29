@@ -425,6 +425,30 @@ describe('useKanbanBoard', () => {
     expect(board.visibleStatuses.value.map((status) => status.id)).toEqual(['backlog', 'running'])
   })
 
+  it('falls back to all statuses when config hides every column', async () => {
+    const board = useKanbanBoard({
+      gateway: createGateway(createState([createTask({ id: 'task_a' })])),
+      storage: null,
+    })
+
+    await board.loadBoard()
+
+    board.config.value = {
+      ...boardConfig,
+      columns: boardConfig.columns.map((column) => ({ ...column, visible: false })),
+    }
+
+    expect(board.visibleStatuses.value.map((status) => status.id)).toEqual([
+      'backlog',
+      'ready',
+      'running',
+      'review',
+      'rework',
+      'done',
+      'cancelled',
+    ])
+  })
+
   it('updates board config through the gateway and patches local config state', async () => {
     const nextConfig: KanbanBoardConfig = {
       ...boardConfig,
@@ -602,6 +626,30 @@ describe('useKanbanBoard', () => {
     expect(moved.status).toBe('ready')
     expect(board.tasks.value.find((item) => item.id === task.id)?.status).toBe('ready')
     expect(gateway.reorderKanbanTask).toHaveBeenCalledWith(task.id, { version: task.version, status: 'ready', afterTaskId: other.id })
+  })
+
+  it('refreshes sibling order after reordering a task before the first task', async () => {
+    const taskA = createTask({ id: 'task_a', title: 'A', status: 'backlog', columnOrder: 0, version: 1 })
+    const taskB = createTask({ id: 'task_b', title: 'B', status: 'backlog', columnOrder: 1, version: 1 })
+    const taskC = createTask({ id: 'task_c', title: 'C', status: 'backlog', columnOrder: 2, version: 1 })
+    let currentState = createState([taskA, taskB, taskC])
+    const gateway = withTaskListGateway(createGateway(currentState), async () => createListResult(currentState.tasks))
+    gateway.loadKanbanState = async () => currentState
+    gateway.reorderKanbanTask = vi.fn(async (taskId) => {
+      const moved = { ...taskC, columnOrder: 0, version: 2 }
+      const shiftedA = { ...taskA, columnOrder: 1, version: 2 }
+      const shiftedB = { ...taskB, columnOrder: 2, version: 2 }
+      currentState = createState([moved, shiftedA, shiftedB])
+      return currentState.tasks.find((task) => task.id === taskId) ?? moved
+    })
+    const board = useKanbanBoard({ gateway, storage: null })
+
+    await board.loadBoard()
+    await board.reorderTask(taskC.id, { status: 'backlog', beforeTaskId: taskA.id })
+
+    expect(board.visibleTasksByStatus.value.backlog.map((task) => task.id)).toEqual(['task_c', 'task_a', 'task_b'])
+    expect(board.tasks.value.find((task) => task.id === 'task_a')?.version).toBe(2)
+    expect(board.tasks.value.find((task) => task.id === 'task_b')?.version).toBe(2)
   })
 
   it('captures version conflict errors from mutations for inspection', async () => {

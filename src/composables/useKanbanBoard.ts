@@ -85,6 +85,17 @@ function createEmptyTasksByStatus(): Record<KanbanStatus, KanbanTask[]> {
   return grouped
 }
 
+function sortTaskGroup(tasks: KanbanTask[]): KanbanTask[] {
+  return tasks.sort((left, right) => left.columnOrder - right.columnOrder)
+}
+
+function sortTasksByStatus(grouped: Record<KanbanStatus, KanbanTask[]>): Record<KanbanStatus, KanbanTask[]> {
+  for (const status of KANBAN_STATUSES) {
+    sortTaskGroup(grouped[status.id])
+  }
+  return grouped
+}
+
 function readStoredFilters(storage: KanbanBoardStorage): KanbanFilters {
   if (!storage) return { searchQuery: '', labelNames: [], priorities: [], assignee: '' }
   try {
@@ -165,7 +176,7 @@ export function useKanbanBoard(options: UseKanbanBoardOptions = {}) {
       if (task.archived) continue
       grouped[task.status].push(task)
     }
-    return grouped
+    return sortTasksByStatus(grouped)
   })
 
   const visibleTasksByStatus = computed(() => {
@@ -191,7 +202,7 @@ export function useKanbanBoard(options: UseKanbanBoardOptions = {}) {
       if (assignee && task.assignee !== assignee) continue
       grouped[task.status].push(task)
     }
-    return grouped
+    return sortTasksByStatus(grouped)
   })
 
   const countsByStatus = computed(() => Object.fromEntries(
@@ -209,9 +220,10 @@ export function useKanbanBoard(options: UseKanbanBoardOptions = {}) {
   const visibleStatuses = computed(() => {
     const currentConfig = config.value
     if (!currentConfig) return [...KANBAN_STATUSES]
-    return currentConfig.columns
+    const visibleColumns = currentConfig.columns
       .filter((column) => column.visible)
       .map((column) => ({ id: column.key, title: column.title }))
+    return visibleColumns.length > 0 ? visibleColumns : [...KANBAN_STATUSES]
   })
 
   const assigneeFilterOptions = computed<KanbanActor[]>(() => {
@@ -348,7 +360,22 @@ export function useKanbanBoard(options: UseKanbanBoardOptions = {}) {
   }
 
   async function reorderTask(taskId: string, input: Omit<ReorderKanbanTaskInput, 'version'>): Promise<KanbanTask> {
-    return await mutateCurrentTask(taskId, async (task) => await gateway.reorderKanbanTask(taskId, { version: task.version, ...input }))
+    const current = findCurrentTask(taskId)
+    versionConflict.value = null
+    try {
+      const task = await gateway.reorderKanbanTask(taskId, { version: current.version, ...input })
+      patchTask(task)
+      const [snapshot, taskList] = await Promise.all([
+        gateway.loadKanbanState(),
+        gateway.listKanbanTasks(serverQuery.value),
+      ])
+      applySnapshot(snapshot)
+      listState.value = taskList
+      return snapshot.tasks.find((item) => item.id === taskId) ?? task
+    } catch (error) {
+      captureVersionConflict(taskId, error)
+      throw error
+    }
   }
 
   async function updateConfig(input: UpdateKanbanBoardConfigInput): Promise<KanbanBoardConfig> {

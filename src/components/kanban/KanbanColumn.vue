@@ -44,13 +44,15 @@ const countLabel = computed(() => props.wipLimit === null ? String(props.tasks.l
 const isOverWipLimit = computed(() => props.wipLimit !== null && props.tasks.length > props.wipLimit)
 
 function onDragOver(event: DragEvent): void {
+  if (!hasKanbanTaskPayload(event.dataTransfer)) return
   if (event.dataTransfer) {
     event.dataTransfer.dropEffect = 'move'
   }
 }
 
 function onDrop(event: DragEvent): void {
-  const taskId = event.dataTransfer?.getData('application/x-kanban-task-id') || event.dataTransfer?.getData('text/plain') || ''
+  if (!hasKanbanTaskPayload(event.dataTransfer)) return
+  const taskId = event.dataTransfer?.getData('application/x-kanban-task-id') || ''
   if (!taskId) return
 
   const position = resolveDropPosition(event, taskId)
@@ -61,6 +63,10 @@ function onDrop(event: DragEvent): void {
     status: props.status.id,
     ...position,
   })
+}
+
+function hasKanbanTaskPayload(dataTransfer: DataTransfer | null): boolean {
+  return Array.from(dataTransfer?.types ?? []).includes('application/x-kanban-task-id')
 }
 
 function resolveDropPosition(event: DragEvent, draggedTaskId: string): { beforeTaskId?: string; afterTaskId?: string } | null {

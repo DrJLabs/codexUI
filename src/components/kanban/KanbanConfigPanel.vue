@@ -22,7 +22,7 @@
           <span>WIP</span>
           <input
             type="number"
-            min="0"
+            min="1"
             step="1"
             inputmode="numeric"
             :value="column.wipLimit ?? ''"
@@ -119,11 +119,14 @@ function setColumnVisible(status: KanbanStatus, visible: boolean): void {
 
 function setColumnWipLimit(status: KanbanStatus, rawValue: string): void {
   const trimmed = rawValue.trim()
-  const wipLimit = trimmed === '' ? null : Math.max(0, Math.floor(Number(trimmed)))
+  const parsedValue = Number(trimmed)
+  const wipLimit = trimmed === '' || !Number.isFinite(parsedValue) || parsedValue < 1
+    ? null
+    : Math.floor(parsedValue)
   draft.value = {
     ...draft.value,
     columns: draft.value.columns.map((column) => column.key === status
-      ? { ...column, wipLimit: Number.isFinite(wipLimit) ? wipLimit : null }
+      ? { ...column, wipLimit }
       : column),
   }
 }
