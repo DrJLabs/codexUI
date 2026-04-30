@@ -237,6 +237,8 @@ Expected outcome:
 - A Desktop/runtime parity note. The local Codex reference snapshot does not currently document an automation TOML schema, so do not infer unsupported TOML fields from UI wording alone.
 - A migration decision recorded in this plan or a follow-up note: sidecar-first unless parity proves TOML metadata is safe.
 
+Phase 0 contract discovery artifact: [`../notes/2026-04-30-automations-phase-0-contract-discovery.md`](../notes/2026-04-30-automations-phase-0-contract-discovery.md).
+
 ### Phase 1: Stabilize Right Sidebar IA First
 
 Clean the right sidebar before wiring Automations deeply. The current drawer mixes first-level product areas with thread artifact tabs, which will make Automations feel bolted on.
