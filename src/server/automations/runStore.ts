@@ -89,7 +89,11 @@ function runJsonPath(runsRoot: string, runId: string): string {
 }
 
 function parseRun(raw: string): AutomationRun {
-  return JSON.parse(raw) as AutomationRun
+  const parsed = JSON.parse(raw) as Partial<AutomationRun>
+  return {
+    ...parsed,
+    branchName: typeof parsed.branchName === 'string' ? parsed.branchName : null,
+  } as AutomationRun
 }
 
 function serializeRun(run: AutomationRun): string {

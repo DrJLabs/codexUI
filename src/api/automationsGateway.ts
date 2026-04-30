@@ -1,4 +1,4 @@
-import type { AutomationDefinition, AutomationsState, AutomationTemplate } from '../types/automations'
+import type { AutomationDefinition, AutomationRun, AutomationsState, AutomationTemplate, AutomationRunMode } from '../types/automations'
 
 export type CreateAutomationInput = {
   kind: 'heartbeat'
@@ -8,7 +8,7 @@ export type CreateAutomationInput = {
   targetThreadId: string
   description?: string | null
   cwd?: string | null
-  runMode?: 'chat' | null
+  runMode?: AutomationRunMode | null
   runProfileId?: string | null
   model?: string | null
   reasoningEffort?: string | null
@@ -94,6 +94,17 @@ export async function updateAutomation(id: string, patch: PatchAutomationInput):
     method: 'PATCH',
     body: JSON.stringify(patch),
   })
+}
+
+export async function runAutomationNow(id: string): Promise<AutomationRun> {
+  return await requestProtectedAutomations<AutomationRun>(`/${encodeURIComponent(id)}/run`, {
+    method: 'POST',
+    body: JSON.stringify({}),
+  })
+}
+
+export async function listAutomationRuns(id: string): Promise<AutomationRun[]> {
+  return await requestAutomations<AutomationRun[]>(`/${encodeURIComponent(id)}/runs`)
 }
 
 export async function pauseAutomation(id: string): Promise<AutomationDefinition> {

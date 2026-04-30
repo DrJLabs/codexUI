@@ -110,6 +110,25 @@
             <input v-model="draft.targetThreadId" type="text" :required="draft.mode === 'create'" />
           </label>
 
+          <label class="automations-field">
+            <span>Run mode</span>
+            <select v-model="draft.runMode">
+              <option value="chat">Chat</option>
+              <option value="local">Local cwd</option>
+              <option value="worktree">Managed worktree</option>
+            </select>
+          </label>
+
+          <label class="automations-field" :data-required="requiresCwd">
+            <span>Cwd <em v-if="requiresCwd">required</em></span>
+            <input
+              v-model="draft.cwd"
+              type="text"
+              placeholder="/absolute/project/path"
+              :required="requiresCwd"
+            />
+          </label>
+
           <label class="automations-field automations-field-wide">
             <span>Prompt</span>
             <textarea v-model="draft.prompt" rows="8" required />
@@ -161,9 +180,63 @@
           </div>
         </dl>
 
+        <section v-if="draft.mode === 'edit'" class="automations-runs" aria-label="Recent automation runs">
+          <div class="automations-runs-header">
+            <h3>Recent runs</h3>
+            <button type="button" :disabled="isRunHistoryLoading" @click="loadRunHistory()">
+              {{ isRunHistoryLoading ? 'Refreshing...' : 'Refresh' }}
+            </button>
+          </div>
+          <p v-if="runHistoryError" class="automations-error-inline" role="alert">{{ runHistoryError }}</p>
+          <p v-else-if="runHistory.length === 0" class="automations-empty">No runs recorded yet.</p>
+          <ul v-else class="automations-run-list">
+            <li v-for="run in runHistory" :key="run.id" class="automations-run-item">
+              <div class="automations-run-main">
+                <span class="automations-status-pill" :data-status="run.state">{{ run.state }}</span>
+                <strong>{{ run.trigger }}</strong>
+                <span>{{ formatTimestamp(run.createdAtIso) }}</span>
+              </div>
+              <dl>
+                <div>
+                  <dt>Thread</dt>
+                  <dd><code>{{ run.threadId || run.targetThreadId || 'n/a' }}</code></dd>
+                </div>
+                <div>
+                  <dt>Turn</dt>
+                  <dd><code>{{ run.turnId || 'n/a' }}</code></dd>
+                </div>
+                <div>
+                  <dt>Cwd/worktree</dt>
+                  <dd><code>{{ run.worktreePath || run.cwd || 'n/a' }}</code></dd>
+                </div>
+                <div>
+                  <dt>Log</dt>
+                  <dd><code>{{ run.logPath }}</code></dd>
+                </div>
+                <div>
+                  <dt>Started</dt>
+                  <dd>{{ formatTimestamp(run.startedAtIso) }}</dd>
+                </div>
+                <div>
+                  <dt>Completed</dt>
+                  <dd>{{ formatTimestamp(run.completedAtIso) }}</dd>
+                </div>
+              </dl>
+            </li>
+          </ul>
+        </section>
+
         <div class="automations-editor-actions">
           <button class="automations-primary" type="submit" :disabled="isSaving">
             {{ isSaving ? 'Saving...' : draft.mode === 'edit' ? 'Save' : 'Create' }}
+          </button>
+          <button
+            v-if="draft.mode === 'edit'"
+            type="button"
+            :disabled="isSaving || isRunningNow"
+            @click="runSelectedNow"
+          >
+            {{ isRunningNow ? 'Starting...' : 'Run now' }}
           </button>
           <button
             v-if="selectedAutomation?.status === 'active'"
@@ -208,17 +281,23 @@ const {
   diagnostics,
   isLoading,
   isSaving,
+  isRunningNow,
+  isRunHistoryLoading,
   errorMessage,
   mutationError,
+  runHistoryError,
   selectedAutomationId,
   selectedAutomation,
   draft,
+  runHistory,
   loadAll,
   selectAutomation,
   startCreate,
   saveDraft,
   pauseSelected,
   resumeSelected,
+  runSelectedNow,
+  loadRunHistory,
   deleteSelectedRemoveNative,
   applyThreadPrefill,
   clearThreadPrefill,
@@ -226,6 +305,7 @@ const {
 
 const activeCount = computed(() => definitions.value.filter((definition) => definition.status === 'active').length)
 const pausedCount = computed(() => definitions.value.filter((definition) => definition.status === 'paused').length)
+const requiresCwd = computed(() => draft.value.runMode === 'local' || draft.value.runMode === 'worktree')
 
 watch(
   () => route.query.threadId,
@@ -253,7 +333,8 @@ async function confirmDelete(): Promise<void> {
   await deleteSelectedRemoveNative()
 }
 
-function formatTimestamp(value: string): string {
+function formatTimestamp(value: string | null): string {
+  if (!value) return 'n/a'
   const timestamp = Date.parse(value)
   if (!Number.isFinite(timestamp)) return value || 'n/a'
   return new Date(timestamp).toLocaleString()
@@ -483,7 +564,8 @@ function formatTimestamp(value: string): string {
 }
 
 .automations-field input,
-.automations-field textarea {
+.automations-field textarea,
+.automations-field select {
   width: 100%;
   min-width: 0;
   border: 1px solid rgba(148, 163, 184, 0.42);
@@ -495,6 +577,12 @@ function formatTimestamp(value: string): string {
   padding: 8px 9px;
 }
 
+.automations-field em {
+  color: #b45309;
+  font-style: normal;
+  font-weight: 700;
+}
+
 .automations-field textarea {
   resize: vertical;
 }
@@ -503,6 +591,75 @@ function formatTimestamp(value: string): string {
   display: grid;
   gap: 8px;
   margin: 14px 0 0;
+}
+
+.automations-runs {
+  margin-top: 16px;
+}
+
+.automations-runs-header,
+.automations-run-main {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.automations-runs-header h3 {
+  margin: 0;
+  font-size: 14px;
+}
+
+.automations-run-list {
+  display: grid;
+  gap: 8px;
+  margin: 10px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.automations-run-item {
+  border: 1px solid rgba(148, 163, 184, 0.24);
+  border-radius: 8px;
+  padding: 10px;
+  background: rgba(248, 250, 252, 0.72);
+}
+
+.automations-run-main {
+  justify-content: flex-start;
+  color: #64748b;
+  font-size: 12px;
+}
+
+.automations-run-main strong {
+  color: #0f172a;
+  text-transform: capitalize;
+}
+
+.automations-run-item dl {
+  display: grid;
+  gap: 6px;
+  margin: 8px 0 0;
+}
+
+.automations-run-item dl div {
+  display: grid;
+  grid-template-columns: 90px minmax(0, 1fr);
+  gap: 8px;
+}
+
+.automations-run-item dt {
+  color: #64748b;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.automations-run-item dd {
+  min-width: 0;
+  margin: 0;
+  color: #334155;
+  font-size: 12px;
 }
 
 .automations-storage div {
@@ -600,12 +757,14 @@ function formatTimestamp(value: string): string {
 :global(:root.dark) .automations-row-button,
 :global(:root.dark) .automations-field input,
 :global(:root.dark) .automations-field textarea,
+:global(:root.dark) .automations-field select,
 :global(:root.dark) .automations-page button {
   color: #e5e7eb;
 }
 
 :global(:root.dark) .automations-field input,
 :global(:root.dark) .automations-field textarea,
+:global(:root.dark) .automations-field select,
 :global(:root.dark) .automations-page button {
   border-color: rgba(71, 85, 105, 0.82);
   background: rgba(2, 6, 23, 0.7);
@@ -626,6 +785,21 @@ function formatTimestamp(value: string): string {
 :global(:root.dark) .automations-diagnostics-copy,
 :global(:root.dark) .automations-diagnostic-severity {
   color: #fbbf24;
+}
+
+:global(:root.dark) .automations-run-item {
+  border-color: rgba(71, 85, 105, 0.72);
+  background: rgba(2, 6, 23, 0.42);
+}
+
+:global(:root.dark) .automations-run-main,
+:global(:root.dark) .automations-run-item dt,
+:global(:root.dark) .automations-run-item dd {
+  color: #94a3b8;
+}
+
+:global(:root.dark) .automations-run-main strong {
+  color: #e5e7eb;
 }
 
 @media (max-width: 980px) {

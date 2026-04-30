@@ -2,15 +2,17 @@ import { computed, ref, type Ref } from 'vue'
 import {
   createAutomation,
   deleteAutomation,
+  listAutomationRuns,
   listAutomationTemplates,
   loadAutomationsState,
   pauseAutomation,
   resumeAutomation,
+  runAutomationNow,
   updateAutomation,
   type CreateAutomationInput,
   type PatchAutomationInput,
 } from '../api/automationsGateway'
-import type { AutomationDefinition, AutomationDiagnostic, AutomationsState, AutomationTemplate } from '../types/automations'
+import type { AutomationDefinition, AutomationDiagnostic, AutomationRun, AutomationRunMode, AutomationsState, AutomationTemplate } from '../types/automations'
 
 export type AutomationDraft = {
   id: string
@@ -21,6 +23,8 @@ export type AutomationDraft = {
   rrule: string
   description: string
   notes: string
+  runMode: AutomationRunMode
+  cwd: string
   runProfileId: string
   model: string
   reasoningEffort: string
@@ -34,6 +38,8 @@ export type AutomationsGateway = {
   pauseAutomation: typeof pauseAutomation
   resumeAutomation: typeof resumeAutomation
   deleteAutomation: typeof deleteAutomation
+  runAutomationNow: typeof runAutomationNow
+  listAutomationRuns: typeof listAutomationRuns
 }
 
 type UseAutomationsOptions = {
@@ -48,6 +54,8 @@ const defaultGateway: AutomationsGateway = {
   pauseAutomation,
   resumeAutomation,
   deleteAutomation,
+  runAutomationNow,
+  listAutomationRuns,
 }
 
 const emptyState: AutomationsState = {
@@ -76,6 +84,8 @@ function createEmptyDraft(threadId = ''): AutomationDraft {
     rrule: 'FREQ=DAILY;BYHOUR=9;BYMINUTE=0',
     description: '',
     notes: '',
+    runMode: 'chat',
+    cwd: '',
     runProfileId: '',
     model: '',
     reasoningEffort: '',
@@ -92,6 +102,8 @@ function draftFromDefinition(definition: AutomationDefinition): AutomationDraft 
     rrule: definition.schedule.rrule,
     description: definition.description ?? '',
     notes: definition.notes,
+    runMode: definition.runMode ?? 'chat',
+    cwd: definition.cwd ?? '',
     runProfileId: definition.runProfileId ?? '',
     model: definition.model ?? '',
     reasoningEffort: definition.reasoningEffort ?? '',
@@ -113,12 +125,17 @@ export function useAutomations(options: UseAutomationsOptions = {}) {
   const templates: Ref<AutomationTemplate[]> = ref([])
   const isLoading = ref(false)
   const isSaving = ref(false)
+  const isRunningNow = ref(false)
+  const isRunHistoryLoading = ref(false)
   const errorMessage = ref('')
   const mutationError = ref('')
+  const runHistoryError = ref('')
   const selectedAutomationId = ref('')
   const draft = ref<AutomationDraft>(createEmptyDraft())
+  const runHistory: Ref<AutomationRun[]> = ref([])
   const pendingThreadPrefill = ref('')
   const hasLoaded = ref(false)
+  let runHistoryRequestId = 0
 
   const definitions = computed(() => state.value.definitions)
   const diagnostics = computed<AutomationDiagnostic[]>(() => state.value.diagnostics)
@@ -143,10 +160,10 @@ export function useAutomations(options: UseAutomationsOptions = {}) {
         applyThreadPrefill(pendingThreadId, { keepPending: false })
         return
       }
-      if (preferredAutomationId && selectAutomation(preferredAutomationId)) return
+      if (preferredAutomationId && await selectAutomation(preferredAutomationId)) return
       const first = definitions.value[0]
       if (first) {
-        selectAutomation(first.id)
+        await selectAutomation(first.id)
       } else {
         startCreate()
       }
@@ -157,20 +174,25 @@ export function useAutomations(options: UseAutomationsOptions = {}) {
     }
   }
 
-  function selectAutomation(id: string): boolean {
+  async function selectAutomation(id: string): Promise<boolean> {
     const definition = definitions.value.find((item) => item.id === id)
     if (!definition) return false
     selectedAutomationId.value = definition.id
     draft.value = draftFromDefinition(definition)
+    runHistory.value = definition.recentRuns ?? []
     pendingThreadPrefill.value = ''
     mutationError.value = ''
+    await loadRunHistory(definition.id)
     return true
   }
 
   function startCreate(threadId = ''): void {
+    runHistoryRequestId += 1
     pendingThreadPrefill.value = ''
     selectedAutomationId.value = ''
     draft.value = createEmptyDraft(threadId)
+    runHistory.value = []
+    runHistoryError.value = ''
     mutationError.value = ''
   }
 
@@ -179,7 +201,7 @@ export function useAutomations(options: UseAutomationsOptions = {}) {
     if (!selectedAutomationId.value && draft.value.mode === 'create') {
       const first = definitions.value[0]
       if (first) {
-        selectAutomation(first.id)
+        void selectAutomation(first.id)
       } else {
         startCreate()
       }
@@ -222,6 +244,22 @@ export function useAutomations(options: UseAutomationsOptions = {}) {
     }, 'Failed to resume automation')
   }
 
+  async function runSelectedNow(): Promise<void> {
+    const id = selectedAutomationId.value
+    if (!id) return
+    isRunningNow.value = true
+    mutationError.value = ''
+    try {
+      await gateway.runAutomationNow(id)
+      await loadAll(id)
+      await loadRunHistory(id)
+    } catch (error) {
+      mutationError.value = error instanceof Error ? error.message : 'Failed to start automation run'
+    } finally {
+      isRunningNow.value = false
+    }
+  }
+
   async function deleteSelectedRemoveNative(): Promise<void> {
     const id = selectedAutomationId.value
     if (!id) return
@@ -237,15 +275,42 @@ export function useAutomations(options: UseAutomationsOptions = {}) {
     const match = definitions.value.find((definition) => definition.targetThreadId === normalizedThreadId)
     if (match) {
       pendingThreadPrefill.value = ''
-      selectAutomation(match.id)
+      void selectAutomation(match.id)
       return
     }
     pendingThreadPrefill.value = options.keepPending === false || hasLoaded.value && !isLoading.value
       ? ''
       : normalizedThreadId
+    runHistoryRequestId += 1
     selectedAutomationId.value = ''
     draft.value = createEmptyDraft(normalizedThreadId)
+    runHistory.value = []
+    runHistoryError.value = ''
     mutationError.value = ''
+  }
+
+  async function loadRunHistory(id = selectedAutomationId.value): Promise<void> {
+    const requestId = ++runHistoryRequestId
+    if (!id) {
+      runHistory.value = []
+      runHistoryError.value = ''
+      isRunHistoryLoading.value = false
+      return
+    }
+    isRunHistoryLoading.value = true
+    runHistoryError.value = ''
+    try {
+      const nextRunHistory = await gateway.listAutomationRuns(id)
+      if (requestId !== runHistoryRequestId || selectedAutomationId.value !== id) return
+      runHistory.value = nextRunHistory
+    } catch (error) {
+      if (requestId !== runHistoryRequestId || selectedAutomationId.value !== id) return
+      runHistoryError.value = error instanceof Error ? error.message : 'Failed to load automation runs'
+    } finally {
+      if (requestId === runHistoryRequestId && selectedAutomationId.value === id) {
+        isRunHistoryLoading.value = false
+      }
+    }
   }
 
   async function runMutation(action: () => Promise<void>, fallbackMessage: string): Promise<void> {
@@ -267,11 +332,15 @@ export function useAutomations(options: UseAutomationsOptions = {}) {
     templates,
     isLoading,
     isSaving,
+    isRunningNow,
+    isRunHistoryLoading,
     errorMessage,
     mutationError,
+    runHistoryError,
     selectedAutomationId,
     selectedAutomation,
     draft,
+    runHistory,
     pendingThreadPrefill,
     loadAll,
     selectAutomation,
@@ -279,6 +348,8 @@ export function useAutomations(options: UseAutomationsOptions = {}) {
     saveDraft,
     pauseSelected,
     resumeSelected,
+    runSelectedNow,
+    loadRunHistory,
     deleteSelectedRemoveNative,
     applyThreadPrefill,
     clearThreadPrefill,
@@ -293,8 +364,8 @@ function toCreateInput(draft: AutomationDraft): CreateAutomationInput {
     schedule: { type: 'rrule', rrule: draft.rrule.trim() },
     targetThreadId: draft.targetThreadId.trim(),
     description: normalizeOptionalNullable(draft.description),
-    cwd: null,
-    runMode: null,
+    cwd: normalizeOptionalNullable(draft.cwd),
+    runMode: draft.runMode,
     runProfileId: normalizeOptionalNullable(draft.runProfileId),
     model: normalizeOptionalNullable(draft.model),
     reasoningEffort: normalizeOptionalNullable(draft.reasoningEffort),
@@ -309,6 +380,8 @@ function toPatchInput(draft: AutomationDraft): PatchAutomationInput {
     schedule: { type: 'rrule', rrule: draft.rrule.trim() },
     targetThreadId: normalizeOptionalNullable(draft.targetThreadId),
     description: normalizeOptionalNullable(draft.description),
+    cwd: normalizeOptionalNullable(draft.cwd),
+    runMode: draft.runMode,
     runProfileId: normalizeOptionalNullable(draft.runProfileId),
     model: normalizeOptionalNullable(draft.model),
     reasoningEffort: normalizeOptionalNullable(draft.reasoningEffort),

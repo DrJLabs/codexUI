@@ -1,15 +1,19 @@
+import { execFile } from 'node:child_process'
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { promisify } from 'node:util'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { AutomationRun } from '../../../types/automations'
 import { FULL_ACCESS_CODEX_RUN_PROFILE_ID, type CodexRunProfile } from '../../../types/execution'
 import type { KanbanExecutionPolicy } from '../../../types/kanban'
 import type { CodexBridgeNotification, CodexBridgeRuntime } from '../../codexAppServerBridge'
+import { MANAGED_WORKTREE_LOCK_FILENAME } from '../../workspaces/worktreeLocks'
 import { serializeAutomationToml, type ThreadAutomationRecord } from '../nativeStore'
 import { AutomationsService } from '../service'
 
 const codexHomeDirs: string[] = []
+const execFileAsync = promisify(execFile)
 
 const enabledPolicy: KanbanExecutionPolicy = {
   enabled: true,
@@ -53,6 +57,7 @@ afterEach(async () => {
 async function createHarness(options: {
   policy?: KanbanExecutionPolicy
   turnStartDelayMs?: number
+  turnStartError?: Error
   readThreadResponse?: unknown
   readThreadError?: Error
 } = {}) {
@@ -74,6 +79,7 @@ async function createHarness(options: {
         if (options.turnStartDelayMs) {
           await new Promise((resolve) => setTimeout(resolve, options.turnStartDelayMs))
         }
+        if (options.turnStartError) throw options.turnStartError
         turnStartCount += 1
         return { turn: { id: `turn_${turnStartCount}` } } as T
       }
@@ -112,6 +118,21 @@ async function writeNative(codexHomeDir: string, dirName: string, record: Thread
   await writeFile(join(dir, 'automation.toml'), serializeAutomationToml(record), 'utf8')
   await writeFile(join(dir, 'codexui.json'), `${JSON.stringify(sidecar, null, 2)}\n`, 'utf8')
   return dir
+}
+
+async function createGitRepo(): Promise<string> {
+  const projectRoot = await mkdtemp(join(tmpdir(), 'codexui-automation-worktree-repo-'))
+  codexHomeDirs.push(projectRoot)
+  await runGit(projectRoot, ['init', '-b', 'main'])
+  await runGit(projectRoot, ['config', 'user.name', 'CodexUI Test'])
+  await runGit(projectRoot, ['config', 'user.email', 'codexui@example.test'])
+  await runGit(projectRoot, ['commit', '--allow-empty', '-m', 'initial'])
+  return projectRoot
+}
+
+async function runGit(cwd: string, args: string[]): Promise<string> {
+  const { stdout } = await execFileAsync('git', args, { cwd })
+  return stdout
 }
 
 describe('AutomationRunner', () => {
@@ -192,6 +213,80 @@ describe('AutomationRunner', () => {
 
     await expect(service.runNow('daily-check')).rejects.toThrow('local automation runs require an absolute cwd')
     expect(rpcCalls).toEqual([])
+  })
+
+  it('starts worktree mode runs in a managed worktree, stores snapshots, and completes through turn notifications', async () => {
+    const projectRoot = await createGitRepo()
+    const { codexHomeDir, service, rpcCalls, notificationListeners } = await createHarness()
+    const automationDir = await writeNative(codexHomeDir, 'daily-check-dir', nativeRecord, {
+      runMode: 'worktree',
+      cwd: projectRoot,
+    })
+
+    const first = await service.runNow('daily-check')
+    const storedFirst = JSON.parse(await readFile(join(automationDir, 'runs', first.id, 'run.json'), 'utf8')) as AutomationRun
+    const threadStart = rpcCalls.find((call) => call.method === 'thread/start')
+    const turnStart = rpcCalls.find((call) => call.method === 'turn/start')
+    const worktreeList = await runGit(projectRoot, ['worktree', 'list', '--porcelain'])
+
+    expect(first).toMatchObject({
+      state: 'running',
+      runMode: 'worktree',
+      cwd: projectRoot,
+      worktreePath: expect.stringContaining('/worktrees/'),
+      threadId: 'thread_local_1',
+      turnId: 'turn_1',
+    })
+    expect(storedFirst.branchName).toMatch(/^codexui\/automation\/daily-check-/u)
+    expect(storedFirst.worktreePath).toBe(first.worktreePath)
+    expect(threadStart?.params).toEqual({ cwd: first.worktreePath, title: 'Daily Check' })
+    expect(turnStart?.params).toMatchObject({
+      threadId: 'thread_local_1',
+      cwd: first.worktreePath,
+      sandboxPolicy: {
+        type: 'workspaceWrite',
+        writableRoots: expect.arrayContaining([first.worktreePath]),
+      },
+    })
+    expect(worktreeList).toContain(first.worktreePath)
+    await expect(readFile(join(first.worktreePath!, '..', MANAGED_WORKTREE_LOCK_FILENAME), 'utf8'))
+      .resolves
+      .toContain('"source": "automation"')
+
+    await Promise.resolve(notificationListeners[0]!({
+      method: 'turn/completed',
+      params: { threadId: 'thread_local_1', turnId: 'turn_1' },
+      atIso: new Date().toISOString(),
+    }))
+    const completed = (await service.listRuns('daily-check'))[0]!
+    const second = await service.runNow('daily-check')
+    const worktreeListAfterSecond = await runGit(projectRoot, ['worktree', 'list', '--porcelain'])
+
+    expect(completed).toMatchObject({ id: first.id, state: 'completed_no_findings' })
+    expect(second.id).not.toBe(first.id)
+    expect(worktreeListAfterSecond).toContain(first.worktreePath)
+    expect(worktreeListAfterSecond).toContain(second.worktreePath)
+  })
+
+  it('preserves a managed worktree when worktree mode startup fails', async () => {
+    const projectRoot = await createGitRepo()
+    const { codexHomeDir, service } = await createHarness({ turnStartError: new Error('turn start failed') })
+    await writeNative(codexHomeDir, 'daily-check-dir', nativeRecord, {
+      runMode: 'worktree',
+      cwd: projectRoot,
+    })
+
+    await expect(service.runNow('daily-check')).rejects.toThrow('turn start failed')
+    const failed = (await service.listRuns('daily-check'))[0]!
+    const worktreeList = await runGit(projectRoot, ['worktree', 'list', '--porcelain'])
+
+    expect(failed).toMatchObject({
+      state: 'failed',
+      worktreePath: expect.stringContaining('/worktrees/'),
+      errorMessage: 'turn start failed',
+    })
+    expect(failed.branchName).toMatch(/^codexui\/automation\/daily-check-/u)
+    expect(worktreeList).toContain(failed.worktreePath)
   })
 
   it('marks a matching completed turn as completed_no_findings and permits a later run', async () => {

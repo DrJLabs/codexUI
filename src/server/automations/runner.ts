@@ -1,11 +1,13 @@
 import { randomUUID } from 'node:crypto'
-import { isAbsolute } from 'node:path'
+import { homedir } from 'node:os'
+import { isAbsolute, join } from 'node:path'
 import type { AutomationDefinition, AutomationRun, AutomationRunMode } from '../../types/automations'
 import type { CodexRunProfile } from '../../types/execution'
 import type { KanbanExecutionPolicy } from '../../types/kanban'
 import type { CodexBridgeNotification, CodexBridgeRuntime } from '../codexAppServerBridge'
 import { createRestrictedCodexBridgeAdapter, type RestrictedCodexBridgeAdapter } from '../execution/codexBridgeAdapter'
 import { resolveCodexTurnStartRunSettings } from '../execution/runProfiles'
+import { ManagedWorktreeService } from '../workspaces/managedWorktreeService'
 import { AutomationConflictError, AutomationValidationError } from './errors'
 import {
   assertAutomationExecutionPolicy,
@@ -87,8 +89,9 @@ export class AutomationRunner {
       runProfileId: runProfileSnapshot.id,
       runProfileSnapshot,
       targetThreadId: definition.targetThreadId,
-      cwd: runMode === 'local' ? definition.cwd : null,
+      cwd: runMode === 'local' || runMode === 'worktree' ? definition.cwd : null,
       worktreePath: null,
+      branchName: null,
       threadId: null,
       turnId: null,
       resultSummary: null,
@@ -105,6 +108,19 @@ export class AutomationRunner {
     await store.appendLog(run, `Manual run started for ${definition.name}`)
 
     try {
+      if (runMode === 'worktree') {
+        const worktree = await this.createAutomationWorktree(definition, run, store)
+        run = await store.updateRun(run.id, {
+          worktreePath: worktree.worktreePath,
+          branchName: worktree.branchName,
+        })
+        await store.appendEvent(run, {
+          type: 'manual_run.worktree_created',
+          worktreePath: worktree.worktreePath,
+          branchName: worktree.branchName,
+        })
+        await store.appendLog(run, `Managed worktree created: ${worktree.worktreePath}`)
+      }
       const threadId = await this.startThread(definition, run)
       const turnId = await this.startTurn(definition, run, threadId, runProfileSnapshot)
       run = await store.updateRun(run.id, {
@@ -137,9 +153,36 @@ export class AutomationRunner {
     if (runMode === 'local' && (!definition.cwd || !isAbsolute(definition.cwd))) {
       throw new AutomationValidationError('local automation runs require an absolute cwd')
     }
-    if (runMode === 'worktree') {
-      throw new AutomationValidationError('worktree automation runs are not supported in Slice 6A')
+    if (runMode === 'worktree' && (!definition.cwd || !isAbsolute(definition.cwd))) {
+      throw new AutomationValidationError('worktree automation runs require an absolute cwd')
     }
+  }
+
+  private async createAutomationWorktree(
+    definition: AutomationDefinition,
+    run: AutomationRun,
+    store: ReturnType<typeof createAutomationRunStore>,
+  ): Promise<{ worktreePath: string; branchName: string }> {
+    if (!definition.cwd) throw new AutomationValidationError('worktree automation runs require an absolute cwd')
+    const service = new ManagedWorktreeService({
+      dataDir: resolveAutomationWorktreeDataDir(this.options),
+      projectRoot: definition.cwd,
+      isOwnerRunActive: async (lock) => {
+        if (lock.owner.source !== 'automation' || lock.owner.id !== definition.id) return true
+        try {
+          const storedRun = await store.readRun(lock.runId)
+          return isActiveAutomationRunState(storedRun.state)
+        } catch {
+          return true
+        }
+      },
+    })
+    return await service.createManagedWorktree({
+      owner: { source: 'automation', id: definition.id },
+      taskId: definition.id,
+      runId: run.id,
+      name: definition.name,
+    })
   }
 
   private async startThread(definition: AutomationDefinition, run: AutomationRun): Promise<string> {
@@ -147,8 +190,9 @@ export class AutomationRunner {
       const resumed = await this.bridge.rpc<Record<string, unknown>>('thread/resume', { threadId: definition.targetThreadId })
       return extractThreadId(resumed) || definition.targetThreadId || ''
     }
+    const cwd = resolveRunCwd(definition, run)
     const started = await this.bridge.rpc<Record<string, unknown>>('thread/start', {
-      cwd: definition.cwd,
+      cwd,
       title: definition.name,
     })
     const threadId = extractStartedThreadId(started)
@@ -162,7 +206,7 @@ export class AutomationRunner {
     threadId: string,
     profile: CodexRunProfile,
   ): Promise<string> {
-    const cwd = run.runMode === 'local' ? definition.cwd ?? undefined : undefined
+    const cwd = resolveRunCwd(definition, run)
     const runSettings = resolveCodexTurnStartRunSettings(profile, cwd)
     const started = await this.bridge.rpc<Record<string, unknown>>('turn/start', {
       threadId,
@@ -335,4 +379,17 @@ function asRecord(value: unknown): Record<string, unknown> | null {
 
 function readString(value: unknown): string {
   return typeof value === 'string' ? value : ''
+}
+
+function resolveRunCwd(definition: AutomationDefinition, run: AutomationRun): string | undefined {
+  if (run.runMode === 'worktree') return run.worktreePath ?? undefined
+  if (run.runMode === 'local') return definition.cwd ?? undefined
+  return undefined
+}
+
+function resolveAutomationWorktreeDataDir(options: NativeAutomationStoreOptions): string {
+  const injected = options.codexHomeDir?.trim()
+  if (injected) return injected
+  const codexHome = process.env.CODEX_HOME?.trim()
+  return codexHome && codexHome.length > 0 ? codexHome : join(homedir(), '.codex')
 }

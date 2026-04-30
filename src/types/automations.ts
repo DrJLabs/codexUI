@@ -63,6 +63,7 @@ export type AutomationRun = {
   targetThreadId: string | null
   cwd: string | null
   worktreePath: string | null
+  branchName: string | null
   threadId: string | null
   turnId: string | null
   resultSummary: string | null

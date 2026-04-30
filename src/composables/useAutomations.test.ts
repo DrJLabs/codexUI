@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { useAutomations, type AutomationsGateway } from './useAutomations'
-import type { AutomationDefinition, AutomationsState, AutomationTemplate } from '../types/automations'
+import type { AutomationDefinition, AutomationRun, AutomationsState, AutomationTemplate } from '../types/automations'
 
 it('loads state and selects the first automation', async () => {
   const gateway = createGatewayFixture([automationFixture({ id: 'auto_1', name: 'Daily check' })])
@@ -59,10 +59,28 @@ it('normalizes optional blank draft fields before save', async () => {
   await automations.saveDraft()
   expect(gateway.createAutomation).toHaveBeenCalledWith(expect.objectContaining({
     description: null,
+    cwd: null,
+    runMode: 'chat',
     runProfileId: null,
     model: null,
     reasoningEffort: null,
     notes: '',
+  }))
+})
+
+it('serializes run mode and cwd draft fields before save', async () => {
+  const gateway = createGatewayFixture([])
+  const automations = useAutomations({ gateway })
+  automations.startCreate('thread_123')
+  automations.draft.value.name = 'Worktree check'
+  automations.draft.value.prompt = 'Check in a worktree'
+  automations.draft.value.runMode = 'worktree'
+  automations.draft.value.cwd = '/tmp/project'
+  await automations.saveDraft()
+
+  expect(gateway.createAutomation).toHaveBeenCalledWith(expect.objectContaining({
+    runMode: 'worktree',
+    cwd: '/tmp/project',
   }))
 })
 
@@ -116,9 +134,77 @@ it('deletes the selected automation with removeNative=true and reloads state', a
   expect(gateway.loadAutomationsState).toHaveBeenCalledTimes(2)
 })
 
+it('starts the selected automation now, refreshes state, and refreshes run history', async () => {
+  const gateway = createGatewayFixture([automationFixture({ id: 'auto_1' })])
+  const automations = useAutomations({ gateway })
+  await automations.loadAll()
+
+  await automations.runSelectedNow()
+
+  expect(gateway.runAutomationNow).toHaveBeenCalledWith('auto_1')
+  expect(gateway.listAutomationRuns).toHaveBeenCalledWith('auto_1')
+  expect(gateway.loadAutomationsState).toHaveBeenCalledTimes(2)
+  expect(automations.runHistory.value).toEqual([expect.objectContaining({ id: 'run_1' })])
+  expect(automations.isRunningNow.value).toBe(false)
+})
+
+it('loads run history when selecting an automation', async () => {
+  const gateway = createGatewayFixture([
+    automationFixture({ id: 'auto_1' }),
+    automationFixture({ id: 'auto_2', name: 'Second' }),
+  ])
+  const automations = useAutomations({ gateway })
+  await automations.loadAll()
+  await automations.selectAutomation('auto_2')
+
+  expect(gateway.listAutomationRuns).toHaveBeenLastCalledWith('auto_2')
+  expect(automations.runHistory.value).toEqual([expect.objectContaining({ automationId: 'auto_2' })])
+})
+
+it('ignores stale run history responses after selection changes', async () => {
+  const gateway = createGatewayFixture([
+    automationFixture({ id: 'auto_1', name: 'First' }),
+    automationFixture({ id: 'auto_2', name: 'Second' }),
+  ])
+  const automations = useAutomations({ gateway })
+  await automations.loadAll()
+  const firstSelection = createDeferredRuns([automationRunFixture({ id: 'run_auto_1', automationId: 'auto_1' })])
+  const secondSelection = createDeferredRuns([automationRunFixture({ id: 'run_auto_2', automationId: 'auto_2' })])
+  vi.mocked(gateway.listAutomationRuns)
+    .mockImplementationOnce(async () => firstSelection.promise)
+    .mockImplementationOnce(async () => secondSelection.promise)
+
+  const staleLoad = automations.selectAutomation('auto_1')
+  const currentLoad = automations.selectAutomation('auto_2')
+  secondSelection.resolve()
+  await currentLoad
+
+  expect(automations.selectedAutomationId.value).toBe('auto_2')
+  expect(automations.runHistory.value).toEqual([expect.objectContaining({ id: 'run_auto_2', automationId: 'auto_2' })])
+
+  firstSelection.resolve()
+  await staleLoad
+
+  expect(automations.selectedAutomationId.value).toBe('auto_2')
+  expect(automations.runHistory.value).toEqual([expect.objectContaining({ id: 'run_auto_2', automationId: 'auto_2' })])
+})
+
+it('records run mutation errors without leaving running state stuck', async () => {
+  const gateway = createGatewayFixture([automationFixture({ id: 'auto_1' })], {
+    runError: new Error('manual run blocked'),
+  })
+  const automations = useAutomations({ gateway })
+  await automations.loadAll()
+
+  await automations.runSelectedNow()
+
+  expect(automations.mutationError.value).toBe('manual run blocked')
+  expect(automations.isRunningNow.value).toBe(false)
+})
+
 function createGatewayFixture(
   definitions: AutomationDefinition[],
-  options: { deferredState?: Promise<AutomationsState> } = {},
+  options: { deferredState?: Promise<AutomationsState>; runError?: Error } = {},
 ): AutomationsGateway {
   let currentDefinitions = definitions
   const gateway: AutomationsGateway = {
@@ -132,6 +218,8 @@ function createGatewayFixture(
         targetThreadId: input.targetThreadId,
         schedule: input.schedule,
         description: input.description ?? null,
+        cwd: input.cwd ?? null,
+        runMode: input.runMode ?? null,
         runProfileId: input.runProfileId ?? null,
         model: input.model ?? null,
         reasoningEffort: input.reasoningEffort ?? null,
@@ -170,6 +258,11 @@ function createGatewayFixture(
       currentDefinitions = currentDefinitions.filter((definition) => definition.id !== id)
       return { removed: true, removedNative: true }
     }),
+    runAutomationNow: vi.fn(async (id) => {
+      if (options.runError) throw options.runError
+      return automationRunFixture({ automationId: id })
+    }),
+    listAutomationRuns: vi.fn(async (id) => [automationRunFixture({ automationId: id })]),
   }
   return gateway
 }
@@ -181,6 +274,17 @@ function createDeferredState(definitions: AutomationDefinition[]): {
   let resolve: () => void = () => {}
   const promise = new Promise<AutomationsState>((nextResolve) => {
     resolve = () => nextResolve(stateFixture(definitions))
+  })
+  return { promise, resolve }
+}
+
+function createDeferredRuns(runs: AutomationRun[]): {
+  promise: Promise<AutomationRun[]>
+  resolve: () => void
+} {
+  let resolve: () => void = () => {}
+  const promise = new Promise<AutomationRun[]>((nextResolve) => {
+    resolve = () => nextResolve(runs)
   })
   return { promise, resolve }
 }
@@ -240,6 +344,49 @@ function automationFixture(overrides: Partial<AutomationDefinition> = {}): Autom
     lastRunAtIso: null,
     nextRunAtIso: null,
     version: 1,
+    ...overrides,
+  }
+}
+
+function automationRunFixture(overrides: Partial<AutomationRun> = {}): AutomationRun {
+  return {
+    id: 'run_1',
+    automationId: 'auto_1',
+    automationName: 'Thread automation',
+    trigger: 'manual',
+    runMode: 'chat',
+    state: 'running',
+    promptSnapshot: 'Check this thread',
+    scheduleSnapshot: { type: 'rrule', rrule: 'FREQ=DAILY;BYHOUR=9;BYMINUTE=0' },
+    runProfileId: 'workspace-coding',
+    runProfileSnapshot: {
+      id: 'workspace-coding',
+      name: 'Workspace coding',
+      description: '',
+      model: '',
+      reasoningEffort: 'medium',
+      sandboxMode: 'workspace-write',
+      approvalPolicy: 'on-request',
+      networkAccess: false,
+      writableRoots: [],
+      createdAtIso: '2026-04-30T00:00:00.000Z',
+      updatedAtIso: '2026-04-30T00:00:00.000Z',
+    },
+    targetThreadId: 'thread_1',
+    cwd: null,
+    worktreePath: null,
+    branchName: null,
+    threadId: 'thread_1',
+    turnId: 'turn_1',
+    resultSummary: null,
+    errorMessage: null,
+    runJsonPath: '/tmp/run.json',
+    eventsPath: '/tmp/events.jsonl',
+    logPath: '/tmp/run.log',
+    createdAtIso: '2026-04-30T00:00:00.000Z',
+    startedAtIso: '2026-04-30T00:00:00.000Z',
+    completedAtIso: null,
+    updatedAtIso: '2026-04-30T00:00:00.000Z',
     ...overrides,
   }
 }

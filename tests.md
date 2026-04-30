@@ -5146,3 +5146,47 @@ Persisted manual automation run API for chat and local modes.
 
 #### Rollback/Cleanup
 - None. Tests create temporary automation directories under the OS temp directory.
+
+---
+
+### Automations Phase 6B Worktree Manual Runs And Route UI
+
+#### Feature/Change Name
+Manual automation runs in chat, local cwd, and managed worktree modes with route-level run controls and recent-run history.
+
+#### Prerequisites/Setup
+1. Use the `feat/automations` worktree at `/home/drj/.codex/worktrees/52f8/codexUI`.
+2. Reuse the shared dependency install with `node_modules -> /home/drj/projects/codexUI/node_modules` if this worktree does not already have dependencies.
+3. For manual UI verification, start the dev server with automation execution enabled from trusted local access: `CODEXUI_KANBAN_EXECUTION_ENABLED=1 pnpm run dev -- --host 127.0.0.1 --port 4173`.
+4. Use a saved heartbeat automation and, for managed worktree mode, configure `cwd` as an absolute path to a committed Git repository.
+5. Light and dark themes are available from Settings.
+
+#### Steps
+1. Run `/home/drj/projects/codexUI/node_modules/.bin/vitest run src/server/workspaces/__tests__/managedWorktreeService.test.ts src/server/automations/__tests__/runner.test.ts src/server/automations/__tests__/routes.test.ts src/api/automationsGateway.test.ts src/composables/useAutomations.test.ts`.
+2. Run `pnpm run build`.
+3. Run `git diff --check`.
+4. Run the final Phase 6 gate: `/home/drj/projects/codexUI/node_modules/.bin/vitest run src/server/automations/__tests__/runner.test.ts src/server/automations/__tests__/routes.test.ts src/server/automations/__tests__/legacyRoutes.test.ts src/server/workspaces/__tests__/managedWorktreeService.test.ts src/server/workspaces/__tests__/worktreeService.test.ts src/api/automationsGateway.test.ts src/composables/useAutomations.test.ts`.
+5. Open `http://127.0.0.1:4173/#/automations` in light theme.
+6. Select or create a saved automation, choose each run mode option (`Chat`, `Local cwd`, `Managed worktree`), and confirm the cwd field is required for local/worktree modes.
+7. Click `Run now` on a saved automation and confirm the compact recent-run list updates with state, trigger, thread, turn, cwd/worktree, log path, started timestamp, and completed timestamp.
+8. For managed worktree mode, confirm a lock file named `codexui-kanban-worktree.json` is written under the managed worktree metadata root and includes `owner: { source: "automation", id: <automation-id> }`.
+9. Confirm the route does not show scheduler, artifact-indexing, or Kanban-projection controls.
+10. Switch to dark theme and repeat steps 5-9, verifying the editor controls, Run now action, and recent-run list remain readable.
+
+#### Expected Results
+- `ManagedWorktreeService` creates automation-owned worktrees with branch names beginning `codexui/automation/<automation-id>-<run-id>-<name>`.
+- Active managed worktrees for the same automation owner block duplicate active worktree creation, while completed automation runs can start later runs without deleting prior worktrees.
+- Worktree-mode runner calls `thread/start` and `turn/start` with the managed worktree path, stores worktree path and branch snapshots in the run record, and preserves worktrees after success, failure, and completion.
+- Gateway and composable run helpers use CSRF-protected mutation for `Run now`, retry stale CSRF once, refresh state, and load recent run history.
+- The Automations route exposes only manual run controls required for Phase 6B and remains readable in both light and dark themes.
+
+#### Observed Results
+- 2026-04-30: Slice 6B gate passed: 5 files, 48 tests.
+- 2026-04-30: Final Phase 6 gate passed: 7 files, 54 tests.
+- 2026-04-30: `pnpm run build` passed.
+- 2026-04-30: `git diff --check` passed.
+
+#### Rollback/Cleanup
+- Remove clean manual test worktrees with `git -C <repo-root> worktree remove <worktree-path>`.
+- Remove manual test branches with `git -C <repo-root> branch -D <branch-name>` after removing the worktree.
+- Remove any test automation records or temporary managed-worktree metadata under `${CODEX_HOME:-$HOME/.codex}/worktrees/` if no longer needed.
