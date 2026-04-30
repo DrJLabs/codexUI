@@ -45,6 +45,16 @@ describe('KanbanTaskQueue', () => {
       .toThrow('Kanban task task_2 already has a queued run')
     expect(queue.getQueuedRunIds()).toEqual(['run_2'])
   })
+
+  it('preserves duplicate queued task wording', () => {
+    const queue = new KanbanTaskQueue({ maxGlobalActiveRuns: 1 })
+
+    queue.enqueue({ runId: 'run_1', taskId: 'task_1', repoRoot: '/repo/a' })
+    queue.enqueue({ runId: 'run_2', taskId: 'task_2', repoRoot: '/repo/b' })
+
+    expect(() => queue.enqueue({ runId: 'run_3', taskId: 'task_2', repoRoot: '/repo/c' }))
+      .toThrow('Kanban task task_2 already has a queued run')
+  })
 })
 
 describe('classifyRecoveredRunState', () => {
