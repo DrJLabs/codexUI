@@ -187,14 +187,15 @@ describe('createAutomationsMiddleware', () => {
   it('serves health, templates, state, list, and get with data-wrapped first-class definitions', async () => {
     const { baseUrl, codexHomeDir } = await createHarness()
     await writeNative(codexHomeDir, 'daily-check-dir', nativeRecord)
-    await writeNative(codexHomeDir, 'detached-dir', { ...nativeRecord, id: 'detached-check', targetThreadId: null, status: 'PAUSED' })
+    const detachedDir = await writeNative(codexHomeDir, 'detached-dir', { ...nativeRecord, id: 'detached-check', targetThreadId: null, status: 'PAUSED' })
+    await writeFile(join(detachedDir, 'scheduler.json'), '{not-valid-json', 'utf8')
     await writeNative(codexHomeDir, 'bad-dir', { ...nativeRecord, id: 'bad-check' }, 'status = "BROKEN"\n')
 
     const health = await requestJson<{ data: { ok: true } }>(`${baseUrl}/codex-api/automations/health`)
     const templates = await requestJson<{ data: Array<{ kind: string }> }>(`${baseUrl}/codex-api/automations/templates`)
-    const state = await requestJson<{ data: { storageRoot: string; sourceCounts: { native: number }; diagnostics: unknown[]; definitions: Array<{ id: string }> } }>(`${baseUrl}/codex-api/automations/state`)
-    const list = await requestJson<{ data: Array<{ id: string; status: string; legacyStatus: string; targetThreadId: string | null; storage: { nativeDirName: string } }> }>(`${baseUrl}/codex-api/automations`)
-    const get = await requestJson<{ data: { id: string; targetThreadId: string | null; status: string } }>(`${baseUrl}/codex-api/automations/detached-check`)
+    const state = await requestJson<{ data: { storageRoot: string; sourceCounts: { native: number }; diagnostics: unknown[]; definitions: Array<{ id: string; nextRunAtIso: string | null }> } }>(`${baseUrl}/codex-api/automations/state`)
+    const list = await requestJson<{ data: Array<{ id: string; status: string; legacyStatus: string; targetThreadId: string | null; nextRunAtIso: string | null; storage: { nativeDirName: string } }> }>(`${baseUrl}/codex-api/automations`)
+    const get = await requestJson<{ data: { id: string; targetThreadId: string | null; status: string; nextRunAtIso: string | null } }>(`${baseUrl}/codex-api/automations/detached-check`)
 
     expect(health.status).toBe(200)
     expect(health.body.data.ok).toBe(true)
@@ -203,15 +204,19 @@ describe('createAutomationsMiddleware', () => {
     expect(state.status).toBe(200)
     expect(state.body.data.storageRoot).toBe(join(codexHomeDir, 'automations'))
     expect(state.body.data.sourceCounts.native).toBe(2)
-    expect(state.body.data.diagnostics).toHaveLength(1)
+    expect(state.body.data.diagnostics).toHaveLength(2)
+    expect(state.body.data.diagnostics).toEqual(expect.arrayContaining([
+      expect.objectContaining({ path: join(detachedDir, 'scheduler.json'), message: 'Invalid scheduler.json state' }),
+    ]))
     expect(state.body.data.definitions.map((definition) => definition.id).sort()).toEqual(['daily-check', 'detached-check'])
+    expect(state.body.data.definitions.find((definition) => definition.id === 'daily-check')?.nextRunAtIso).toEqual(expect.any(String))
     expect(list.status).toBe(200)
     expect(list.body.data).toEqual(expect.arrayContaining([
-      expect.objectContaining({ id: 'daily-check', status: 'active', legacyStatus: 'ACTIVE', targetThreadId: 'thread-1' }),
+      expect.objectContaining({ id: 'daily-check', status: 'active', legacyStatus: 'ACTIVE', targetThreadId: 'thread-1', nextRunAtIso: expect.any(String) }),
       expect.objectContaining({ id: 'detached-check', status: 'paused', legacyStatus: 'PAUSED', targetThreadId: null, storage: expect.objectContaining({ nativeDirName: 'detached-dir' }) }),
     ]))
     expect(get.status).toBe(200)
-    expect(get.body.data).toMatchObject({ id: 'detached-check', targetThreadId: null, status: 'paused' })
+    expect(get.body.data).toMatchObject({ id: 'detached-check', targetThreadId: null, status: 'paused', nextRunAtIso: expect.any(String) })
   })
 
   it('requires trusted access for CSRF issuance and trusted CSRF for mutations', async () => {
@@ -320,7 +325,7 @@ describe('createAutomationsMiddleware', () => {
     const { baseUrl, codexHomeDir } = await createHarness()
     const csrfHeaders = await readCsrfHeaders(baseUrl)
 
-    const created = await requestJson<{ data: { id: string; targetThreadId: string; description: string; notes: string; model: string; runMode: null; storage: { sidecarPath: string } } }>(
+    const created = await requestJson<{ data: { id: string; targetThreadId: string; description: string; notes: string; model: string; runMode: null; nextRunAtIso: string | null; storage: { nativeDirName: string; sidecarPath: string } } }>(
       `${baseUrl}/codex-api/automations`,
       {
         method: 'POST',
@@ -349,10 +354,21 @@ describe('createAutomationsMiddleware', () => {
       model: 'gpt-5',
       runMode: null,
     })
+    expect(created.body.data.nextRunAtIso).toEqual(expect.any(String))
+    const schedulerPath = join(codexHomeDir, 'automations', created.body.data.storage.nativeDirName, 'scheduler.json')
+    const createdScheduler = JSON.parse(await readFile(schedulerPath, 'utf8')) as Record<string, unknown>
+    expect(createdScheduler).toMatchObject({
+      automationId: created.body.data.id,
+      sourceDirName: created.body.data.storage.nativeDirName,
+      scheduleHash: expect.any(String),
+      nextDueAtIso: created.body.data.nextRunAtIso,
+      missedRunPolicy: 'one_catch_up',
+      unsupportedReason: null,
+    })
     await expect(readFile(created.body.data.storage.sidecarPath, 'utf8')).resolves.toContain('"runMode": null')
     await expect(readFile(created.body.data.storage.sidecarPath, 'utf8')).resolves.toContain('"notes": "operator note"')
 
-    const patched = await requestJson<{ data: { id: string; targetThreadId: null; status: string; cwd: string; runMode: 'chat'; notes: string; storage: { sidecarPath: string } } }>(
+    const patched = await requestJson<{ data: { id: string; targetThreadId: null; status: string; cwd: string; runMode: 'chat'; notes: string; nextRunAtIso: string | null; storage: { sidecarPath: string } } }>(
       `${baseUrl}/codex-api/automations/${created.body.data.id}`,
       {
         method: 'PATCH',
@@ -370,22 +386,53 @@ describe('createAutomationsMiddleware', () => {
     )
     expect(patched.status).toBe(200)
     expect(patched.body.data).toMatchObject({ targetThreadId: null, cwd: '/var/tmp', runMode: 'chat', notes: 'updated note' })
+    expect(patched.body.data.nextRunAtIso).toEqual(expect.any(String))
+    const patchedScheduler = JSON.parse(await readFile(schedulerPath, 'utf8')) as Record<string, unknown>
+    expect(patchedScheduler.scheduleHash).not.toBe(createdScheduler.scheduleHash)
+    expect(patchedScheduler.nextDueAtIso).toBe(patched.body.data.nextRunAtIso)
     await expect(readFile(patched.body.data.storage.sidecarPath, 'utf8')).resolves.toContain('"runMode": "chat"')
 
-    const getDetached = await requestJson<{ data: { id: string; targetThreadId: null } }>(`${baseUrl}/codex-api/automations/${created.body.data.id}`)
+    const getDetached = await requestJson<{ data: { id: string; targetThreadId: null; nextRunAtIso: string | null } }>(`${baseUrl}/codex-api/automations/${created.body.data.id}`)
     expect(getDetached.status).toBe(200)
     expect(getDetached.body.data.targetThreadId).toBeNull()
+    expect(getDetached.body.data.nextRunAtIso).toBe(patched.body.data.nextRunAtIso)
+
+    const stateAfterPatch = await requestJson<{ data: { definitions: Array<{ id: string; nextRunAtIso: string | null }> } }>(`${baseUrl}/codex-api/automations/state`)
+    const listedAfterPatch = await requestJson<{ data: Array<{ id: string; nextRunAtIso: string | null }> }>(`${baseUrl}/codex-api/automations`)
+    expect(stateAfterPatch.body.data.definitions.find((definition) => definition.id === created.body.data.id)?.nextRunAtIso).toBe(patched.body.data.nextRunAtIso)
+    expect(listedAfterPatch.body.data.find((definition) => definition.id === created.body.data.id)?.nextRunAtIso).toBe(patched.body.data.nextRunAtIso)
+
+    const overdueDue = '2026-04-30T09:00:00.000Z'
+    await writeFile(schedulerPath, `${JSON.stringify({ ...patchedScheduler, nextDueAtIso: overdueDue }, null, 2)}\n`, 'utf8')
+    const notesOnly = await requestJson<{ data: { notes: string; nextRunAtIso: string | null } }>(
+      `${baseUrl}/codex-api/automations/${created.body.data.id}`,
+      {
+        method: 'PATCH',
+        headers: csrfHeaders,
+        body: JSON.stringify({ notes: 'metadata-only update' }),
+      },
+    )
+    expect(notesOnly.status).toBe(200)
+    expect(notesOnly.body.data).toMatchObject({ notes: 'metadata-only update', nextRunAtIso: overdueDue })
+    const metadataOnlyScheduler = JSON.parse(await readFile(schedulerPath, 'utf8')) as Record<string, unknown>
+    expect(metadataOnlyScheduler.nextDueAtIso).toBe(overdueDue)
+    expect(metadataOnlyScheduler.scheduleHash).toBe(patchedScheduler.scheduleHash)
 
     const paused = await requestJson<{ data: { status: string; legacyStatus: string } }>(`${baseUrl}/codex-api/automations/${created.body.data.id}/pause`, {
       method: 'POST',
       headers: csrfHeaders,
     })
-    const resumed = await requestJson<{ data: { status: string; legacyStatus: string } }>(`${baseUrl}/codex-api/automations/${created.body.data.id}/resume`, {
+    await writeFile(schedulerPath, `${JSON.stringify({ ...patchedScheduler, scheduleHash: 'stale-hash', nextDueAtIso: null }, null, 2)}\n`, 'utf8')
+    const resumed = await requestJson<{ data: { status: string; legacyStatus: string; nextRunAtIso: string | null } }>(`${baseUrl}/codex-api/automations/${created.body.data.id}/resume`, {
       method: 'POST',
       headers: csrfHeaders,
     })
     expect(paused.body.data).toMatchObject({ status: 'paused', legacyStatus: 'PAUSED' })
     expect(resumed.body.data).toMatchObject({ status: 'active', legacyStatus: 'ACTIVE' })
+    expect(resumed.body.data.nextRunAtIso).toEqual(expect.any(String))
+    const resumedScheduler = JSON.parse(await readFile(schedulerPath, 'utf8')) as Record<string, unknown>
+    expect(resumedScheduler.scheduleHash).toBe(patchedScheduler.scheduleHash)
+    expect(resumedScheduler.nextDueAtIso).toBe(resumed.body.data.nextRunAtIso)
 
     const sidecarOnlyDelete = await requestJson<{ data: { removed: boolean; removedNative: boolean } }>(
       `${baseUrl}/codex-api/automations/${created.body.data.id}`,
@@ -405,6 +452,50 @@ describe('createAutomationsMiddleware', () => {
     const bridgeCheck = await requestJson<{ data: { ok: true } }>(`${baseUrl}/codex-api/automations/health`)
     expect(bridgeCheck.status).toBe(200)
     expect(bridgeCheck.body.data.ok).toBe(true)
+  })
+
+  it('accepts monthly and yearly RRULEs while clearing scheduler due state as unsupported', async () => {
+    const { baseUrl, codexHomeDir } = await createHarness()
+    const csrfHeaders = await readCsrfHeaders(baseUrl)
+
+    const created = await requestJson<{ data: { id: string; nextRunAtIso: string | null; storage: { nativeDirName: string } } }>(
+      `${baseUrl}/codex-api/automations`,
+      {
+        method: 'POST',
+        headers: csrfHeaders,
+        body: JSON.stringify({
+          kind: 'heartbeat',
+          name: 'Monthly API',
+          prompt: 'Prompt',
+          schedule: { type: 'rrule', rrule: 'FREQ=MONTHLY;BYHOUR=9;BYMINUTE=0' },
+          targetThreadId: 'thread-monthly',
+        }),
+      },
+    )
+    expect(created.status).toBe(201)
+    expect(created.body.data.nextRunAtIso).toBeNull()
+    const schedulerPath = join(codexHomeDir, 'automations', created.body.data.storage.nativeDirName, 'scheduler.json')
+    const monthlyScheduler = JSON.parse(await readFile(schedulerPath, 'utf8')) as Record<string, unknown>
+    expect(monthlyScheduler).toMatchObject({
+      nextDueAtIso: null,
+      unsupportedReason: expect.stringContaining('MONTHLY'),
+    })
+
+    const patched = await requestJson<{ data: { nextRunAtIso: string | null } }>(
+      `${baseUrl}/codex-api/automations/${created.body.data.id}`,
+      {
+        method: 'PATCH',
+        headers: csrfHeaders,
+        body: JSON.stringify({ schedule: { type: 'rrule', rrule: 'FREQ=YEARLY;BYHOUR=9;BYMINUTE=0' } }),
+      },
+    )
+    expect(patched.status).toBe(200)
+    expect(patched.body.data.nextRunAtIso).toBeNull()
+    const yearlyScheduler = JSON.parse(await readFile(schedulerPath, 'utf8')) as Record<string, unknown>
+    expect(yearlyScheduler).toMatchObject({
+      nextDueAtIso: null,
+      unsupportedReason: expect.stringContaining('YEARLY'),
+    })
   })
 
   it('resolves exact native record ids before source directory names for get, patch, and delete', async () => {

@@ -6,6 +6,8 @@ Build a Codex Desktop-style Automations surface in CodexUI without making automa
 
 This plan is intentionally high level. It captures architecture, sequencing, and boundaries so implementation can resume after the right-sidebar IA is cleaned up.
 
+Detailed Phase 7 scheduler and recovery work is tracked in [Automations Phase 7 Scheduler And Recovery Implementation Plan](./2026-04-30-automations-phase-7-scheduler-and-recovery.md).
+
 ## Current Repo Truth
 
 CodexUI already has a small automation lane:

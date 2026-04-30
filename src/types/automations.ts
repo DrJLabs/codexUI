@@ -53,11 +53,13 @@ export type AutomationRun = {
   id: string
   automationId: string
   automationName: string
-  trigger: 'manual'
+  trigger: 'manual' | 'schedule'
   runMode: AutomationRunMode
   state: AutomationRunState
   promptSnapshot: string
   scheduleSnapshot: AutomationSchedule
+  dueAtIso: string | null
+  nextDueAtIso: string | null
   runProfileId: string
   runProfileSnapshot: CodexRunProfile
   targetThreadId: string | null
@@ -96,7 +98,7 @@ export type AutomationDefinition = AutomationTarget & AutomationExecution & {
   createdAtIso: string
   updatedAtIso: string
   lastRunAtIso: string | null
-  nextRunAtIso: null
+  nextRunAtIso: string | null
   recentRuns?: AutomationRun[]
   version: number
 }

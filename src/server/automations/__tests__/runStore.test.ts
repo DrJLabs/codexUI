@@ -27,7 +27,7 @@ describe('createAutomationRunStore', () => {
     const runs = await createAutomationRunStore(automationDir).listRuns()
 
     expect(runs).toHaveLength(1)
-    expect(runs[0]).toMatchObject({ id: runId, branchName: null })
+    expect(runs[0]).toMatchObject({ id: runId, dueAtIso: null, nextDueAtIso: null, branchName: null })
   })
 })
 
@@ -41,6 +41,8 @@ function automationRunFixture(overrides: Partial<AutomationRun> = {}): Automatio
     state: 'running',
     promptSnapshot: 'Check this thread',
     scheduleSnapshot: { type: 'rrule', rrule: 'FREQ=DAILY;BYHOUR=9;BYMINUTE=0' },
+    dueAtIso: null,
+    nextDueAtIso: null,
     runProfileId: 'workspace-coding',
     runProfileSnapshot: {
       id: 'workspace-coding',

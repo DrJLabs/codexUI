@@ -86,6 +86,8 @@ export class AutomationRunner {
       state: 'starting',
       promptSnapshot: definition.prompt,
       scheduleSnapshot: definition.schedule,
+      dueAtIso: null,
+      nextDueAtIso: null,
       runProfileId: runProfileSnapshot.id,
       runProfileSnapshot,
       targetThreadId: definition.targetThreadId,

@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import { readFile, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import type {
@@ -24,6 +25,8 @@ import {
 } from './nativeStore.js'
 import { createAutomationRunStore } from './runStore'
 import { AutomationRunner } from './runner'
+import { evaluateRruleSchedule } from './scheduleCalculator'
+import { createAutomationSchedulerStore } from './schedulerStore'
 import { parseAutomationSidecarRead, type AutomationCreateInput, type AutomationPatchInput, type AutomationSidecarRead } from './schema.js'
 
 const SIDECAR_FILENAME = 'codexui.json'
@@ -88,7 +91,7 @@ export class AutomationsService {
     const entry = await this.findEntry(automationId)
     if (!entry) throw new AutomationNotFoundError(automationId)
     const sidecarResult = await readSidecar(entry)
-    return await mapDefinition(entry, sidecarResult.sidecar)
+    return (await mapDefinition(entry, sidecarResult.sidecar)).definition
   }
 
   async createDefinition(input: AutomationCreateInput): Promise<AutomationDefinition> {
@@ -108,7 +111,9 @@ export class AutomationsService {
     }, this.options)
     const entry = await this.findEntry(record.id)
     if (!entry) throw new AutomationNotFoundError(record.id)
-    await writeSidecar(entry, sidecarFromCreate(input))
+    const sidecar = sidecarFromCreate(input)
+    await writeSidecar(entry, sidecar)
+    await refreshSchedulerState(entry, sidecar)
     return await this.getDefinition(record.id)
   }
 
@@ -136,7 +141,7 @@ export class AutomationsService {
       updatedAtMs: now,
     }
     await writeNativeHeartbeatAutomationBySourceDir(entry.sourceDirName, nextRecord, this.options)
-    await writeSidecar(entry, {
+    const nextSidecar = {
       ...sidecarResult.sidecar,
       description: hasOwn(patch, 'description') ? patch.description ?? null : sidecarResult.sidecar.description,
       cwd: hasOwn(patch, 'cwd') ? patch.cwd ?? null : sidecarResult.sidecar.cwd,
@@ -145,7 +150,11 @@ export class AutomationsService {
       model: hasOwn(patch, 'model') ? patch.model ?? null : sidecarResult.sidecar.model,
       reasoningEffort: hasOwn(patch, 'reasoningEffort') ? patch.reasoningEffort ?? null : sidecarResult.sidecar.reasoningEffort,
       notes: hasOwn(patch, 'notes') ? patch.notes ?? '' : sidecarResult.sidecar.notes,
-    })
+    }
+    await writeSidecar(entry, nextSidecar)
+    if (isSchedulerAffectingPatch(patch)) {
+      await refreshSchedulerState({ ...entry, record: nextRecord }, nextSidecar)
+    }
     return await this.getDefinition(automationId)
   }
 
@@ -178,7 +187,7 @@ export class AutomationsService {
     if (!this.runner) throw createServiceError(503, 'Codex bridge is not available for automation manual runs')
     const sidecarResult = await readSidecar(entry)
     return await this.runner.runNow({
-      definition: await mapDefinition(entry, sidecarResult.sidecar),
+      definition: (await mapDefinition(entry, sidecarResult.sidecar)).definition,
       automationDirPath: entry.automationDirPath,
       runProfiles: options.runProfiles,
       runProfileId: options.runProfileId,
@@ -199,6 +208,13 @@ export class AutomationsService {
       status,
       updatedAtMs: Date.now(),
     }, this.options)
+    if (status === 'ACTIVE') {
+      const updatedEntry = await this.findEntry(automationId)
+      if (updatedEntry) {
+        const sidecarResult = await readSidecar(updatedEntry)
+        await refreshSchedulerState(updatedEntry, sidecarResult.sidecar)
+      }
+    }
     return await this.getDefinition(automationId)
   }
 
@@ -221,7 +237,9 @@ export class AutomationsService {
       if (entry.record.kind !== 'heartbeat') continue
       const sidecarResult = await readSidecar(entry)
       if (sidecarResult.diagnostic) diagnostics.push(sidecarResult.diagnostic)
-      definitions.push(await mapDefinition(entry, sidecarResult.sidecar))
+      const mapped = await mapDefinition(entry, sidecarResult.sidecar)
+      if (mapped.diagnostic) diagnostics.push(mapped.diagnostic)
+      definitions.push(mapped.definition)
     }
     definitions.sort((a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id))
     return {
@@ -232,44 +250,145 @@ export class AutomationsService {
   }
 }
 
-async function mapDefinition(entry: NativeAutomationEntry, sidecar: AutomationSidecar): Promise<AutomationDefinition> {
+async function mapDefinition(entry: NativeAutomationEntry, sidecar: AutomationSidecar): Promise<{
+  definition: AutomationDefinition
+  diagnostic: AutomationDiagnostic | null
+}> {
   const createdAtIso = dateIso(entry.record.createdAtMs)
   const updatedAtIso = dateIso(entry.record.updatedAtMs)
   const recentRuns = (await createAutomationRunStore(entry.automationDirPath).listRuns()).slice(0, 5)
+  const nextRun = await readDefinitionNextRunAtIso(entry, createdAtIso, updatedAtIso)
   return {
-    id: entry.record.id,
-    kind: 'heartbeat',
-    source: 'native',
-    nativeId: entry.record.id,
-    name: entry.record.name,
-    description: sidecar.description,
-    prompt: entry.record.prompt,
-    status: entry.record.status === 'PAUSED' ? 'paused' : 'active',
-    legacyStatus: entry.record.status,
-    schedule: { type: 'rrule', rrule: entry.record.rrule },
-    targetThreadId: entry.record.targetThreadId,
-    projectRoot: null,
-    cwd: sidecar.cwd,
-    runMode: sidecar.runMode,
-    runProfileId: sidecar.runProfileId,
-    model: sidecar.model,
-    reasoningEffort: sidecar.reasoningEffort,
-    autoArchiveNoFindings: false,
-    notifyOnFindings: false,
-    kanbanProjection: { mode: 'off' },
-    notes: sidecar.notes,
-    storage: {
-      nativeDirName: entry.sourceDirName,
-      nativePath: entry.automationTomlPath,
-      sidecarPath: sidecarPath(entry),
+    diagnostic: nextRun.diagnostic,
+    definition: {
+      id: entry.record.id,
+      kind: 'heartbeat',
+      source: 'native',
+      nativeId: entry.record.id,
+      name: entry.record.name,
+      description: sidecar.description,
+      prompt: entry.record.prompt,
+      status: entry.record.status === 'PAUSED' ? 'paused' : 'active',
+      legacyStatus: entry.record.status,
+      schedule: { type: 'rrule', rrule: entry.record.rrule },
+      targetThreadId: entry.record.targetThreadId,
+      projectRoot: null,
+      cwd: sidecar.cwd,
+      runMode: sidecar.runMode,
+      runProfileId: sidecar.runProfileId,
+      model: sidecar.model,
+      reasoningEffort: sidecar.reasoningEffort,
+      autoArchiveNoFindings: false,
+      notifyOnFindings: false,
+      kanbanProjection: { mode: 'off' },
+      notes: sidecar.notes,
+      storage: {
+        nativeDirName: entry.sourceDirName,
+        nativePath: entry.automationTomlPath,
+        sidecarPath: sidecarPath(entry),
+      },
+      createdAtIso,
+      updatedAtIso,
+      lastRunAtIso: recentRuns[0]?.startedAtIso ?? recentRuns[0]?.createdAtIso ?? null,
+      nextRunAtIso: nextRun.nextRunAtIso,
+      recentRuns,
+      version: 1,
     },
-    createdAtIso,
-    updatedAtIso,
-    lastRunAtIso: recentRuns[0]?.startedAtIso ?? recentRuns[0]?.createdAtIso ?? null,
-    nextRunAtIso: null,
-    recentRuns,
-    version: 1,
   }
+}
+
+async function refreshSchedulerState(entry: NativeAutomationEntry, sidecar: AutomationSidecar): Promise<void> {
+  const nowIso = new Date().toISOString()
+  const decision = evaluateRruleSchedule({
+    rrule: entry.record.rrule,
+    nowIso,
+    nextDueAtIso: null,
+    anchorIso: dateIso(entry.record.updatedAtMs ?? entry.record.createdAtMs),
+  })
+  await createAutomationSchedulerStore(entry.automationDirPath).writeState({
+    automationId: entry.record.id,
+    sourceDirName: entry.sourceDirName,
+    scheduleHash: buildScheduleHash(entry, sidecar),
+    nextDueAtIso: decision.nextDueAtIso,
+    lastDueAtIso: null,
+    lastScheduledRunId: null,
+    lastEvaluatedAtIso: nowIso,
+    missedRunPolicy: 'one_catch_up',
+    unsupportedReason: decision.unsupportedReason,
+    updatedAtIso: nowIso,
+  })
+}
+
+async function readDefinitionNextRunAtIso(
+  entry: NativeAutomationEntry,
+  createdAtIso: string,
+  updatedAtIso: string,
+): Promise<{ nextRunAtIso: string | null; diagnostic: AutomationDiagnostic | null }> {
+  const store = createAutomationSchedulerStore(entry.automationDirPath)
+  let state
+  try {
+    state = await store.readState()
+  } catch {
+    state = null
+    const recomputed = computeTransientNextRunAtIso(entry, createdAtIso, updatedAtIso)
+    return {
+      nextRunAtIso: recomputed,
+      diagnostic: {
+        automationId: entry.record.id,
+        sourceDirName: entry.sourceDirName,
+        path: store.path,
+        severity: 'warning',
+        message: 'Invalid scheduler.json state',
+      },
+    }
+  }
+  if (state) return { nextRunAtIso: state.nextDueAtIso, diagnostic: null }
+  return { nextRunAtIso: computeTransientNextRunAtIso(entry, createdAtIso, updatedAtIso), diagnostic: null }
+}
+
+function computeTransientNextRunAtIso(
+  entry: NativeAutomationEntry,
+  createdAtIso: string,
+  updatedAtIso: string,
+): string | null {
+  try {
+    const decision = evaluateRruleSchedule({
+      rrule: entry.record.rrule,
+      nowIso: new Date().toISOString(),
+      nextDueAtIso: null,
+      anchorIso: updatedAtIso || createdAtIso,
+    })
+    return decision.nextDueAtIso
+  } catch {
+    return null
+  }
+}
+
+function isSchedulerAffectingPatch(patch: AutomationPatchInput): boolean {
+  return hasOwn(patch, 'schedule') ||
+    hasOwn(patch, 'targetThreadId') ||
+    hasOwn(patch, 'cwd') ||
+    hasOwn(patch, 'runMode') ||
+    hasOwn(patch, 'runProfileId') ||
+    hasOwn(patch, 'model') ||
+    hasOwn(patch, 'reasoningEffort')
+}
+
+function buildScheduleHash(entry: NativeAutomationEntry, sidecar: AutomationSidecar): string {
+  return createHash('sha256')
+    .update(JSON.stringify({
+      id: entry.record.id,
+      sourceDirName: entry.sourceDirName,
+      rrule: entry.record.rrule,
+      status: entry.record.status,
+      targetThreadId: entry.record.targetThreadId,
+      cwd: sidecar.cwd,
+      runMode: sidecar.runMode,
+      runProfileId: sidecar.runProfileId,
+      model: sidecar.model,
+      reasoningEffort: sidecar.reasoningEffort,
+    }))
+    .digest('hex')
 }
 
 function dateIso(value: number | null): string {

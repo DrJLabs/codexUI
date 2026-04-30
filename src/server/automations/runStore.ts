@@ -92,6 +92,8 @@ function parseRun(raw: string): AutomationRun {
   const parsed = JSON.parse(raw) as Partial<AutomationRun>
   return {
     ...parsed,
+    dueAtIso: typeof parsed.dueAtIso === 'string' ? parsed.dueAtIso : null,
+    nextDueAtIso: typeof parsed.nextDueAtIso === 'string' ? parsed.nextDueAtIso : null,
     branchName: typeof parsed.branchName === 'string' ? parsed.branchName : null,
   } as AutomationRun
 }
