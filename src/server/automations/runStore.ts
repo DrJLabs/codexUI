@@ -14,14 +14,15 @@ export type AutomationRunStore = {
 export function createAutomationRunStore(automationDirPath: string): AutomationRunStore {
   const runsRoot = join(automationDirPath, 'runs')
   const readRun = async (runId: string): Promise<AutomationRun> => {
-    return parseRun(await readFile(runJsonPath(runsRoot, runId), 'utf8'))
+    return parseRun(await readFile(runJsonPath(runsRoot, runId), 'utf8'), automationDirPath, runId)
   }
 
   return {
     async createRun(run) {
-      await mkdir(dirname(run.runJsonPath), { recursive: true })
-      await writeFile(run.runJsonPath, serializeRun(run), 'utf8')
-      return run
+      const next = normalizeRunPaths(run, automationDirPath, run.id)
+      await mkdir(dirname(next.runJsonPath), { recursive: true })
+      await writeFile(next.runJsonPath, serializeRun(next), 'utf8')
+      return next
     },
 
     readRun,
@@ -37,7 +38,7 @@ export function createAutomationRunStore(automationDirPath: string): AutomationR
         .filter((entry) => entry.isDirectory())
         .map(async (entry) => {
           try {
-            return parseRun(await readFile(runJsonPath(runsRoot, entry.name), 'utf8'))
+            return parseRun(await readFile(runJsonPath(runsRoot, entry.name), 'utf8'), automationDirPath, entry.name)
           } catch {
             return null
           }
@@ -54,19 +55,22 @@ export function createAutomationRunStore(automationDirPath: string): AutomationR
         ...update,
         updatedAtIso: update.updatedAtIso ?? new Date().toISOString(),
       }
-      await mkdir(dirname(next.runJsonPath), { recursive: true })
-      await writeFile(next.runJsonPath, serializeRun(next), 'utf8')
-      return next
+      const canonical = normalizeRunPaths(next, automationDirPath, runId)
+      await mkdir(dirname(canonical.runJsonPath), { recursive: true })
+      await writeFile(canonical.runJsonPath, serializeRun(canonical), 'utf8')
+      return canonical
     },
 
     async appendEvent(run, event) {
-      await mkdir(dirname(run.eventsPath), { recursive: true })
-      await appendFile(run.eventsPath, `${JSON.stringify({ ...event, atIso: new Date().toISOString(), runId: run.id })}\n`, 'utf8')
+      const paths = createAutomationRunPaths(automationDirPath, run.id)
+      await mkdir(dirname(paths.eventsPath), { recursive: true })
+      await appendFile(paths.eventsPath, `${JSON.stringify({ ...event, atIso: new Date().toISOString(), runId: run.id })}\n`, 'utf8')
     },
 
     async appendLog(run, message) {
-      await mkdir(dirname(run.logPath), { recursive: true })
-      await appendFile(run.logPath, `[${new Date().toISOString()}] ${message}\n`, 'utf8')
+      const paths = createAutomationRunPaths(automationDirPath, run.id)
+      await mkdir(dirname(paths.logPath), { recursive: true })
+      await appendFile(paths.logPath, `[${new Date().toISOString()}] ${message}\n`, 'utf8')
     },
   }
 }
@@ -95,10 +99,11 @@ function assertSafeRunId(runId: string): void {
   }
 }
 
-function parseRun(raw: string): AutomationRun {
+function parseRun(raw: string, automationDirPath: string, runId: string): AutomationRun {
   const parsed = JSON.parse(raw) as Partial<AutomationRun>
-  return {
+  const normalized = {
     ...parsed,
+    id: runId,
     trigger: parsed.trigger === 'schedule' ? 'schedule' : 'manual',
     dueAtIso: typeof parsed.dueAtIso === 'string' ? parsed.dueAtIso : null,
     nextDueAtIso: typeof parsed.nextDueAtIso === 'string' ? parsed.nextDueAtIso : null,
@@ -114,6 +119,16 @@ function parseRun(raw: string): AutomationRun {
       ? parsed.proposalIds.filter((proposalId): proposalId is string => typeof proposalId === 'string')
       : [],
   } as AutomationRun
+  return normalizeRunPaths(normalized, automationDirPath, runId)
+}
+
+function normalizeRunPaths(run: AutomationRun, automationDirPath: string, runId: string): AutomationRun {
+  assertSafeRunId(runId)
+  return {
+    ...run,
+    id: runId,
+    ...createAutomationRunPaths(automationDirPath, runId),
+  }
 }
 
 function serializeRun(run: AutomationRun): string {

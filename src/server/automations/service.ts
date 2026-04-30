@@ -262,11 +262,15 @@ export class AutomationsService {
       if (entry.record.kind !== 'heartbeat') continue
       const sidecarResult = await readSidecar(entry)
       const mapped = await mapDefinition(entry, sidecarResult.sidecar)
+      const schedulerState = await readSchedulerStateForTick(entry)
+      const currentScheduleHash = buildScheduleHash(entry, sidecarResult.sidecar)
       schedulerEntries.push({
         definition: mapped.definition,
         automationDirPath: entry.automationDirPath,
         sourceDirName: entry.sourceDirName,
-        schedulerState: await readSchedulerStateForTick(entry),
+        schedulerState: schedulerState && schedulerState.scheduleHash !== currentScheduleHash
+          ? await refreshSchedulerState(entry, sidecarResult.sidecar)
+          : schedulerState,
         runs: await createAutomationRunStore(entry.automationDirPath).listRuns(),
       })
     }

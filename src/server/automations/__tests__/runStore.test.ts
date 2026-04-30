@@ -1,9 +1,9 @@
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import type { AutomationRun } from '../../../types/automations'
-import { createAutomationRunStore } from '../runStore'
+import { createAutomationRunPaths, createAutomationRunStore } from '../runStore'
 
 const tempDirs: string[] = []
 
@@ -49,6 +49,44 @@ describe('createAutomationRunStore', () => {
       reviewPacketId: null,
       proposalIds: [],
     })
+  })
+
+  it('derives write paths from the automation directory instead of persisted run paths', async () => {
+    const automationDir = await mkdtemp(join(tmpdir(), 'codexui-automation-run-store-'))
+    tempDirs.push(automationDir)
+    const runId = 'automation_run_corrupt_paths'
+    const outsideRunJsonPath = join(automationDir, 'outside-run.json')
+    const outsideEventsPath = join(automationDir, 'outside-events.jsonl')
+    const outsideLogPath = join(automationDir, 'outside-run.log')
+    const runDir = join(automationDir, 'runs', runId)
+    await mkdir(runDir, { recursive: true })
+    await writeFile(join(runDir, 'run.json'), `${JSON.stringify(automationRunFixture({
+      id: runId,
+      runJsonPath: outsideRunJsonPath,
+      eventsPath: outsideEventsPath,
+      logPath: outsideLogPath,
+    }), null, 2)}\n`, 'utf8')
+    const store = createAutomationRunStore(automationDir)
+
+    const run = await store.readRun(runId)
+    const updated = await store.updateRun(runId, {
+      inboxTitle: 'Updated',
+      runJsonPath: outsideRunJsonPath,
+      eventsPath: outsideEventsPath,
+      logPath: outsideLogPath,
+    })
+    await store.appendEvent({ ...updated, eventsPath: outsideEventsPath }, { type: 'test.event' })
+    await store.appendLog({ ...updated, logPath: outsideLogPath }, 'test log')
+    const canonicalPaths = createAutomationRunPaths(automationDir, runId)
+
+    expect(run).toMatchObject(canonicalPaths)
+    expect(updated).toMatchObject({ ...canonicalPaths, inboxTitle: 'Updated' })
+    await expect(readFile(canonicalPaths.runJsonPath, 'utf8')).resolves.toContain('"inboxTitle": "Updated"')
+    await expect(readFile(canonicalPaths.eventsPath, 'utf8')).resolves.toContain('"type":"test.event"')
+    await expect(readFile(canonicalPaths.logPath, 'utf8')).resolves.toContain('test log')
+    await expect(readFile(outsideRunJsonPath, 'utf8')).rejects.toThrow()
+    await expect(readFile(outsideEventsPath, 'utf8')).rejects.toThrow()
+    await expect(readFile(outsideLogPath, 'utf8')).rejects.toThrow()
   })
 })
 

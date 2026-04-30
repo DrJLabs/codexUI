@@ -143,6 +143,20 @@ async function writeScheduler(automationDir: string, state: Partial<AutomationSc
   return schedulerState
 }
 
+async function writeFreshScheduler(
+  service: AutomationsService,
+  automationId: string,
+  automationDir: string,
+  state: Partial<AutomationSchedulerState> = {},
+) {
+  const current = await service.refreshSchedulerState(automationId, '2026-04-30T08:00:00.000Z')
+  return await writeScheduler(automationDir, {
+    scheduleHash: current.scheduleHash,
+    unsupportedReason: current.unsupportedReason,
+    ...state,
+  })
+}
+
 async function writeActiveRun(automationDir: string, input: {
   id: string
   automationId: string
@@ -201,7 +215,7 @@ describe('AutomationScheduler', () => {
     const now = new Date('2026-04-30T10:00:00.000Z')
     const { codexHomeDir, service, rpcCalls } = await createHarness()
     const automationDir = await writeNative(codexHomeDir, 'daily-check-dir', nativeRecord)
-    await writeScheduler(automationDir)
+    await writeFreshScheduler(service, 'daily-check', automationDir)
 
     await new AutomationScheduler({ service, now: () => now }).tick()
 
@@ -236,8 +250,8 @@ describe('AutomationScheduler', () => {
       rrule: 'FREQ=MONTHLY;BYHOUR=9;BYMINUTE=0',
       targetThreadId: 'thread-monthly',
     })
-    await writeScheduler(pausedDir, { automationId: 'paused-check', sourceDirName: 'paused-dir' })
-    await writeScheduler(monthlyDir, {
+    await writeFreshScheduler(service, 'paused-check', pausedDir, { automationId: 'paused-check', sourceDirName: 'paused-dir' })
+    await writeFreshScheduler(service, 'monthly-check', monthlyDir, {
       automationId: 'monthly-check',
       sourceDirName: 'monthly-dir',
       nextDueAtIso: null,
@@ -266,6 +280,30 @@ describe('AutomationScheduler', () => {
     expect(Date.parse(schedulerState.nextDueAtIso ?? '')).toBeGreaterThan(now.getTime())
   })
 
+  it('refreshes stale scheduler state before evaluating due work', async () => {
+    const now = new Date('2026-04-30T10:00:00.000Z')
+    const { codexHomeDir, service } = await createHarness()
+    const automationDir = await writeNative(codexHomeDir, 'daily-check-dir', nativeRecord)
+    await service.refreshSchedulerState('daily-check', '2026-04-29T08:00:00.000Z')
+    await writeScheduler(automationDir, {
+      scheduleHash: 'stale-hash',
+      nextDueAtIso: '2026-04-30T09:00:00.000Z',
+    })
+    await writeFile(join(automationDir, 'automation.toml'), serializeAutomationToml({
+      ...nativeRecord,
+      rrule: 'FREQ=WEEKLY;BYDAY=FR;BYHOUR=9;BYMINUTE=0',
+      updatedAtMs: Date.parse('2026-04-30T08:00:00.000Z'),
+    }), 'utf8')
+
+    await new AutomationScheduler({ service, now: () => now }).tick()
+
+    const runs = await createAutomationRunStore(automationDir).listRuns()
+    const schedulerState = JSON.parse(await readFile(join(automationDir, 'scheduler.json'), 'utf8')) as AutomationSchedulerState
+    expect(runs).toEqual([])
+    expect(schedulerState.scheduleHash).not.toBe('stale-hash')
+    expect(schedulerState.nextDueAtIso).toBe('2026-05-01T09:00:00.000Z')
+  })
+
   it('keeps scheduling healthy automations when another scheduler state file is invalid', async () => {
     const now = new Date('2026-04-30T10:00:00.000Z')
     const { codexHomeDir, service } = await createHarness()
@@ -282,7 +320,7 @@ describe('AutomationScheduler', () => {
       targetThreadId: 'thread-healthy',
     })
     await writeFile(join(badDir, 'scheduler.json'), '{not-valid-json', 'utf8')
-    await writeScheduler(healthyDir, {
+    await writeFreshScheduler(service, 'healthy-check', healthyDir, {
       automationId: 'healthy-check',
       sourceDirName: 'healthy-dir',
     })
@@ -303,7 +341,7 @@ describe('AutomationScheduler', () => {
       ...nativeRecord,
       rrule: 'FREQ=MINUTELY;INTERVAL=1',
     })
-    await writeScheduler(automationDir, { nextDueAtIso: '2026-04-30T09:30:00.000Z' })
+    await writeFreshScheduler(service, 'daily-check', automationDir, { nextDueAtIso: '2026-04-30T09:30:00.000Z' })
 
     await new AutomationScheduler({ service, now: () => now }).tick()
 
@@ -318,7 +356,7 @@ describe('AutomationScheduler', () => {
     const now = new Date('2026-04-30T10:00:00.000Z')
     const { codexHomeDir, service } = await createHarness()
     const automationDir = await writeNative(codexHomeDir, 'daily-check-dir', nativeRecord)
-    await writeScheduler(automationDir, {
+    await writeFreshScheduler(service, 'daily-check', automationDir, {
       nextDueAtIso: '2026-05-01T09:00:00.000Z',
       lastDueAtIso: '2026-04-30T09:00:00.000Z',
       lastScheduledRunId: 'missing-run',
@@ -350,7 +388,7 @@ describe('AutomationScheduler', () => {
       targetThreadId: 'thread-due',
     })
     await writeActiveRun(activeDir, { id: 'active-run', automationId: 'active-check' })
-    await writeScheduler(dueDir, { automationId: 'due-check', sourceDirName: 'due-dir' })
+    await writeFreshScheduler(service, 'due-check', dueDir, { automationId: 'due-check', sourceDirName: 'due-dir' })
 
     await new AutomationScheduler({ service, now: () => new Date('2026-04-30T10:00:00.000Z') }).tick()
 
@@ -377,8 +415,8 @@ describe('AutomationScheduler', () => {
       name: 'Second Check',
       targetThreadId: 'thread-second',
     }, { runMode: 'local', cwd: repo })
-    await writeScheduler(firstDir, { automationId: 'first-check', sourceDirName: 'first-dir' })
-    await writeScheduler(secondDir, { automationId: 'second-check', sourceDirName: 'second-dir' })
+    await writeFreshScheduler(service, 'first-check', firstDir, { automationId: 'first-check', sourceDirName: 'first-dir' })
+    await writeFreshScheduler(service, 'second-check', secondDir, { automationId: 'second-check', sourceDirName: 'second-dir' })
 
     await new AutomationScheduler({ service, now: () => new Date('2026-04-30T10:00:00.000Z') }).tick()
 
@@ -392,7 +430,7 @@ describe('AutomationScheduler', () => {
   it('serializes overlapping ticks', async () => {
     const { codexHomeDir, service } = await createHarness()
     const automationDir = await writeNative(codexHomeDir, 'daily-check-dir', nativeRecord)
-    await writeScheduler(automationDir)
+    await writeFreshScheduler(service, 'daily-check', automationDir)
     let releaseRun: () => void = () => {}
     const runStarted = new Promise<void>((resolve) => {
       const original = service.runScheduled.bind(service)
@@ -420,7 +458,7 @@ describe('AutomationScheduler', () => {
   it('runs startup recovery before the first due scan and waits for delayed recovery', async () => {
     const { codexHomeDir, service, rpcCalls } = await createHarness()
     const automationDir = await writeNative(codexHomeDir, 'daily-check-dir', nativeRecord)
-    await writeScheduler(automationDir)
+    await writeFreshScheduler(service, 'daily-check', automationDir)
     let releaseRecovery: () => void = () => {}
     const recoveryStarted = new Promise<void>((resolve) => {
       vi.spyOn(service, 'recoverInterruptedRuns').mockImplementation(async () => {
