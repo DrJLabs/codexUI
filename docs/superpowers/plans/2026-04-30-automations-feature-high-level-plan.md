@@ -334,6 +334,8 @@ Generalize Kanban-owned execution modules without breaking Kanban:
 
 Do this as compatibility-preserving extraction first. Behavior changes come later. Each extraction substep should have focused tests and a Kanban regression check before the next primitive moves.
 
+Phase 5 implementation plan: [`2026-04-30-automations-phase-5-shared-execution-primitives.md`](2026-04-30-automations-phase-5-shared-execution-primitives.md).
+
 ### Phase 6: Add Manual Run Support
 
 Add manual `Run now` support for automations.
