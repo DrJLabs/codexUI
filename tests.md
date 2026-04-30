@@ -4890,13 +4890,15 @@ Shared review packet freshness fingerprinting and summary UI.
 2. Open the right sidebar.
 3. Confirm the first-level menu shows Thread, Kanban, Automations, Worktrees, Artifacts, Actions, and Permissions.
 4. Click Thread and confirm Plan, Run, Evidence, Review, and Proposals appear only inside the Thread panel.
-5. Click Kanban, Automations, Worktrees, and Artifacts and confirm each replaces the panel content instead of stacking below the previous content.
-6. Switch to dark theme and repeat steps 2-5.
+5. Confirm the five Thread artifact tabs stay in one row without wrapping.
+6. Click Kanban, Automations, Worktrees, and Artifacts and confirm each replaces the panel content instead of stacking below the previous content.
+7. Switch to dark theme and repeat steps 2-6.
 
 #### Expected Results
 - The old duplicated first-level Plan/Run/Evidence/Review/Proposals buttons are gone.
 - Only one first-level section panel is visible at a time.
 - Thread artifact subnavigation appears only inside Thread.
+- The five Thread artifact tabs fit in a single row.
 - Deferred sections explain that wiring lands later and do not perform actions.
 - Light and dark themes remain readable.
 
