@@ -49,9 +49,9 @@ export function createAutomationRunStore(automationDirPath: string): AutomationR
         .filter((entry) => entry.isDirectory())
         .map((entry) => entry.name)
         .sort((left, right) => right.localeCompare(left))
-      const limitedRunDirs = Number.isFinite(limit) ? runDirs.slice(0, limit) : runDirs
       const runs: AutomationRun[] = []
-      for (const runId of limitedRunDirs) {
+      for (const runId of runDirs) {
+        if (Number.isFinite(limit) && runs.length >= limit) break
         try {
           runs.push(parseRun(await readFile(runJsonPath(runsRoot, runId), 'utf8'), automationDirPath, runId))
         } catch {

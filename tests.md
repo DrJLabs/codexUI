@@ -5551,3 +5551,30 @@ Review-cycle hardening for generated automation IDs, production artifact indexin
 #### Rollback/Cleanup
 - Delete disposable automation records and run folders created only for this check.
 - No UI state cleanup is required.
+
+---
+
+### Automations PR review cycle 3 fixes
+
+#### Feature/Change Name
+Run-store limited listing resilience when malformed newer run directories are present.
+
+#### Prerequisites/Setup
+1. Use the `feat/automations` worktree.
+2. Reuse an existing compatible dependency install if this worktree does not already have dependencies.
+3. Use disposable automation run folders only.
+
+#### Steps
+1. Run `pnpm exec vitest run src/server/automations/__tests__/runStore.test.ts`.
+2. Run `pnpm test:unit`.
+3. Run `pnpm run build`.
+4. Run `git diff --check`.
+5. In a disposable automation run directory, create a newer malformed run folder and at least one older valid run folder.
+6. Call `listRuns({ limit: 1 })`.
+
+#### Expected Results
+- Limited listings sort run directory names newest-first but continue past malformed newer records until the requested number of valid runs is returned or no directories remain.
+- Malformed run directories are ignored without hiding valid older run history.
+
+#### Rollback/Cleanup
+- Delete disposable run folders created only for this check.
