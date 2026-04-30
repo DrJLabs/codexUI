@@ -34,6 +34,7 @@ import { recoverStaleKanbanRuns } from './startupRecovery'
 export type CreateKanbanRouterOptions = {
   dataDir?: string
   projectRoot?: string
+  storage?: KanbanStorage
   policy?: KanbanExecutionPolicy
   eventBus?: KanbanEventBus
   auditLog?: KanbanAuditSink
@@ -51,7 +52,7 @@ export function createKanbanRouter(options: CreateKanbanRouterOptions = {}): Rou
   const csrf = new KanbanCsrfProtection()
   const sessionId = createKanbanId('session')
   const policy = options.policy ?? config.policy
-  const storage = new KanbanStorage({ dataDir, projectRoot })
+  const storage = options.storage ?? new KanbanStorage({ dataDir, projectRoot })
   const service = new KanbanTaskService({
     storage,
     projectRoot,

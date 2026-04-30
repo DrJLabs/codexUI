@@ -12,7 +12,9 @@ import type { CodexRunProfile } from '../../types/execution'
 import type { KanbanExecutionPolicy } from '../../types/kanban'
 import type { CodexBridgeRuntime } from '../codexAppServerBridge'
 import { resolveKanbanConfig } from '../kanban/config'
-import { AutomationConflictError, AutomationNotFoundError } from './errors.js'
+import { resolveKanbanDataDir } from '../kanban/paths'
+import { KanbanStorage } from '../kanban/storage'
+import { AutomationConflictError, AutomationNotFoundError, AutomationValidationError } from './errors.js'
 import {
   deleteNativeAutomationBySourceDir,
   getNativeAutomationsRoot,
@@ -33,11 +35,18 @@ import { parseAutomationSidecarRead, type AutomationCreateInput, type Automation
 const SIDECAR_FILENAME = 'codexui.json'
 
 type AutomationSidecar = AutomationSidecarRead
+type KanbanProjectionTaskValidator = {
+  validateTask(taskId: string): Promise<void>
+}
 
 export type AutomationsServiceOptions = NativeAutomationStoreOptions & {
   bridge?: CodexBridgeRuntime
   policy?: KanbanExecutionPolicy
   enableScheduler?: boolean
+  projectRoot?: string
+  kanbanDataDir?: string
+  kanbanStorage?: KanbanStorage
+  kanbanProjectionTaskValidator?: KanbanProjectionTaskValidator | null
 }
 
 export type AutomationSchedulerEntry = {
@@ -56,9 +65,18 @@ export type PersistedAutomationActiveRun = {
 export class AutomationsService {
   private readonly policy: KanbanExecutionPolicy
   private readonly runner: AutomationRunner | null
+  private readonly kanbanProjectionTaskValidator: KanbanProjectionTaskValidator | null
 
   constructor(private readonly options: AutomationsServiceOptions = {}) {
-    this.policy = options.policy ?? resolveKanbanConfig().policy
+    const kanbanConfig = resolveKanbanConfig()
+    this.policy = options.policy ?? kanbanConfig.policy
+    this.kanbanProjectionTaskValidator = options.kanbanProjectionTaskValidator !== undefined
+      ? options.kanbanProjectionTaskValidator
+      : createKanbanProjectionTaskValidator({
+          dataDir: options.kanbanDataDir ?? resolveKanbanDataDir(kanbanConfig.dataDir),
+          projectRoot: options.projectRoot ?? process.cwd(),
+          storage: options.kanbanStorage,
+        })
     this.runner = options.bridge
       ? new AutomationRunner({
           codexHomeDir: options.codexHomeDir,
@@ -80,7 +98,7 @@ export class AutomationsService {
       featureFlags: {
         scheduler: this.options.enableScheduler === true,
         manualRun: true,
-        kanbanProjection: false,
+        kanbanProjection: true,
         artifactIndexing: false,
       },
       sourceCounts: {
@@ -116,6 +134,7 @@ export class AutomationsService {
       entry.record.targetThreadId === input.targetThreadId
     ))
     if (existing) throw new AutomationConflictError('Automation already exists for targetThreadId')
+    await this.assertKanbanProjectionTarget(input.kanbanProjection)
 
     const record = await writeThreadHeartbeatAutomation({
       threadId: input.targetThreadId,
@@ -145,6 +164,9 @@ export class AutomationsService {
         candidate.sourceDirName !== entry.sourceDirName
       ))
       if (duplicate) throw new AutomationConflictError('Automation already exists for targetThreadId')
+    }
+    if (hasOwn(patch, 'kanbanProjection') && patch.kanbanProjection) {
+      await this.assertKanbanProjectionTarget(patch.kanbanProjection)
     }
     const now = Date.now()
     const nextRecord: ThreadAutomationRecord = {
@@ -195,6 +217,15 @@ export class AutomationsService {
 
   getExecutionPolicy(): KanbanExecutionPolicy {
     return this.policy
+  }
+
+  private async assertKanbanProjectionTarget(projection: AutomationSidecar['kanbanProjection']): Promise<void> {
+    if (projection.mode !== 'attach_existing_task') return
+    const validator = this.kanbanProjectionTaskValidator
+    if (!validator) {
+      throw new AutomationValidationError('Kanban projection task validation is unavailable')
+    }
+    await validator.validateTask(projection.taskId)
   }
 
   async listSchedulerEntries(): Promise<AutomationSchedulerEntry[]> {
@@ -688,4 +719,23 @@ function createServiceError(statusCode: number, message: string): Error & { stat
 
 export function resolveAutomationsStorageRoot(options?: NativeAutomationStoreOptions): string {
   return getNativeAutomationsRoot(options)
+}
+
+function createKanbanProjectionTaskValidator(options: {
+  dataDir: string
+  projectRoot: string
+  storage?: KanbanStorage
+}): KanbanProjectionTaskValidator {
+  const storage = options.storage ?? new KanbanStorage({
+    dataDir: options.dataDir,
+    projectRoot: options.projectRoot,
+  })
+  return {
+    async validateTask(taskId: string): Promise<void> {
+      const state = await storage.load()
+      const task = state.tasks[taskId]
+      if (!task) throw new AutomationValidationError('Kanban projection task not found')
+      if (task.archived) throw new AutomationValidationError('Kanban projection task is archived')
+    },
+  }
 }

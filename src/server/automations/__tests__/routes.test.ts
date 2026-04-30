@@ -7,6 +7,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { KanbanExecutionPolicy } from '../../../types/kanban'
 import type { CodexBridgeNotification, CodexBridgeRuntime } from '../../codexAppServerBridge'
 import { createServer as createCodexUiServer } from '../../httpServer'
+import { KanbanStorage } from '../../kanban/storage'
+import { KanbanTaskService } from '../../kanban/taskService'
 import { createAutomationsMiddleware } from '../index'
 import { AUTOMATIONS_CSRF_HEADER } from '../csrf'
 import {
@@ -15,6 +17,7 @@ import {
   parseAutomationPatchInput,
   parseAutomationRouteParams,
 } from '../schema'
+import { AutomationValidationError } from '../errors'
 import { serializeAutomationToml, type ThreadAutomationRecord } from '../nativeStore'
 
 const servers: Server[] = []
@@ -66,6 +69,12 @@ async function createHarness(options: {
   bridge?: CodexBridgeRuntime
   policy?: KanbanExecutionPolicy
   enableScheduler?: boolean
+  projectRoot?: string
+  kanbanDataDir?: string
+  kanbanStorage?: KanbanStorage
+  kanbanProjectionTaskValidator?: {
+    validateTask(taskId: string): Promise<void>
+  } | null
 } = {}) {
   const codexHomeDir = await mkdtemp(join(tmpdir(), 'codexui-automations-api-'))
   codexHomeDirs.push(codexHomeDir)
@@ -75,6 +84,10 @@ async function createHarness(options: {
     bridge: options.bridge,
     policy: options.policy,
     enableScheduler: options.enableScheduler,
+    projectRoot: options.projectRoot,
+    kanbanDataDir: options.kanbanDataDir,
+    kanbanStorage: options.kanbanStorage,
+    kanbanProjectionTaskValidator: options.kanbanProjectionTaskValidator,
   }))
   app.use('/codex-api', (_req, res) => {
     res.status(599).json({ error: 'generic bridge reached' })
@@ -231,7 +244,7 @@ describe('createAutomationsMiddleware', () => {
 
     const health = await requestJson<{ data: { ok: true } }>(`${baseUrl}/codex-api/automations/health`)
     const templates = await requestJson<{ data: Array<{ kind: string }> }>(`${baseUrl}/codex-api/automations/templates`)
-    const state = await requestJson<{ data: { storageRoot: string; featureFlags: { scheduler: boolean }; sourceCounts: { native: number }; diagnostics: unknown[]; definitions: Array<{ id: string; nextRunAtIso: string | null }> } }>(`${baseUrl}/codex-api/automations/state`)
+    const state = await requestJson<{ data: { storageRoot: string; featureFlags: { scheduler: boolean; kanbanProjection: boolean }; sourceCounts: { native: number }; diagnostics: unknown[]; definitions: Array<{ id: string; nextRunAtIso: string | null }> } }>(`${baseUrl}/codex-api/automations/state`)
     const list = await requestJson<{ data: Array<{ id: string; status: string; legacyStatus: string; targetThreadId: string | null; nextRunAtIso: string | null; storage: { nativeDirName: string } }> }>(`${baseUrl}/codex-api/automations`)
     const get = await requestJson<{ data: { id: string; targetThreadId: string | null; status: string; nextRunAtIso: string | null } }>(`${baseUrl}/codex-api/automations/detached-check`)
 
@@ -242,6 +255,7 @@ describe('createAutomationsMiddleware', () => {
     expect(state.status).toBe(200)
     expect(state.body.data.storageRoot).toBe(join(codexHomeDir, 'automations'))
     expect(state.body.data.featureFlags.scheduler).toBe(false)
+    expect(state.body.data.featureFlags.kanbanProjection).toBe(true)
     expect(state.body.data.sourceCounts.native).toBe(2)
     expect(state.body.data.diagnostics).toHaveLength(2)
     expect(state.body.data.diagnostics).toEqual(expect.arrayContaining([
@@ -569,7 +583,11 @@ describe('createAutomationsMiddleware', () => {
   })
 
   it('persists kanban projection settings while preserving omitted patch values and legacy defaults', async () => {
-    const { baseUrl, codexHomeDir } = await createHarness()
+    const { baseUrl, codexHomeDir } = await createHarness({
+      kanbanProjectionTaskValidator: {
+        async validateTask() {},
+      },
+    })
     const legacyDir = await writeNative(codexHomeDir, 'legacy-check-dir', {
       ...nativeRecord,
       id: 'legacy-check',
@@ -676,6 +694,110 @@ describe('createAutomationsMiddleware', () => {
     )
     expect(malformedCreate.status).toBe(400)
     expect(malformedCreate.body.error).toContain('kanbanProjection.createFor')
+  })
+
+  it('rejects attach-existing kanban projection targets that cannot be validated', async () => {
+    const validator = {
+      async validateTask(taskId: string) {
+        if (taskId === 'task_missing') throw new AutomationValidationError('Kanban projection task not found')
+        if (taskId === 'task_archived') throw new AutomationValidationError('Kanban projection task is archived')
+      },
+    }
+    const { baseUrl, codexHomeDir } = await createHarness({ kanbanProjectionTaskValidator: validator })
+    await writeNative(codexHomeDir, 'daily-check-dir', nativeRecord)
+    const csrfHeaders = await readCsrfHeaders(baseUrl)
+
+    const missing = await requestJson<{ error: string }>(
+      `${baseUrl}/codex-api/automations/daily-check`,
+      {
+        method: 'PATCH',
+        headers: csrfHeaders,
+        body: JSON.stringify({ kanbanProjection: { mode: 'attach_existing_task', taskId: 'task_missing' } }),
+      },
+    )
+    const archived = await requestJson<{ error: string }>(
+      `${baseUrl}/codex-api/automations/daily-check`,
+      {
+        method: 'PATCH',
+        headers: csrfHeaders,
+        body: JSON.stringify({ kanbanProjection: { mode: 'attach_existing_task', taskId: 'task_archived' } }),
+      },
+    )
+    const afterRejected = await requestJson<{ data: { kanbanProjection: unknown } }>(
+      `${baseUrl}/codex-api/automations/daily-check`,
+    )
+    const { baseUrl: noValidatorBaseUrl } = await createHarness({ kanbanProjectionTaskValidator: null })
+    const noValidatorCsrfHeaders = await readCsrfHeaders(noValidatorBaseUrl)
+    const unavailable = await requestJson<{ error: string }>(
+      `${noValidatorBaseUrl}/codex-api/automations`,
+      {
+        method: 'POST',
+        headers: noValidatorCsrfHeaders,
+        body: JSON.stringify({
+          kind: 'heartbeat',
+          name: 'No Validator',
+          prompt: 'Prompt',
+          schedule: { type: 'rrule', rrule: 'FREQ=DAILY' },
+          targetThreadId: 'thread-no-validator',
+          kanbanProjection: { mode: 'attach_existing_task', taskId: 'task_existing' },
+        }),
+      },
+    )
+
+    expect(missing.status).toBe(400)
+    expect(missing.body.error).toContain('Kanban projection task not found')
+    expect(archived.status).toBe(400)
+    expect(archived.body.error).toContain('Kanban projection task is archived')
+    expect(afterRejected.status).toBe(200)
+    expect(afterRejected.body.data.kanbanProjection).toEqual({ mode: 'off' })
+    expect(unavailable.status).toBe(400)
+    expect(unavailable.body.error).toContain('Kanban projection task validation is unavailable')
+  })
+
+  it('validates attach-existing kanban projection targets against Kanban storage', async () => {
+    const dataDir = await mkdtemp(join(tmpdir(), 'codexui-automation-kanban-projection-'))
+    codexHomeDirs.push(dataDir)
+    const projectRoot = join(dataDir, 'project')
+    const kanbanStorage = new KanbanStorage({ dataDir, projectRoot })
+    const taskService = new KanbanTaskService({ storage: kanbanStorage, projectRoot, policy: enabledPolicy })
+    const activeTask = await taskService.createTask({ title: 'Active projection target' })
+    const archivedTask = await taskService.createTask({ title: 'Archived projection target' })
+    await taskService.archiveTask(archivedTask.id, { version: archivedTask.version })
+    const { baseUrl, codexHomeDir } = await createHarness({ kanbanStorage, kanbanDataDir: dataDir, projectRoot })
+    await writeNative(codexHomeDir, 'daily-check-dir', nativeRecord)
+    const csrfHeaders = await readCsrfHeaders(baseUrl)
+
+    const active = await requestJson<{ data: { kanbanProjection: unknown } }>(
+      `${baseUrl}/codex-api/automations/daily-check`,
+      {
+        method: 'PATCH',
+        headers: csrfHeaders,
+        body: JSON.stringify({ kanbanProjection: { mode: 'attach_existing_task', taskId: activeTask.id } }),
+      },
+    )
+    const missing = await requestJson<{ error: string }>(
+      `${baseUrl}/codex-api/automations/daily-check`,
+      {
+        method: 'PATCH',
+        headers: csrfHeaders,
+        body: JSON.stringify({ kanbanProjection: { mode: 'attach_existing_task', taskId: 'task_missing' } }),
+      },
+    )
+    const archived = await requestJson<{ error: string }>(
+      `${baseUrl}/codex-api/automations/daily-check`,
+      {
+        method: 'PATCH',
+        headers: csrfHeaders,
+        body: JSON.stringify({ kanbanProjection: { mode: 'attach_existing_task', taskId: archivedTask.id } }),
+      },
+    )
+
+    expect(active.status).toBe(200)
+    expect(active.body.data.kanbanProjection).toEqual({ mode: 'attach_existing_task', taskId: activeTask.id })
+    expect(missing.status).toBe(400)
+    expect(missing.body.error).toContain('Kanban projection task not found')
+    expect(archived.status).toBe(400)
+    expect(archived.body.error).toContain('Kanban projection task is archived')
   })
 
   it('accepts monthly and yearly RRULEs while clearing scheduler due state as unsupported', async () => {
