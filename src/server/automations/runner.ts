@@ -597,15 +597,12 @@ function extractAssistantText(response: unknown, turnId: string): { text: string
   })
   const turn = asRecord(matchingTurn)
   if (!turn) return { text: '', warning: `thread/read response did not include completed turn ${turnId}` }
-  if (!Array.isArray(turn.items)) return { text: '', warning: `thread/read completed turn ${turnId} did not include items` }
-  const items = turn.items
+  const items = [...readArray(turn.items), ...readArray(turn.messages)]
+  if (items.length === 0) return { text: '', warning: `thread/read completed turn ${turnId} did not include items` }
   const texts = items.map((item) => {
     const recordItem = asRecord(item)
-    if (!recordItem) return ''
-    const type = readString(recordItem.type)
-    if (type && !['agentMessage', 'assistantMessage', 'message'].includes(type)) return ''
-    if (type === 'message' && readString(recordItem.role) !== 'assistant') return ''
-    return readString(recordItem.text) || readString(recordItem.content)
+    if (!isAssistantMessageItem(recordItem)) return ''
+    return readAssistantMessageText(recordItem)
   }).filter(Boolean)
   const text = texts.join('\n\n').trim()
   return {
@@ -618,6 +615,35 @@ function asRecord(value: unknown): Record<string, unknown> | null {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
     ? value as Record<string, unknown>
     : null
+}
+
+function isAssistantMessageItem(item: Record<string, unknown> | null): item is Record<string, unknown> {
+  if (!item) return false
+  const type = readString(item.type)
+  const role = readString(item.role)
+  const author = asRecord(item.author)
+  const authorRole = readString(author?.role)
+  return type === 'agentMessage' || type === 'assistantMessage' || role === 'assistant' || authorRole === 'assistant'
+}
+
+function readAssistantMessageText(item: Record<string, unknown>): string {
+  const directText = readString(item.text) || readString(item.message) || readString(item.content)
+  if (directText) return directText
+  const message = asRecord(item.message)
+  const messageText = readString(message?.text) || readString(message?.content)
+  if (messageText) return messageText
+  const blocks = [...readArray(item.content), ...readArray(message?.content)]
+  const parts: string[] = []
+  for (const block of blocks) {
+    const record = asRecord(block)
+    const text = readString(record?.text) || readString(record?.content)
+    if (text.trim()) parts.push(text.trim())
+  }
+  return parts.join('\n')
+}
+
+function readArray(value: unknown): unknown[] {
+  return Array.isArray(value) ? value : []
 }
 
 function readString(value: unknown): string {

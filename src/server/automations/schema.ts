@@ -298,7 +298,11 @@ export function parseAutomationDeleteOptions(query: unknown, body: unknown): Aut
 
 export function parseAutomationRouteParams(params: unknown): { automationId: string } {
   if (!isRecord(params)) throw new AutomationValidationError('automationId is required')
-  return { automationId: readTrimmedString(params.automationId, 'automationId') }
+  const automationId = readTrimmedString(params.automationId, 'automationId')
+  if (automationId === '.' || automationId === '..' || !/^[A-Za-z0-9._-]+$/u.test(automationId)) {
+    throw new AutomationValidationError('Invalid automationId')
+  }
+  return { automationId }
 }
 
 function readBooleanOption(query: unknown, body: unknown, field: string): boolean {

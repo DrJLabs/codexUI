@@ -5710,8 +5710,6 @@ Review-cycle hardening for automation run-start concurrency, startup recovery ow
 #### Rollback/Cleanup
 - Delete disposable automation records, run folders, and managed worktree lock folders created only for this check.
 
----
-
 ### Automations PR review cycle 7 fixes
 
 #### Feature/Change Name
@@ -5740,3 +5738,31 @@ Review-cycle hardening for active-run index writes, stale automation worktree lo
 
 #### Rollback/Cleanup
 - Delete disposable automation records, run folders, and managed worktree lock folders created only for this check.
+
+---
+
+### Automations PR review cycle 8 fixes
+
+#### Feature/Change Name
+Review-cycle hardening for automation completion parsing and route parameter validation.
+
+#### Prerequisites/Setup
+1. Use `${WORKTREE_ROOT}` on `feat/automations`.
+2. Reuse an existing compatible dependency install if this worktree does not already have dependencies.
+3. Use disposable automation records and run folders only.
+
+#### Steps
+1. Run `pnpm exec vitest run src/server/automations/__tests__/runner.test.ts src/server/automations/__tests__/routes.test.ts`.
+2. Run `pnpm test:unit`.
+3. Run `pnpm run build`.
+4. Run `git diff --check`.
+5. Complete an automation run where `thread/read` returns the completed turn with assistant `messages` and nested text content blocks instead of `items`.
+6. Submit route params with empty, traversal-like, and dot-only automation ids.
+
+#### Expected Results
+- Completion parsing extracts assistant output from `messages`, nested message objects, and text/content block arrays without falling back to unrelated turns.
+- Runs with nested assistant findings are classified as `completed_with_findings` and keep the extracted summary.
+- Invalid automation route ids are rejected before service lookup.
+
+#### Rollback/Cleanup
+- Delete disposable automation records and run folders created only for this check.

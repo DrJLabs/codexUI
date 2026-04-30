@@ -416,6 +416,45 @@ describe('AutomationRunner', () => {
     await expect(readFile(completed.logPath, 'utf8')).resolves.toContain('Manual run completed with findings')
   })
 
+  it('extracts assistant completion text from turn messages and nested content blocks', async () => {
+    const { codexHomeDir, service, notificationListeners } = await createHarness({
+      readThreadResponse: {
+        thread: {
+          turns: [
+            {
+              id: 'turn_1',
+              messages: [
+                {
+                  role: 'assistant',
+                  content: [
+                    { type: 'text', text: 'RESULT: FINDINGS' },
+                    { type: 'text', text: '- Nested completion text' },
+                  ],
+                },
+              ],
+            },
+          ],
+        },
+      },
+    })
+    await writeNative(codexHomeDir, 'daily-check-dir', nativeRecord, { runMode: 'chat' })
+    await service.runNow('daily-check')
+
+    await Promise.resolve(notificationListeners[0]!({
+      method: 'turn/completed',
+      params: { threadId: 'thread-1', turnId: 'turn_1' },
+      atIso: new Date().toISOString(),
+    }))
+    const completed = (await service.listRuns('daily-check'))[0]!
+
+    expect(completed).toMatchObject({
+      state: 'completed_with_findings',
+      findings: true,
+      resultSummary: 'RESULT: FINDINGS\n- Nested completion text',
+      inboxTitle: 'Findings reported',
+    })
+  })
+
   it('projects completed findings runs to one idle Kanban task and stores the task id', async () => {
     const { taskService, kanbanProjection } = await createKanbanProjectionHarness()
     const { codexHomeDir, service, notificationListeners } = await createHarness({

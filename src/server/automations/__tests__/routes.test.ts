@@ -186,6 +186,8 @@ describe('automation request schema', () => {
     expect(() => parseAutomationPatchInput({ runMode: 'chat', targetThreadId: null })).toThrow(/targetThreadId/)
     expect(() => parseAutomationPatchInput({ notes: 'x'.repeat(4001) })).toThrow(/notes/)
     expect(() => parseAutomationRouteParams({ automationId: '' })).toThrow(/automationId/)
+    expect(() => parseAutomationRouteParams({ automationId: '../daily-check' })).toThrow(/automationId/)
+    expect(() => parseAutomationRouteParams({ automationId: '.' })).toThrow(/automationId/)
     expect(parseAutomationDeleteOptions({ removeNative: 'true' }, {})).toEqual({ removeNative: true })
     expect(() => parseAutomationDeleteOptions({}, { removeNative: 'yes' })).toThrow(/removeNative/)
   })
