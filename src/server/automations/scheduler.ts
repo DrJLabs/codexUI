@@ -82,10 +82,15 @@ export class AutomationScheduler {
       const repoKey = repoLimitKey(entry)
       if (repoKey && (activeRunIndex.repoActiveRuns.get(repoKey) ?? 0) >= maxActiveRunsPerRepo) continue
 
-      await this.service.runScheduled(entry.definition.id, {
-        dueAtIso: decision.dueAtIso,
-        nextDueAtIso: decision.nextDueAtIso,
-      })
+      try {
+        await this.service.runScheduled(entry.definition.id, {
+          dueAtIso: decision.dueAtIso,
+          nextDueAtIso: decision.nextDueAtIso,
+        })
+      } catch (error) {
+        console.warn(`Automation scheduler failed to start ${entry.definition.id}:`, error)
+        continue
+      }
       activeRunIndex.globalActiveRuns += 1
       activeRunIndex.activeAutomationIds.add(entry.definition.id)
       if (repoKey) {

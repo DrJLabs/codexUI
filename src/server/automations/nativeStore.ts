@@ -275,7 +275,7 @@ async function readThreadHeartbeatAutomationEntry(
 
 export async function writeThreadHeartbeatAutomation(
   input: {
-    threadId: string
+    threadId: string | null
     name: string
     prompt: string
     rrule: string
@@ -283,18 +283,20 @@ export async function writeThreadHeartbeatAutomation(
   },
   options?: NativeAutomationStoreOptions,
 ): Promise<ThreadAutomationRecord> {
-  const threadId = input.threadId.trim()
+  const threadId = input.threadId?.trim() || null
   const name = input.name.trim()
   const prompt = input.prompt.trim()
   const rrule = input.rrule.trim()
-  if (!threadId || !name || !prompt || !rrule) {
-    throw new Error('threadId, name, prompt, and rrule are required')
+  if (!name || !prompt || !rrule) {
+    throw new Error('name, prompt, and rrule are required')
   }
 
   const automationRoot = getCodexAutomationsDir(options)
   await mkdir(automationRoot, { recursive: true })
-  const existing = await readThreadHeartbeatAutomationEntry(threadId, options)
-  const generatedId = slugifyAutomationId(threadId, name)
+  const existing = threadId ? await readThreadHeartbeatAutomationEntry(threadId, options) : null
+  const generatedId = threadId
+    ? slugifyAutomationId(threadId, name)
+    : `${slugifyAutomationId('', name)}-${randomBytes(4).toString('hex')}`
   const id = safeAutomationId(existing?.record.id, existing?.sourceDirName, generatedId)
   const sourceDirName = existing?.sourceDirName && isSafeAutomationBasename(existing.sourceDirName)
     ? existing.sourceDirName

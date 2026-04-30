@@ -634,6 +634,48 @@ describe('createAutomationsMiddleware', () => {
     expect(bridgeCheck.body.data.ok).toBe(true)
   })
 
+  it('creates local and worktree automations without an attached thread id', async () => {
+    const { baseUrl } = await createHarness()
+    const csrfHeaders = await readCsrfHeaders(baseUrl)
+    const local = await requestJson<{ data?: { targetThreadId: string | null; cwd: string; runMode: string }; error?: string }>(
+      `${baseUrl}/codex-api/automations`,
+      {
+        method: 'POST',
+        headers: csrfHeaders,
+        body: JSON.stringify({
+          kind: 'heartbeat',
+          name: 'Local Check',
+          prompt: 'Inspect local project',
+          schedule: { type: 'rrule', rrule: 'FREQ=DAILY' },
+          targetThreadId: null,
+          cwd: '/tmp',
+          runMode: 'local',
+        }),
+      },
+    )
+    const worktree = await requestJson<{ data?: { targetThreadId: string | null; cwd: string; runMode: string }; error?: string }>(
+      `${baseUrl}/codex-api/automations`,
+      {
+        method: 'POST',
+        headers: csrfHeaders,
+        body: JSON.stringify({
+          kind: 'heartbeat',
+          name: 'Worktree Check',
+          prompt: 'Inspect worktree project',
+          schedule: { type: 'rrule', rrule: 'FREQ=DAILY' },
+          targetThreadId: null,
+          cwd: '/var/tmp',
+          runMode: 'worktree',
+        }),
+      },
+    )
+
+    expect(local.status).toBe(201)
+    expect(local.body.data).toMatchObject({ targetThreadId: null, cwd: '/tmp', runMode: 'local' })
+    expect(worktree.status).toBe(201)
+    expect(worktree.body.data).toMatchObject({ targetThreadId: null, cwd: '/var/tmp', runMode: 'worktree' })
+  })
+
   it('persists kanban projection settings while preserving omitted patch values and legacy defaults', async () => {
     const { baseUrl, codexHomeDir } = await createHarness({
       kanbanProjectionTaskValidator: {

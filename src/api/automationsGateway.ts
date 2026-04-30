@@ -5,7 +5,7 @@ export type CreateAutomationInput = {
   name: string
   prompt: string
   schedule: { type: 'rrule'; rrule: string }
-  targetThreadId: string
+  targetThreadId: string | null
   description?: string | null
   cwd?: string | null
   runMode?: AutomationRunMode | null

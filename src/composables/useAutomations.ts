@@ -399,7 +399,7 @@ function toCreateInput(draft: AutomationDraft): CreateAutomationInput {
     name: draft.name.trim(),
     prompt: draft.prompt.trim(),
     schedule: { type: 'rrule', rrule: draft.rrule.trim() },
-    targetThreadId: draft.targetThreadId.trim(),
+    targetThreadId: normalizeOptionalNullable(draft.targetThreadId),
     description: normalizeOptionalNullable(draft.description),
     cwd: normalizeOptionalNullable(draft.cwd),
     runMode: draft.runMode,

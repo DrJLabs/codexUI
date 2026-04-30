@@ -8,7 +8,7 @@ export type AutomationCreateInput = {
   description: string | null
   prompt: string
   schedule: { type: 'rrule'; rrule: string }
-  targetThreadId: string
+  targetThreadId: string | null
   cwd: string | null
   runMode: AutomationRunMode | null
   runProfileId: string | null
@@ -227,21 +227,31 @@ function readOptionalNotes(input: Record<string, unknown>): string | undefined {
 export function parseAutomationCreateInput(value: unknown): AutomationCreateInput {
   if (!isRecord(value)) throw new AutomationValidationError('Automation create payload is required')
   if (value.kind !== 'heartbeat') throw new AutomationValidationError('kind must be heartbeat')
+  const runMode = readRunMode(value.runMode)
+  const cwd = readCwd(value.cwd)
+  if ((runMode === 'local' || runMode === 'worktree') && !cwd) {
+    throw new AutomationValidationError('cwd is required for local and worktree automations')
+  }
   return {
     kind: 'heartbeat',
     name: readTrimmedString(value.name, 'name'),
     description: readNullableString(value.description, 'description'),
     prompt: readTrimmedString(value.prompt, 'prompt'),
     schedule: readSchedule(value.schedule),
-    targetThreadId: readTrimmedString(value.targetThreadId, 'targetThreadId'),
-    cwd: readCwd(value.cwd),
-    runMode: readRunMode(value.runMode),
+    targetThreadId: readCreateTargetThreadId(value.targetThreadId, runMode),
+    cwd,
+    runMode,
     runProfileId: readNullableString(value.runProfileId, 'runProfileId'),
     model: readNullableString(value.model, 'model'),
     reasoningEffort: readNullableString(value.reasoningEffort, 'reasoningEffort'),
     kanbanProjection: readKanbanProjection(value.kanbanProjection),
     notes: readNotes(value.notes),
   }
+}
+
+function readCreateTargetThreadId(value: unknown, runMode: AutomationRunMode | null): string | null {
+  if (runMode === 'local' || runMode === 'worktree') return readNullableString(value, 'targetThreadId')
+  return readTrimmedString(value, 'targetThreadId')
 }
 
 export function parseAutomationPatchInput(value: unknown): AutomationPatchInput {

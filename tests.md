@@ -5445,3 +5445,40 @@ Automations route parity polish for run triage, schedule status, capability chip
 - Unarchive any run archived only for verification if preserving prior state matters.
 - Delete disposable automations and projected Kanban tasks created only for this check.
 - Stop the dev server if it was started only for this test.
+
+---
+
+### Automations review fixes - scheduler isolation and detached execution creates
+
+#### Feature/Change Name
+Automations review fixes for per-entry scheduler failure isolation and direct local/worktree automation creation without an attached thread.
+
+#### Prerequisites/Setup
+1. Use `/home/drj/.codex/worktrees/52f8/codexUI`.
+2. Start the app with `pnpm run dev -- --host 0.0.0.0 --port 4173` for manual UI checks.
+3. Use disposable automations and disposable project directories only.
+4. Ensure light and dark themes are available from Settings.
+
+#### Steps
+1. Run `/home/drj/projects/codexUI/node_modules/.bin/vitest run src/server/automations/__tests__/scheduler.test.ts src/server/automations/__tests__/routes.test.ts src/server/automations/__tests__/nativeStore.test.ts src/composables/useAutomations.test.ts src/api/automationsGateway.test.ts`.
+2. Run `pnpm test:unit`.
+3. Run `pnpm run build`.
+4. Run `git diff --check`.
+5. In light theme, open `http://127.0.0.1:4173/#/automations`.
+6. Create a Local cwd automation with a valid absolute cwd, prompt, and schedule, leaving Attached thread id blank.
+7. Create a Managed worktree automation with a valid absolute cwd, prompt, and schedule, leaving Attached thread id blank.
+8. Confirm both saved definitions show `No thread`, preserve their run mode and cwd, and remain selectable.
+9. Create or prepare one active due chat automation with no attached thread and one healthy active due chat automation.
+10. Let the scheduler tick in a controlled test environment or run the scheduler unit test fixture.
+11. Repeat steps 5-8 in dark theme.
+
+#### Expected Results
+- Local and managed-worktree automation creation does not require an attached thread id.
+- Chat automation creation still requires an attached thread id.
+- A due but unrunnable automation does not abort the scheduler scan for later healthy due automations.
+- Light and dark themes keep the create form required-field behavior, list rows, storage details, and run-mode/cwd fields readable.
+
+#### Rollback/Cleanup
+- Delete disposable local/worktree automations created for this check.
+- Remove temporary scheduler/run artifacts only under disposable automation directories.
+- Stop the dev server if it was started only for this test.

@@ -138,11 +138,13 @@ export class AutomationsService {
 
   async createDefinition(input: AutomationCreateInput): Promise<AutomationDefinition> {
     const entries = await listNativeAutomationEntries(this.options)
-    const existing = entries.records.find((entry) => (
-      entry.record.kind === 'heartbeat' &&
-      entry.record.targetThreadId === input.targetThreadId
-    ))
-    if (existing) throw new AutomationConflictError('Automation already exists for targetThreadId')
+    if (input.targetThreadId !== null) {
+      const existing = entries.records.find((entry) => (
+        entry.record.kind === 'heartbeat' &&
+        entry.record.targetThreadId === input.targetThreadId
+      ))
+      if (existing) throw new AutomationConflictError('Automation already exists for targetThreadId')
+    }
     await this.assertKanbanProjectionTarget(input.kanbanProjection)
 
     const record = await writeThreadHeartbeatAutomation({

@@ -125,7 +125,7 @@
 
           <label class="automations-field">
             <span>Attached thread id</span>
-            <input v-model="draft.targetThreadId" type="text" :required="draft.mode === 'create'" />
+            <input v-model="draft.targetThreadId" type="text" :required="draft.mode === 'create' && draft.runMode === 'chat'" />
           </label>
 
           <label class="automations-field">

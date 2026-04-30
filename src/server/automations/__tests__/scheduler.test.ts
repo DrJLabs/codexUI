@@ -351,6 +351,36 @@ describe('AutomationScheduler', () => {
     expect(healthyRuns[0]).toMatchObject({ automationId: 'healthy-check', trigger: 'schedule' })
   })
 
+  it('continues scanning healthy due automations when one due automation cannot run', async () => {
+    const now = new Date('2026-04-30T10:00:00.000Z')
+    const { codexHomeDir, service } = await createHarness()
+    const badDir = await writeNative(codexHomeDir, 'bad-dir', {
+      ...nativeRecord,
+      id: 'bad-check',
+      name: 'Bad Check',
+      targetThreadId: null,
+    })
+    const healthyDir = await writeNative(codexHomeDir, 'healthy-dir', {
+      ...nativeRecord,
+      id: 'healthy-check',
+      name: 'Healthy Check',
+      targetThreadId: 'thread-healthy',
+    })
+    await writeFreshScheduler(service, 'bad-check', badDir)
+    await writeFreshScheduler(service, 'healthy-check', healthyDir, {
+      automationId: 'healthy-check',
+      sourceDirName: 'healthy-dir',
+    })
+
+    await new AutomationScheduler({ service, now: () => now }).tick()
+
+    const badRuns = await createAutomationRunStore(badDir).listRuns()
+    const healthyRuns = await createAutomationRunStore(healthyDir).listRuns()
+    expect(badRuns).toEqual([])
+    expect(healthyRuns).toHaveLength(1)
+    expect(healthyRuns[0]).toMatchObject({ automationId: 'healthy-check', trigger: 'schedule' })
+  })
+
   it('starts only one catch-up run per automation tick and advances next due beyond now', async () => {
     const now = new Date('2026-04-30T10:00:00.000Z')
     const { codexHomeDir, service } = await createHarness()
