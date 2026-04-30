@@ -50,7 +50,7 @@ This file tracks manual regression and feature verification steps.
 - If this worktree lacks dependencies, or `node_modules` exists but does not include Vitest/build tooling, temporarily link `node_modules` to `/home/drj/projects/codexUI/node_modules` and remove the link after verification.
 
 #### Steps
-1. Run `/home/drj/projects/codexUI/node_modules/.bin/vitest run src/server/automations/__tests__/nativeStore.test.ts src/server/automations/__tests__/legacyRoutes.test.ts src/server/codexAppServerBridge.inlinePayload.test.ts`.
+1. Run `pnpm exec vitest run src/server/automations/__tests__/nativeStore.test.ts src/server/automations/__tests__/legacyRoutes.test.ts src/server/codexAppServerBridge.inlinePayload.test.ts`.
 2. Run `pnpm run build`.
 
 #### Expected Results
@@ -208,7 +208,7 @@ First-class Automations hash route with shared heartbeat editor.
 3. Start the app with `pnpm run dev -- --host 0.0.0.0 --port 4173` for manual browser checks.
 
 #### Steps
-1. Run `/home/drj/projects/codexUI/node_modules/.bin/vitest run src/api/automationsGateway.test.ts src/composables/useAutomations.test.ts src/router/index.test.ts`.
+1. Run `pnpm exec vitest run src/api/automationsGateway.test.ts src/composables/useAutomations.test.ts src/router/index.test.ts`.
 2. Run `pnpm run build`.
 3. In light theme, open `http://127.0.0.1:4173/#/automations`.
 4. Confirm the existing primary sidebar Automations row is active.
@@ -263,7 +263,7 @@ Compact run-history triage actions for automation runs.
 4. Ensure light and dark themes are available from Settings.
 
 #### Steps
-1. Run `/home/drj/projects/codexUI/node_modules/.bin/vitest run src/composables/useAutomations.test.ts src/api/automationsGateway.test.ts`.
+1. Run `pnpm exec vitest run src/composables/useAutomations.test.ts src/api/automationsGateway.test.ts`.
 2. Run `pnpm run build`.
 3. Open `http://127.0.0.1:4173/#/automations` in light theme.
 4. Select an automation with recent run history.
@@ -301,7 +301,7 @@ Next-run display, schedule wording, and capability status chips for the Automati
 4. Ensure light and dark themes are available from Settings.
 
 #### Steps
-1. Run `/home/drj/projects/codexUI/node_modules/.bin/vitest run src/composables/useAutomations.test.ts src/api/automationsGateway.test.ts`.
+1. Run `pnpm exec vitest run src/composables/useAutomations.test.ts src/api/automationsGateway.test.ts`.
 2. Run `pnpm run build`.
 3. Open `http://127.0.0.1:4173/#/automations` in light theme.
 4. Confirm the summary band shows status chips for Scheduler, Manual run, Artifact indexing, and Kanban projection, with only on/off status and no toggles.
@@ -341,7 +341,7 @@ Automations Phase 3 API code-quality review regressions.
 2. If this worktree has incomplete dependencies, temporarily point `node_modules` at `/home/drj/projects/codexUI/node_modules` and restore the original dependency tree after testing.
 
 #### Steps
-1. Run `/home/drj/projects/codexUI/node_modules/.bin/vitest run src/server/automations/__tests__/nativeStore.test.ts src/server/automations/__tests__/legacyRoutes.test.ts src/server/automations/__tests__/routes.test.ts`.
+1. Run `pnpm exec vitest run src/server/automations/__tests__/nativeStore.test.ts src/server/automations/__tests__/legacyRoutes.test.ts src/server/automations/__tests__/routes.test.ts`.
 
 #### Expected Results
 - Duplicate `POST /codex-api/automations` requests for an existing heartbeat `targetThreadId` return HTTP 409 and do not overwrite the native automation.
@@ -366,7 +366,7 @@ Automations Phase 3 API code-quality review regressions.
 - No UI, scheduler, manual run, Kanban projection, or artifact indexing behavior is included in this phase.
 
 #### Steps
-1. Run `/home/drj/projects/codexUI/node_modules/.bin/vitest run src/server/automations/__tests__/nativeStore.test.ts src/server/automations/__tests__/legacyRoutes.test.ts src/server/automations/__tests__/routes.test.ts`.
+1. Run `pnpm exec vitest run src/server/automations/__tests__/nativeStore.test.ts src/server/automations/__tests__/legacyRoutes.test.ts src/server/automations/__tests__/routes.test.ts`.
 2. Run `pnpm run build`.
 3. Run `node dist-cli/index.js --help`.
 4. Run `git diff --check`.
@@ -393,7 +393,7 @@ Automations Phase 3 API code-quality review regressions.
 - Light and dark themes are available from Settings.
 
 #### Steps
-1. Run `/home/drj/projects/codexUI/node_modules/.bin/vitest run src/composables/useThreadWorkspace.test.ts src/composables/useThreadArtifacts.test.ts`.
+1. Run `pnpm exec vitest run src/composables/useThreadWorkspace.test.ts src/composables/useThreadArtifacts.test.ts`.
 2. Run `pnpm run build`.
 3. Open a thread in light theme and open the right sidebar.
 4. Confirm the first-level menu shows Thread, Kanban, Automations, Worktrees, Artifacts, Actions, and Permissions.
@@ -5153,7 +5153,7 @@ Shared execution audit log schema, Kanban source wrapper, legacy hash-chain comp
 3. No dev server is required; this slice is server-only and has no light/dark UI surface.
 
 #### Steps
-1. Run `/home/drj/projects/codexUI/node_modules/.bin/vitest run src/server/execution/__tests__/auditLog.test.ts src/server/kanban/__tests__/auditLog.test.ts src/server/kanban/__tests__/codexKanbanRunner.test.ts`.
+1. Run `pnpm exec vitest run src/server/execution/__tests__/auditLog.test.ts src/server/kanban/__tests__/auditLog.test.ts src/server/kanban/__tests__/codexKanbanRunner.test.ts`.
 2. Run `pnpm run build`.
 3. Run `git diff --check`.
 
@@ -5181,9 +5181,9 @@ Managed worktree lock owner metadata, legacy Kanban lock normalization, and shar
 3. No dev server is required; this slice is server-only and has no light/dark UI surface.
 
 #### Steps
-1. Run `/home/drj/projects/codexUI/node_modules/.bin/vitest run src/server/kanban/__tests__/worktreeManager.test.ts src/server/workspaces/__tests__/worktreeService.test.ts src/server/kanban/__tests__/codexKanbanRunner.test.ts src/server/artifacts/__tests__/routes.test.ts`.
-2. Run `/home/drj/projects/codexUI/node_modules/.bin/vitest run src/server/execution/__tests__/runProfiles.test.ts src/server/execution/__tests__/codexBridgeAdapter.test.ts src/server/execution/__tests__/runQueue.test.ts src/server/execution/__tests__/auditLog.test.ts`.
-3. Run `/home/drj/projects/codexUI/node_modules/.bin/vitest run src/server/kanban/__tests__/codexKanbanRunner.test.ts src/server/kanban/__tests__/taskQueue.test.ts src/server/kanban/__tests__/auditLog.test.ts src/server/kanban/__tests__/worktreeManager.test.ts src/server/workspaces/__tests__/worktreeService.test.ts src/server/kanban/__tests__/policy.test.ts src/server/kanban/__tests__/reviewPacketService.test.ts src/server/kanban/__tests__/startupRecovery.test.ts src/server/kanban/__tests__/recoveryService.test.ts src/server/kanban/__tests__/routes.test.ts src/server/kanban/__tests__/taskService.test.ts`.
+1. Run `pnpm exec vitest run src/server/kanban/__tests__/worktreeManager.test.ts src/server/workspaces/__tests__/worktreeService.test.ts src/server/kanban/__tests__/codexKanbanRunner.test.ts src/server/artifacts/__tests__/routes.test.ts`.
+2. Run `pnpm exec vitest run src/server/execution/__tests__/runProfiles.test.ts src/server/execution/__tests__/codexBridgeAdapter.test.ts src/server/execution/__tests__/runQueue.test.ts src/server/execution/__tests__/auditLog.test.ts`.
+3. Run `pnpm exec vitest run src/server/kanban/__tests__/codexKanbanRunner.test.ts src/server/kanban/__tests__/taskQueue.test.ts src/server/kanban/__tests__/auditLog.test.ts src/server/kanban/__tests__/worktreeManager.test.ts src/server/workspaces/__tests__/worktreeService.test.ts src/server/kanban/__tests__/policy.test.ts src/server/kanban/__tests__/reviewPacketService.test.ts src/server/kanban/__tests__/startupRecovery.test.ts src/server/kanban/__tests__/recoveryService.test.ts src/server/kanban/__tests__/routes.test.ts src/server/kanban/__tests__/taskService.test.ts`.
 4. Run `pnpm run build`.
 5. Run `git diff --check`.
 
@@ -5211,7 +5211,7 @@ Persisted manual automation run API for chat and local modes.
 3. No dev server or browser theme verification is required for Slice 6A; this slice is server-only and does not change UI.
 
 #### Steps
-1. Run `/home/drj/projects/codexUI/node_modules/.bin/vitest run src/server/automations/__tests__/runner.test.ts src/server/automations/__tests__/routes.test.ts src/server/automations/__tests__/legacyRoutes.test.ts`.
+1. Run `pnpm exec vitest run src/server/automations/__tests__/runner.test.ts src/server/automations/__tests__/routes.test.ts src/server/automations/__tests__/legacyRoutes.test.ts`.
 2. Run `pnpm run build`.
 3. Run `git diff --check`.
 
@@ -5242,10 +5242,10 @@ Manual automation runs in chat, local cwd, and managed worktree modes with route
 5. Light and dark themes are available from Settings.
 
 #### Steps
-1. Run `/home/drj/projects/codexUI/node_modules/.bin/vitest run src/server/workspaces/__tests__/managedWorktreeService.test.ts src/server/automations/__tests__/runner.test.ts src/server/automations/__tests__/routes.test.ts src/api/automationsGateway.test.ts src/composables/useAutomations.test.ts`.
+1. Run `pnpm exec vitest run src/server/workspaces/__tests__/managedWorktreeService.test.ts src/server/automations/__tests__/runner.test.ts src/server/automations/__tests__/routes.test.ts src/api/automationsGateway.test.ts src/composables/useAutomations.test.ts`.
 2. Run `pnpm run build`.
 3. Run `git diff --check`.
-4. Run the final Phase 6 gate: `/home/drj/projects/codexUI/node_modules/.bin/vitest run src/server/automations/__tests__/runner.test.ts src/server/automations/__tests__/routes.test.ts src/server/automations/__tests__/legacyRoutes.test.ts src/server/workspaces/__tests__/managedWorktreeService.test.ts src/server/workspaces/__tests__/worktreeService.test.ts src/api/automationsGateway.test.ts src/composables/useAutomations.test.ts`.
+4. Run the final Phase 6 gate: `pnpm exec vitest run src/server/automations/__tests__/runner.test.ts src/server/automations/__tests__/routes.test.ts src/server/automations/__tests__/legacyRoutes.test.ts src/server/workspaces/__tests__/managedWorktreeService.test.ts src/server/workspaces/__tests__/worktreeService.test.ts src/api/automationsGateway.test.ts src/composables/useAutomations.test.ts`.
 5. Open `http://127.0.0.1:4173/#/automations` in light theme.
 6. Select or create a saved automation, choose each run mode option (`Chat`, `Local cwd`, `Managed worktree`), and confirm the cwd field is required for local/worktree modes.
 7. Click `Run now` on a saved automation and confirm the compact recent-run list updates with state, trigger, thread, turn, cwd/worktree, log path, started timestamp, and completed timestamp.
@@ -5286,7 +5286,7 @@ Persisted automation scheduler loop, startup recovery, and conservative run limi
 5. Light and dark themes are available from Settings.
 
 #### Steps
-1. Run `/home/drj/projects/codexUI/node_modules/.bin/vitest run src/server/automations/__tests__/scheduler.test.ts src/server/automations/__tests__/runner.test.ts src/server/automations/__tests__/routes.test.ts src/server/automations/__tests__/legacyRoutes.test.ts`.
+1. Run `pnpm exec vitest run src/server/automations/__tests__/scheduler.test.ts src/server/automations/__tests__/runner.test.ts src/server/automations/__tests__/routes.test.ts src/server/automations/__tests__/legacyRoutes.test.ts`.
 2. Run the full Phase 7 gate listed in the implementation plan, then run `pnpm run build` and `git diff --check`.
 3. Inspect `${CODEX_HOME:-$HOME/.codex}/automations/<automation-id>/scheduler.json` and confirm it contains `nextDueAtIso`, `missedRunPolicy`, `lastScheduledRunId`, and `unsupportedReason`.
 4. Let the scheduler interval fire, or trigger a due tick in a controlled test environment.
@@ -5325,7 +5325,7 @@ Automation run read/archive triage actions and automation artifact route indexin
 5. Capture the disposable automation ID and run ID for the API checks below.
 
 #### Steps
-1. Run `/home/drj/projects/codexUI/node_modules/.bin/vitest run src/api/automationsGateway.test.ts src/composables/useAutomations.test.ts src/server/automations/__tests__/routes.test.ts src/server/artifacts/__tests__/routes.test.ts`.
+1. Run `pnpm exec vitest run src/api/automationsGateway.test.ts src/composables/useAutomations.test.ts src/server/automations/__tests__/routes.test.ts src/server/artifacts/__tests__/routes.test.ts`.
 2. Run `pnpm run build`.
 3. Run `git diff --check`.
 4. Open `http://127.0.0.1:4173/#/automations`, select the disposable automation, and confirm the run appears in recent run history.
@@ -5366,7 +5366,7 @@ Opt-in automation definition and run projection to inert Kanban follow-up cards.
 5. Keep a disposable Kanban board/project root for confirming created cards can be removed after the check.
 
 #### Steps
-1. Run `/home/drj/projects/codexUI/node_modules/.bin/vitest run src/server/automations/__tests__/kanbanProjection.test.ts src/server/automations/__tests__/runner.test.ts src/server/automations/__tests__/routes.test.ts`.
+1. Run `pnpm exec vitest run src/server/automations/__tests__/kanbanProjection.test.ts src/server/automations/__tests__/runner.test.ts src/server/automations/__tests__/routes.test.ts`.
 2. Run `pnpm run build`.
 3. Run `git diff --check`.
 4. Create or patch the disposable automation with `kanbanProjection: { "mode": "definition_card" }`.
@@ -5411,7 +5411,7 @@ Automations route parity polish for run triage, schedule status, capability chip
 5. Ensure light and dark themes are available from Settings.
 
 #### Steps
-1. Run `/home/drj/projects/codexUI/node_modules/.bin/vitest run src/api/automationsGateway.test.ts src/composables/useAutomations.test.ts src/server/automations/__tests__/routes.test.ts src/server/artifacts/__tests__/routes.test.ts`.
+1. Run `pnpm exec vitest run src/api/automationsGateway.test.ts src/composables/useAutomations.test.ts src/server/automations/__tests__/routes.test.ts src/server/artifacts/__tests__/routes.test.ts`.
 2. Run `pnpm run build`.
 3. Run `git diff --check`.
 4. Open `http://127.0.0.1:4173/#/automations` in light theme.
@@ -5460,7 +5460,7 @@ Automations review fixes for per-entry scheduler failure isolation and direct lo
 4. Ensure light and dark themes are available from Settings.
 
 #### Steps
-1. Run `/home/drj/projects/codexUI/node_modules/.bin/vitest run src/server/automations/__tests__/scheduler.test.ts src/server/automations/__tests__/routes.test.ts src/server/automations/__tests__/nativeStore.test.ts src/composables/useAutomations.test.ts src/api/automationsGateway.test.ts`.
+1. Run `pnpm exec vitest run src/server/automations/__tests__/scheduler.test.ts src/server/automations/__tests__/routes.test.ts src/server/automations/__tests__/nativeStore.test.ts src/composables/useAutomations.test.ts src/api/automationsGateway.test.ts`.
 2. Run `pnpm test:unit`.
 3. Run `pnpm run build`.
 4. Run `git diff --check`.
@@ -5518,3 +5518,36 @@ Review-cycle hardening for automation scheduler recovery, TOML persistence, arti
 #### Rollback/Cleanup
 - Delete disposable automation records, run folders, Kanban tasks, and worktrees created only for this check.
 - Stop the dev server if it was started only for this test.
+
+---
+
+### Automations PR review cycle 2 fixes
+
+#### Feature/Change Name
+Review-cycle hardening for generated automation IDs, production artifact indexing, run-store scans, scheduler reservation repair, manual-run capacity checks, and portable automation plan commands.
+
+#### Prerequisites/Setup
+1. Use the `feat/automations` worktree.
+2. Reuse an existing compatible dependency install if this worktree does not already have dependencies.
+3. Use disposable automation records and run folders only.
+
+#### Steps
+1. Run `pnpm exec vitest run src/server/automations/__tests__/nativeStore.test.ts src/server/automations/__tests__/runStore.test.ts src/server/automations/__tests__/runner.test.ts src/server/automations/__tests__/scheduler.test.ts`.
+2. Run `pnpm test:unit`.
+3. Run `pnpm run build`.
+4. Run `git diff --check`.
+5. Create two heartbeat automations with the same display name but different thread ids in a disposable Codex home.
+6. Start one manual chat automation run, then attempt a second manual run while the first is active.
+7. Start one manual local automation run for a disposable cwd, then attempt a second manual local run for the same cwd while the first is active.
+
+#### Expected Results
+- Generated native automation ids include thread identity so same-name automations do not collide.
+- Production server artifact indexing has access to the automation artifact provider when the automations API advertises artifact indexing.
+- Limited run listings read timestamp-prefixed run directories in newest-first order before parsing.
+- Scheduler reservation repair checks the specific persisted run id without listing all runs.
+- Manual runs reject global and per-repo active-run limit violations before starting another bridge turn.
+- Automation phase plan commands use portable `pnpm exec vitest` and `$CODEX_HOME`/`$HOME`-based reference paths.
+
+#### Rollback/Cleanup
+- Delete disposable automation records and run folders created only for this check.
+- No UI state cleanup is required.

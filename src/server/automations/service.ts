@@ -57,7 +57,6 @@ export type AutomationSchedulerEntry = {
   automationDirPath: string
   sourceDirName: string
   schedulerState: AutomationSchedulerState | null
-  runs: AutomationRun[]
 }
 
 export type PersistedAutomationActiveRun = {
@@ -234,6 +233,24 @@ export class AutomationsService {
     return this.policy
   }
 
+  private async assertManualRunCapacity(definition: AutomationDefinition): Promise<void> {
+    const activeRuns = await this.listPersistedActiveRuns()
+    const maxGlobalActiveRuns = Number(this.policy.maxGlobalActiveRuns)
+    const otherActiveRuns = activeRuns.filter((activeRun) => activeRun.automationId !== definition.id)
+    if (otherActiveRuns.length >= maxGlobalActiveRuns) {
+      throw createServiceError(409, 'Automation global active run limit reached')
+    }
+    const repoKey = automationRepoLimitKey(definition)
+    if (!repoKey) return
+    const activeRepoRuns = otherActiveRuns.filter((activeRun) => {
+      const runMode = activeRun.run.runMode
+      return (runMode === 'local' || runMode === 'worktree') && activeRun.run.cwd === repoKey
+    }).length
+    if (activeRepoRuns >= Number(this.policy.maxActiveRunsPerRepo)) {
+      throw createServiceError(409, `Automation repo active run limit reached for ${repoKey}`)
+    }
+  }
+
   private async assertKanbanProjectionTarget(projection: AutomationSidecar['kanbanProjection']): Promise<void> {
     if (projection.mode !== 'attach_existing_task') return
     const validator = this.kanbanProjectionTaskValidator
@@ -273,7 +290,6 @@ export class AutomationsService {
         schedulerState: schedulerState && schedulerState.scheduleHash !== currentScheduleHash
           ? await refreshSchedulerState(entry, sidecarResult.sidecar)
           : schedulerState,
-        runs: await createAutomationRunStore(entry.automationDirPath).listRuns(),
       })
     }
     schedulerEntries.sort((a, b) => a.definition.name.localeCompare(b.definition.name) || a.definition.id.localeCompare(b.definition.id))
@@ -311,7 +327,7 @@ export class AutomationsService {
     const activeRuns: PersistedAutomationActiveRun[] = []
     for (const entry of entries.records) {
       if (entry.record.kind !== 'heartbeat') continue
-      for (const run of await createAutomationRunStore(entry.automationDirPath).listRuns()) {
+      for (const run of await createAutomationRunStore(entry.automationDirPath).listRuns({ limit: 20 })) {
         if (isActiveAutomationRunState(run.state)) activeRuns.push({ automationId: entry.record.id, run })
       }
     }
@@ -323,8 +339,10 @@ export class AutomationsService {
     if (!entry) throw new AutomationNotFoundError(automationId)
     if (!this.runner) throw createServiceError(503, 'Codex bridge is not available for automation manual runs')
     const sidecarResult = await readSidecar(entry)
+    const definition = (await mapDefinition(entry, sidecarResult.sidecar)).definition
+    await this.assertManualRunCapacity(definition)
     return await this.runner.runNow({
-      definition: (await mapDefinition(entry, sidecarResult.sidecar)).definition,
+      definition,
       automationDirPath: entry.automationDirPath,
       runProfiles: options.runProfiles,
       runProfileId: options.runProfileId,
@@ -393,6 +411,12 @@ export class AutomationsService {
     const entry = await this.findEntry(automationId)
     if (!entry) throw new AutomationNotFoundError(automationId)
     return await createAutomationRunStore(entry.automationDirPath).listRuns()
+  }
+
+  async hasRun(automationId: string, runId: string): Promise<boolean> {
+    const entry = await this.findEntry(automationId)
+    if (!entry) throw new AutomationNotFoundError(automationId)
+    return await createAutomationRunStore(entry.automationDirPath).hasRun(runId)
   }
 
   async markRunRead(automationId: string, runId: string): Promise<AutomationRun> {
@@ -667,6 +691,12 @@ function buildScheduleHash(entry: NativeAutomationEntry, _sidecar: AutomationSid
       rrule: entry.record.rrule,
     }))
     .digest('hex')
+}
+
+function automationRepoLimitKey(definition: AutomationDefinition): string | null {
+  const runMode = definition.runMode ?? 'chat'
+  if (runMode !== 'local' && runMode !== 'worktree') return null
+  return definition.cwd
 }
 
 function dateIso(value: number | null): string {

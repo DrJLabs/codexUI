@@ -237,7 +237,7 @@ it('registers the Automations hash route', async () => {
 - [ ] **Step 5: Run focused tests**
 
 ```bash
-/home/drj/projects/codexUI/node_modules/.bin/vitest run src/api/automationsGateway.test.ts src/router/index.test.ts
+pnpm exec vitest run src/api/automationsGateway.test.ts src/router/index.test.ts
 ```
 
 Expected: new gateway and route tests pass.
@@ -346,7 +346,7 @@ it('deletes the selected automation with removeNative=true and reloads state', a
 - [ ] **Step 3: Run focused tests**
 
 ```bash
-/home/drj/projects/codexUI/node_modules/.bin/vitest run src/composables/useAutomations.test.ts
+pnpm exec vitest run src/composables/useAutomations.test.ts
 ```
 
 Expected: composable tests pass.
@@ -433,7 +433,7 @@ Expected: TypeScript and Vue compilation pass.
 - [ ] **Step 5: Final focused verification**
 
 ```bash
-/home/drj/projects/codexUI/node_modules/.bin/vitest run src/api/automationsGateway.test.ts src/composables/useAutomations.test.ts src/router/index.test.ts
+pnpm exec vitest run src/api/automationsGateway.test.ts src/composables/useAutomations.test.ts src/router/index.test.ts
 pnpm run build
 git diff --check
 ```

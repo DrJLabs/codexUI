@@ -5,6 +5,7 @@ import type { AutomationRun } from '../../types/automations'
 export type AutomationRunStore = {
   createRun(run: AutomationRun): Promise<AutomationRun>
   readRun(runId: string): Promise<AutomationRun>
+  hasRun(runId: string): Promise<boolean>
   listRuns(options?: { limit?: number }): Promise<AutomationRun[]>
   updateRun(runId: string, update: Partial<AutomationRun>): Promise<AutomationRun>
   appendEvent(run: AutomationRun, event: Record<string, unknown>): Promise<void>
@@ -27,6 +28,15 @@ export function createAutomationRunStore(automationDirPath: string): AutomationR
 
     readRun,
 
+    async hasRun(runId) {
+      try {
+        await readRun(runId)
+        return true
+      } catch {
+        return false
+      }
+    },
+
     async listRuns(options = {}) {
       let entries
       try {
@@ -34,18 +44,22 @@ export function createAutomationRunStore(automationDirPath: string): AutomationR
       } catch {
         return []
       }
+      const limit = normalizeListLimit(options.limit)
+      const runDirs = entries
+        .filter((entry) => entry.isDirectory())
+        .map((entry) => entry.name)
+        .sort((left, right) => right.localeCompare(left))
+      const limitedRunDirs = Number.isFinite(limit) ? runDirs.slice(0, limit) : runDirs
       const runs: AutomationRun[] = []
-      for (const entry of entries) {
-        if (!entry.isDirectory()) continue
+      for (const runId of limitedRunDirs) {
         try {
-          runs.push(parseRun(await readFile(runJsonPath(runsRoot, entry.name), 'utf8'), automationDirPath, entry.name))
+          runs.push(parseRun(await readFile(runJsonPath(runsRoot, runId), 'utf8'), automationDirPath, runId))
         } catch {
           // Ignore stale or malformed run directories so one bad run does not hide the rest.
         }
       }
       return runs
         .sort((a, b) => compareIsoDesc(a.createdAtIso, b.createdAtIso) || b.id.localeCompare(a.id))
-        .slice(0, normalizeListLimit(options.limit))
     },
 
     async updateRun(runId, update) {

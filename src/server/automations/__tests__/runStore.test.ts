@@ -93,12 +93,22 @@ describe('createAutomationRunStore', () => {
     const automationDir = await mkdtemp(join(tmpdir(), 'codexui-automation-run-store-'))
     tempDirs.push(automationDir)
     const store = createAutomationRunStore(automationDir)
-    await store.createRun(automationRunFixture({ id: 'run_old', createdAtIso: '2026-04-30T08:00:00.000Z' }))
-    await store.createRun(automationRunFixture({ id: 'run_new', createdAtIso: '2026-04-30T10:00:00.000Z' }))
+    await store.createRun(automationRunFixture({ id: 'automation_run_1000_old', createdAtIso: '2026-04-30T08:00:00.000Z' }))
+    await store.createRun(automationRunFixture({ id: 'automation_run_2000_new', createdAtIso: '2026-04-30T10:00:00.000Z' }))
 
     const runs = await store.listRuns({ limit: 1 })
 
-    expect(runs.map((run) => run.id)).toEqual(['run_new'])
+    expect(runs.map((run) => run.id)).toEqual(['automation_run_2000_new'])
+  })
+
+  it('checks whether a run exists without listing all runs', async () => {
+    const automationDir = await mkdtemp(join(tmpdir(), 'codexui-automation-run-store-'))
+    tempDirs.push(automationDir)
+    const store = createAutomationRunStore(automationDir)
+    await store.createRun(automationRunFixture({ id: 'automation_run_exists' }))
+
+    await expect(store.hasRun('automation_run_exists')).resolves.toBe(true)
+    await expect(store.hasRun('automation_run_missing')).resolves.toBe(false)
   })
 })
 

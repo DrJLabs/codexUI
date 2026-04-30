@@ -138,7 +138,7 @@ Out of scope:
 - [ ] **Step 4: Verify and commit Slice 6A**
 
 ```bash
-/home/drj/projects/codexUI/node_modules/.bin/vitest run src/server/automations/__tests__/runner.test.ts src/server/automations/__tests__/routes.test.ts src/server/automations/__tests__/legacyRoutes.test.ts
+pnpm exec vitest run src/server/automations/__tests__/runner.test.ts src/server/automations/__tests__/routes.test.ts src/server/automations/__tests__/legacyRoutes.test.ts
 pnpm run build
 git diff --check
 git add src/types/automations.ts src/server/automations/schema.ts src/server/automations/runStore.ts src/server/automations/runner.ts src/server/automations/policy.ts src/server/automations/__tests__/runner.test.ts src/server/automations/service.ts src/server/automations/routes.ts src/server/automations/index.ts src/server/httpServer.ts src/server/automations/__tests__/routes.test.ts tests.md
@@ -182,7 +182,7 @@ git commit -m "feat(automations): add manual chat runs"
 - [ ] **Step 4: Verify and commit Slice 6B**
 
 ```bash
-/home/drj/projects/codexUI/node_modules/.bin/vitest run src/server/workspaces/__tests__/managedWorktreeService.test.ts src/server/automations/__tests__/runner.test.ts src/server/automations/__tests__/routes.test.ts src/api/automationsGateway.test.ts src/composables/useAutomations.test.ts
+pnpm exec vitest run src/server/workspaces/__tests__/managedWorktreeService.test.ts src/server/automations/__tests__/runner.test.ts src/server/automations/__tests__/routes.test.ts src/api/automationsGateway.test.ts src/composables/useAutomations.test.ts
 pnpm run build
 git diff --check
 git add src/server/workspaces/managedWorktreeService.ts src/server/workspaces/__tests__/managedWorktreeService.test.ts src/server/automations/runner.ts src/server/automations/__tests__/runner.test.ts src/api/automationsGateway.ts src/api/automationsGateway.test.ts src/composables/useAutomations.ts src/composables/useAutomations.test.ts src/components/automations/AutomationsPage.vue tests.md
@@ -194,7 +194,7 @@ git commit -m "feat(automations): add worktree manual runs"
 Run after Slice 6B:
 
 ```bash
-/home/drj/projects/codexUI/node_modules/.bin/vitest run \
+pnpm exec vitest run \
   src/server/automations/__tests__/runner.test.ts \
   src/server/automations/__tests__/routes.test.ts \
   src/server/automations/__tests__/legacyRoutes.test.ts \

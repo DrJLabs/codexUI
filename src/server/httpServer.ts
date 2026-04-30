@@ -97,7 +97,7 @@ export function createServer(options: ServerOptions = {}): ServerInstance {
     storage: kanbanStorage,
     taskService: kanbanTaskService,
   })
-  const artifacts = createArtifactRouter({ storage: kanbanStorage })
+  const artifacts = createArtifactRouter({ storage: kanbanStorage, automations: {} })
   const automations = createAutomationsMiddleware({
     bridge,
     policy: kanbanConfig.policy,

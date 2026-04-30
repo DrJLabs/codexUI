@@ -52,7 +52,7 @@ Keep `proposalCount: ref(2)` and the two selected-thread artifacts. The test sho
 Run:
 
 ```bash
-/home/drj/projects/codexUI/node_modules/.bin/vitest run src/composables/useThreadWorkspace.test.ts
+pnpm exec vitest run src/composables/useThreadWorkspace.test.ts
 ```
 
 Expected: FAIL because the current Thread section count is `2` and the current Worktrees count is derived from run/worktree artifacts, not `activeWorktreeCount`.
@@ -77,7 +77,7 @@ createSection('worktrees', 'Worktrees', activeWorktreeCount, hasThread, false, h
 Run:
 
 ```bash
-/home/drj/projects/codexUI/node_modules/.bin/vitest run src/composables/useThreadWorkspace.test.ts
+pnpm exec vitest run src/composables/useThreadWorkspace.test.ts
 ```
 
 Expected: PASS.
@@ -128,7 +128,7 @@ const threadEmptyTitle = computed(() => `${threadArtifactTabs.value.find((tab) =
 Run:
 
 ```bash
-/home/drj/projects/codexUI/node_modules/.bin/vitest run src/composables/useThreadWorkspace.test.ts src/composables/useThreadArtifacts.test.ts
+pnpm exec vitest run src/composables/useThreadWorkspace.test.ts src/composables/useThreadArtifacts.test.ts
 ```
 
 Expected: PASS.
@@ -154,7 +154,7 @@ Append this section to `tests.md`:
 - Light and dark themes are available from Settings.
 
 #### Steps
-1. Run `/home/drj/projects/codexUI/node_modules/.bin/vitest run src/composables/useThreadWorkspace.test.ts src/composables/useThreadArtifacts.test.ts`.
+1. Run `pnpm exec vitest run src/composables/useThreadWorkspace.test.ts src/composables/useThreadArtifacts.test.ts`.
 2. Run `pnpm run build`.
 3. Open a thread in light theme and open the right sidebar.
 4. Confirm the first-level menu shows Thread, Kanban, Automations, Worktrees, Artifacts, Actions, and Permissions.
@@ -202,7 +202,7 @@ Expected: both strings exist and whitespace check exits `0`.
 Run:
 
 ```bash
-/home/drj/projects/codexUI/node_modules/.bin/vitest run src/composables/useThreadWorkspace.test.ts src/composables/useThreadArtifacts.test.ts
+pnpm exec vitest run src/composables/useThreadWorkspace.test.ts src/composables/useThreadArtifacts.test.ts
 ```
 
 Expected: PASS.

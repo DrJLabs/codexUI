@@ -135,7 +135,7 @@ describe('native automation store filesystem behavior', () => {
     )
 
     expect(written).toMatchObject({
-      id: 'daily-check',
+      id: 'daily-check-thread-abc',
       kind: 'heartbeat',
       name: 'Daily Check',
       prompt: 'Say hello',
@@ -157,6 +157,29 @@ describe('native automation store filesystem behavior', () => {
     await expect(readThreadHeartbeatAutomation('thread-abc', storeOptions)).resolves.toBeNull()
     await expect(stat(join(automationRoot, written.id))).rejects.toThrow()
     await expect(deleteThreadHeartbeatAutomation('thread-abc', storeOptions)).resolves.toBe(false)
+  })
+
+  it('uses thread identity in generated names so same-name automations do not collide', async () => {
+    const codexHomeDir = await createCodexHome()
+
+    const first = await writeThreadHeartbeatAutomation({
+      threadId: 'thread-alpha',
+      name: 'Daily Check',
+      prompt: 'Alpha',
+      rrule: 'FREQ=DAILY',
+      status: 'ACTIVE',
+    }, { codexHomeDir })
+    const second = await writeThreadHeartbeatAutomation({
+      threadId: 'thread-beta',
+      name: 'Daily Check',
+      prompt: 'Beta',
+      rrule: 'FREQ=DAILY',
+      status: 'ACTIVE',
+    }, { codexHomeDir })
+
+    expect(first.id).not.toBe(second.id)
+    await expect(readThreadHeartbeatAutomation('thread-alpha', { codexHomeDir })).resolves.toMatchObject({ prompt: 'Alpha' })
+    await expect(readThreadHeartbeatAutomation('thread-beta', { codexHomeDir })).resolves.toMatchObject({ prompt: 'Beta' })
   })
 
   it('preserves unknown top-level TOML fields when updating an existing thread heartbeat automation', async () => {

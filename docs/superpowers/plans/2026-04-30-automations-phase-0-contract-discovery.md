@@ -77,15 +77,15 @@ If records exist later, write only redacted structural facts in the note: direct
 Run:
 
 ```bash
-rg -n "automation|Automations|heartbeat|TOML|toml" /home/drj/.codex/docs/codex /home/drj/.codex/reports/docs-seeker/codex-official-docs -S
+rg -n "automation|Automations|heartbeat|TOML|toml" ${CODEX_HOME:-$HOME/.codex}/docs/codex ${CODEX_HOME:-$HOME/.codex}/reports/docs-seeker/codex-official-docs -S
 ```
 
 Expected:
 
 ```text
-/home/drj/.codex/docs/codex/upstream/openai-codex-agents_md.md:...
-/home/drj/.codex/docs/codex/config-reference-expanded.md:...
-/home/drj/.codex/docs/codex/runtime/codex-help.txt:...
+${CODEX_HOME:-$HOME/.codex}/docs/codex/upstream/openai-codex-agents_md.md:...
+${CODEX_HOME:-$HOME/.codex}/docs/codex/config-reference-expanded.md:...
+${CODEX_HOME:-$HOME/.codex}/docs/codex/runtime/codex-help.txt:...
 ```
 
 The expected result has config/TOML hits but no documented automation schema. Record that distinction in the note.
@@ -165,13 +165,13 @@ Implication: the first extraction should rely on synthetic fixtures for compatib
 
 ## Desktop And Runtime Parity Evidence
 
-Checked local reference root: `/home/drj/.codex/docs/codex/README.md`.
+Checked local reference root: `${CODEX_HOME:-$HOME/.codex}/docs/codex/README.md`.
 
 Checked snapshots:
 
-- `/home/drj/.codex/docs/codex/runtime/`
-- `/home/drj/.codex/docs/codex/upstream/`
-- `/home/drj/.codex/reports/docs-seeker/codex-official-docs/`
+- `${CODEX_HOME:-$HOME/.codex}/docs/codex/runtime/`
+- `${CODEX_HOME:-$HOME/.codex}/docs/codex/upstream/`
+- `${CODEX_HOME:-$HOME/.codex}/reports/docs-seeker/codex-official-docs/`
 
 Result: current local snapshots contain Codex config TOML references, but no documented automation TOML schema or Desktop Automations storage contract.
 

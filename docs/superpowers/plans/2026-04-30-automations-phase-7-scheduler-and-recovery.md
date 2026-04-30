@@ -88,7 +88,7 @@ Add tests proving:
 Run:
 
 ```bash
-/home/drj/projects/codexUI/node_modules/.bin/vitest run src/server/automations/__tests__/scheduleCalculator.test.ts
+pnpm exec vitest run src/server/automations/__tests__/scheduleCalculator.test.ts
 ```
 
 Expected before implementation: fail because the module does not exist.
@@ -163,7 +163,7 @@ Service behavior:
 - [ ] **Step 5: Run Slice 7A tests**
 
 ```bash
-/home/drj/projects/codexUI/node_modules/.bin/vitest run \
+pnpm exec vitest run \
   src/server/automations/__tests__/scheduleCalculator.test.ts \
   src/server/automations/__tests__/schedulerStore.test.ts \
   src/server/automations/__tests__/routes.test.ts \
@@ -265,7 +265,7 @@ Behavior:
 - [ ] **Step 5: Run Slice 7B tests**
 
 ```bash
-/home/drj/projects/codexUI/node_modules/.bin/vitest run \
+pnpm exec vitest run \
   src/server/automations/__tests__/runner.test.ts \
   src/server/automations/__tests__/routes.test.ts
 ```
@@ -371,7 +371,7 @@ Append `tests.md` section:
 - [ ] **Step 5: Run Slice 7C tests**
 
 ```bash
-/home/drj/projects/codexUI/node_modules/.bin/vitest run \
+pnpm exec vitest run \
   src/server/automations/__tests__/scheduler.test.ts \
   src/server/automations/__tests__/runner.test.ts \
   src/server/automations/__tests__/routes.test.ts \
@@ -383,7 +383,7 @@ Expected: all listed tests pass.
 - [ ] **Step 6: Run Phase 7 final gate**
 
 ```bash
-/home/drj/projects/codexUI/node_modules/.bin/vitest run \
+pnpm exec vitest run \
   src/server/automations/__tests__/scheduleCalculator.test.ts \
   src/server/automations/__tests__/scheduler.test.ts \
   src/server/automations/__tests__/runner.test.ts \

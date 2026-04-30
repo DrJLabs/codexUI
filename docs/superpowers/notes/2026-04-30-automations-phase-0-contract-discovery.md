@@ -92,18 +92,18 @@ Do not paste prompts, secrets, or full TOML bodies into repo docs.
 
 ## Desktop And Runtime Parity Evidence
 
-Checked local reference root: `/home/drj/.codex/docs/codex/README.md`.
+Checked local reference root: `${CODEX_HOME:-$HOME/.codex}/docs/codex/README.md`.
 
 Checked snapshots:
 
-- `/home/drj/.codex/docs/codex/runtime/`
-- `/home/drj/.codex/docs/codex/upstream/`
-- `/home/drj/.codex/reports/docs-seeker/codex-official-docs/`
+- `${CODEX_HOME:-$HOME/.codex}/docs/codex/runtime/`
+- `${CODEX_HOME:-$HOME/.codex}/docs/codex/upstream/`
+- `${CODEX_HOME:-$HOME/.codex}/reports/docs-seeker/codex-official-docs/`
 
 Search command:
 
 ```bash
-rg -n "automation|Automations|heartbeat|TOML|toml" /home/drj/.codex/docs/codex /home/drj/.codex/reports/docs-seeker/codex-official-docs -S
+rg -n "automation|Automations|heartbeat|TOML|toml" ${CODEX_HOME:-$HOME/.codex}/docs/codex ${CODEX_HOME:-$HOME/.codex}/reports/docs-seeker/codex-official-docs -S
 ```
 
 Result: current local snapshots contain Codex config TOML references, but no documented automation TOML schema or Desktop Automations storage contract.

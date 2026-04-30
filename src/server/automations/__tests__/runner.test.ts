@@ -855,6 +855,42 @@ describe('AutomationRunner', () => {
     expect(rpcCalls.filter((call) => call.method === 'turn/start')).toHaveLength(1)
   })
 
+  it('enforces the global active run limit for manual runs before bridge calls', async () => {
+    const { codexHomeDir, service, rpcCalls } = await createHarness()
+    await writeNative(codexHomeDir, 'daily-check-dir', nativeRecord, { runMode: 'chat' })
+    await writeNative(codexHomeDir, 'second-check-dir', {
+      ...nativeRecord,
+      id: 'second-check',
+      name: 'Second Check',
+      targetThreadId: 'thread-2',
+    }, { runMode: 'chat' })
+
+    await service.runNow('daily-check')
+    await expect(service.runNow('second-check')).rejects.toThrow('Automation global active run limit reached')
+
+    expect(rpcCalls.filter((call) => call.method === 'turn/start')).toHaveLength(1)
+  })
+
+  it('enforces the per-repo active run limit for manual local runs before bridge calls', async () => {
+    const cwd = '/tmp/codexui-automation-local'
+    const relaxedGlobalPolicy = { ...enabledPolicy, maxGlobalActiveRuns: 2, maxActiveRunsPerRepo: 1 } as unknown as KanbanExecutionPolicy
+    const { codexHomeDir, service, rpcCalls } = await createHarness({
+      policy: relaxedGlobalPolicy,
+    })
+    await writeNative(codexHomeDir, 'daily-check-dir', nativeRecord, { runMode: 'local', cwd })
+    await writeNative(codexHomeDir, 'second-check-dir', {
+      ...nativeRecord,
+      id: 'second-check',
+      name: 'Second Check',
+      targetThreadId: null,
+    }, { runMode: 'local', cwd })
+
+    await service.runNow('daily-check')
+    await expect(service.runNow('second-check')).rejects.toThrow(`Automation repo active run limit reached for ${cwd}`)
+
+    expect(rpcCalls.filter((call) => call.method === 'thread/start')).toHaveLength(1)
+  })
+
   it('rejects disabled execution and blocked run profile policies before persistence or bridge calls', async () => {
     const disabled = await createHarness({ policy: { ...enabledPolicy, executionMode: 'disabled', executionEnabled: false } })
     await writeNative(disabled.codexHomeDir, 'daily-check-dir', nativeRecord, { runMode: 'chat' })

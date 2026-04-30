@@ -199,8 +199,9 @@ export function serializeAutomationToml(record: ThreadAutomationRecord, previous
 
 function slugifyAutomationId(threadId: string, name: string): string {
   const preferred = name.trim().toLowerCase().replace(/[^a-z0-9]+/gu, '-').replace(/^-+|-+$/gu, '')
-  if (preferred) return preferred.slice(0, 48)
   const fallback = threadId.trim().toLowerCase().replace(/[^a-z0-9]+/gu, '-').replace(/^-+|-+$/gu, '')
+  if (preferred && fallback) return `${preferred.slice(0, 36)}-${fallback.slice(0, 11)}`.replace(/-+$/u, '')
+  if (preferred) return preferred.slice(0, 48)
   return `heartbeat-${fallback.slice(0, 24) || randomBytes(4).toString('hex')}`
 }
 

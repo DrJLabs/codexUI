@@ -74,7 +74,7 @@ expect(classifyAutomationRunFailure('Bridge failed')).toMatchObject({
 Run:
 
 ```bash
-/home/drj/projects/codexUI/node_modules/.bin/vitest run src/server/automations/__tests__/resultClassifier.test.ts
+pnpm exec vitest run src/server/automations/__tests__/resultClassifier.test.ts
 ```
 
 Expected before implementation: import/module failure.
@@ -192,7 +192,7 @@ Also update any direct `AutomationRun` fixtures in `src/server/automations/__tes
 Run:
 
 ```bash
-/home/drj/projects/codexUI/node_modules/.bin/vitest run src/server/automations/__tests__/resultClassifier.test.ts src/server/automations/__tests__/runStore.test.ts src/server/automations/__tests__/runner.test.ts src/server/automations/__tests__/routes.test.ts src/server/automations/__tests__/scheduler.test.ts
+pnpm exec vitest run src/server/automations/__tests__/resultClassifier.test.ts src/server/automations/__tests__/runStore.test.ts src/server/automations/__tests__/runner.test.ts src/server/automations/__tests__/routes.test.ts src/server/automations/__tests__/scheduler.test.ts
 pnpm run build
 git diff --check
 ```
@@ -317,7 +317,7 @@ For preview/raw/download, call `index.resolveArtifactContent(artifact, { maxByte
 Run:
 
 ```bash
-/home/drj/projects/codexUI/node_modules/.bin/vitest run src/server/artifacts/__tests__/artifactIndex.test.ts src/server/artifacts/__tests__/routes.test.ts src/api/codexGateway.test.ts
+pnpm exec vitest run src/server/artifacts/__tests__/artifactIndex.test.ts src/server/artifacts/__tests__/routes.test.ts src/api/codexGateway.test.ts
 pnpm run build
 git diff --check
 ```
@@ -377,7 +377,7 @@ Append a section named `Automations Phase 8 - Triage and artifact indexing` with
 Run:
 
 ```bash
-/home/drj/projects/codexUI/node_modules/.bin/vitest run src/api/automationsGateway.test.ts src/composables/useAutomations.test.ts src/server/automations/__tests__/routes.test.ts src/server/artifacts/__tests__/routes.test.ts
+pnpm exec vitest run src/api/automationsGateway.test.ts src/composables/useAutomations.test.ts src/server/automations/__tests__/routes.test.ts src/server/artifacts/__tests__/routes.test.ts
 pnpm run build
 git diff --check
 ```
@@ -394,7 +394,7 @@ git commit -m "feat(automations): expose run triage actions"
 Run:
 
 ```bash
-/home/drj/projects/codexUI/node_modules/.bin/vitest run src/server/automations/__tests__/resultClassifier.test.ts src/server/automations/__tests__/runStore.test.ts src/server/automations/__tests__/runner.test.ts src/server/automations/__tests__/routes.test.ts src/server/artifacts/__tests__/artifactIndex.test.ts src/server/artifacts/__tests__/routes.test.ts src/api/automationsGateway.test.ts src/composables/useAutomations.test.ts
+pnpm exec vitest run src/server/automations/__tests__/resultClassifier.test.ts src/server/automations/__tests__/runStore.test.ts src/server/automations/__tests__/runner.test.ts src/server/automations/__tests__/routes.test.ts src/server/artifacts/__tests__/artifactIndex.test.ts src/server/artifacts/__tests__/routes.test.ts src/api/automationsGateway.test.ts src/composables/useAutomations.test.ts
 pnpm run build
 git diff --check
 ```

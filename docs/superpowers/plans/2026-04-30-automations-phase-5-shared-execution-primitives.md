@@ -95,7 +95,7 @@ Out of scope:
 Run the focused slice tests in each slice, then run this fixed regression suite before the final Phase 5 commit:
 
 ```bash
-/home/drj/projects/codexUI/node_modules/.bin/vitest run \
+pnpm exec vitest run \
   src/server/kanban/__tests__/codexKanbanRunner.test.ts \
   src/server/kanban/__tests__/taskQueue.test.ts \
   src/server/kanban/__tests__/auditLog.test.ts \
@@ -160,7 +160,7 @@ This suite is intentionally Kanban-heavy because Phase 5 must be behavior-preser
 - [ ] **Step 4: Verify Slice 5A**
 
 ```bash
-/home/drj/projects/codexUI/node_modules/.bin/vitest run src/server/execution/__tests__/runProfiles.test.ts src/server/actions/__tests__/actionRegistry.test.ts src/server/artifacts/__tests__/routes.test.ts src/server/kanban/__tests__/reviewPacketService.test.ts src/server/kanban/__tests__/routes.test.ts src/server/kanban/__tests__/taskService.test.ts src/server/kanban/__tests__/codexKanbanRunner.test.ts
+pnpm exec vitest run src/server/execution/__tests__/runProfiles.test.ts src/server/actions/__tests__/actionRegistry.test.ts src/server/artifacts/__tests__/routes.test.ts src/server/kanban/__tests__/reviewPacketService.test.ts src/server/kanban/__tests__/routes.test.ts src/server/kanban/__tests__/taskService.test.ts src/server/kanban/__tests__/codexKanbanRunner.test.ts
 pnpm run build
 git diff --check
 git add src/types/execution.ts src/server/execution/runProfiles.ts src/server/execution/__tests__/runProfiles.test.ts src/types/kanban.ts src/types/localActions.ts src/server/actions/actionRegistry.ts src/server/reviewPackets/freshness.ts src/server/actions/__tests__/actionRegistry.test.ts src/server/artifacts/__tests__/routes.test.ts src/server/kanban/runProfiles.ts
@@ -190,7 +190,7 @@ git commit -m "refactor(execution): share run profiles"
 - [ ] **Step 4: Verify Slice 5B**
 
 ```bash
-/home/drj/projects/codexUI/node_modules/.bin/vitest run src/server/execution/__tests__/codexBridgeAdapter.test.ts src/server/kanban/__tests__/codexBridgeAdapter.test.ts src/server/kanban/__tests__/codexKanbanRunner.test.ts
+pnpm exec vitest run src/server/execution/__tests__/codexBridgeAdapter.test.ts src/server/kanban/__tests__/codexBridgeAdapter.test.ts src/server/kanban/__tests__/codexKanbanRunner.test.ts
 pnpm run build
 git diff --check
 git add src/server/execution/codexBridgeAdapter.ts src/server/execution/__tests__/codexBridgeAdapter.test.ts src/server/kanban/codexBridgeAdapter.ts
@@ -223,7 +223,7 @@ git commit -m "refactor(execution): share bridge adapter"
 - [ ] **Step 4: Verify Slice 5C**
 
 ```bash
-/home/drj/projects/codexUI/node_modules/.bin/vitest run src/server/execution/__tests__/runQueue.test.ts src/server/kanban/__tests__/taskQueue.test.ts src/server/kanban/__tests__/codexKanbanRunner.test.ts
+pnpm exec vitest run src/server/execution/__tests__/runQueue.test.ts src/server/kanban/__tests__/taskQueue.test.ts src/server/kanban/__tests__/codexKanbanRunner.test.ts
 pnpm run build
 git diff --check
 git add src/server/execution/runQueue.ts src/server/execution/__tests__/runQueue.test.ts src/server/kanban/taskQueue.ts src/server/kanban/__tests__/taskQueue.test.ts
@@ -258,7 +258,7 @@ git commit -m "refactor(execution): share run queue"
 - [ ] **Step 4: Verify Slice 5D**
 
 ```bash
-/home/drj/projects/codexUI/node_modules/.bin/vitest run src/server/execution/__tests__/auditLog.test.ts src/server/kanban/__tests__/auditLog.test.ts src/server/kanban/__tests__/codexKanbanRunner.test.ts
+pnpm exec vitest run src/server/execution/__tests__/auditLog.test.ts src/server/kanban/__tests__/auditLog.test.ts src/server/kanban/__tests__/codexKanbanRunner.test.ts
 pnpm run build
 git diff --check
 git add src/server/execution/auditLog.ts src/server/execution/__tests__/auditLog.test.ts src/server/kanban/auditLog.ts src/server/kanban/__tests__/auditLog.test.ts
@@ -294,9 +294,9 @@ git commit -m "refactor(execution): share audit log"
 - [ ] **Step 4: Verify Slice 5E and Phase 5**
 
 ```bash
-/home/drj/projects/codexUI/node_modules/.bin/vitest run src/server/kanban/__tests__/worktreeManager.test.ts src/server/workspaces/__tests__/worktreeService.test.ts src/server/kanban/__tests__/codexKanbanRunner.test.ts src/server/artifacts/__tests__/routes.test.ts
-/home/drj/projects/codexUI/node_modules/.bin/vitest run src/server/execution/__tests__/runProfiles.test.ts src/server/execution/__tests__/codexBridgeAdapter.test.ts src/server/execution/__tests__/runQueue.test.ts src/server/execution/__tests__/auditLog.test.ts
-/home/drj/projects/codexUI/node_modules/.bin/vitest run src/server/kanban/__tests__/codexKanbanRunner.test.ts src/server/kanban/__tests__/taskQueue.test.ts src/server/kanban/__tests__/auditLog.test.ts src/server/kanban/__tests__/worktreeManager.test.ts src/server/workspaces/__tests__/worktreeService.test.ts src/server/kanban/__tests__/policy.test.ts src/server/kanban/__tests__/reviewPacketService.test.ts src/server/kanban/__tests__/startupRecovery.test.ts src/server/kanban/__tests__/recoveryService.test.ts src/server/kanban/__tests__/routes.test.ts src/server/kanban/__tests__/taskService.test.ts
+pnpm exec vitest run src/server/kanban/__tests__/worktreeManager.test.ts src/server/workspaces/__tests__/worktreeService.test.ts src/server/kanban/__tests__/codexKanbanRunner.test.ts src/server/artifacts/__tests__/routes.test.ts
+pnpm exec vitest run src/server/execution/__tests__/runProfiles.test.ts src/server/execution/__tests__/codexBridgeAdapter.test.ts src/server/execution/__tests__/runQueue.test.ts src/server/execution/__tests__/auditLog.test.ts
+pnpm exec vitest run src/server/kanban/__tests__/codexKanbanRunner.test.ts src/server/kanban/__tests__/taskQueue.test.ts src/server/kanban/__tests__/auditLog.test.ts src/server/kanban/__tests__/worktreeManager.test.ts src/server/workspaces/__tests__/worktreeService.test.ts src/server/kanban/__tests__/policy.test.ts src/server/kanban/__tests__/reviewPacketService.test.ts src/server/kanban/__tests__/startupRecovery.test.ts src/server/kanban/__tests__/recoveryService.test.ts src/server/kanban/__tests__/routes.test.ts src/server/kanban/__tests__/taskService.test.ts
 pnpm run build
 git diff --check
 git add src/server/workspaces/worktreeLocks.ts src/server/kanban/worktreeManager.ts src/server/workspaces/worktreeService.ts src/types/worktree.ts src/server/kanban/__tests__/worktreeManager.test.ts src/server/workspaces/__tests__/worktreeService.test.ts
@@ -312,7 +312,7 @@ The final long `vitest run` command above is the required Phase 5 compatibility 
 - [ ] Run final verification:
 
 ```bash
-/home/drj/projects/codexUI/node_modules/.bin/vitest run src/server/execution/__tests__/runProfiles.test.ts src/server/execution/__tests__/codexBridgeAdapter.test.ts src/server/execution/__tests__/runQueue.test.ts src/server/execution/__tests__/auditLog.test.ts src/server/kanban/__tests__/taskQueue.test.ts src/server/kanban/__tests__/codexBridgeAdapter.test.ts src/server/kanban/__tests__/auditLog.test.ts src/server/kanban/__tests__/worktreeManager.test.ts src/server/kanban/__tests__/codexKanbanRunner.test.ts
+pnpm exec vitest run src/server/execution/__tests__/runProfiles.test.ts src/server/execution/__tests__/codexBridgeAdapter.test.ts src/server/execution/__tests__/runQueue.test.ts src/server/execution/__tests__/auditLog.test.ts src/server/kanban/__tests__/taskQueue.test.ts src/server/kanban/__tests__/codexBridgeAdapter.test.ts src/server/kanban/__tests__/auditLog.test.ts src/server/kanban/__tests__/worktreeManager.test.ts src/server/kanban/__tests__/codexKanbanRunner.test.ts
 pnpm run build
 git diff --check
 ```

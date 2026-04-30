@@ -56,7 +56,7 @@ Do not add card-in-card layouts. Extend `.automations-run-item` with compact act
 Run:
 
 ```bash
-/home/drj/projects/codexUI/node_modules/.bin/vitest run src/composables/useAutomations.test.ts src/api/automationsGateway.test.ts
+pnpm exec vitest run src/composables/useAutomations.test.ts src/api/automationsGateway.test.ts
 pnpm run build
 git diff --check
 ```
@@ -134,7 +134,7 @@ Replace stale/deferred wording with current capability wording:
 Run:
 
 ```bash
-/home/drj/projects/codexUI/node_modules/.bin/vitest run src/composables/useAutomations.test.ts src/api/automationsGateway.test.ts
+pnpm exec vitest run src/composables/useAutomations.test.ts src/api/automationsGateway.test.ts
 pnpm run build
 git diff --check
 ```
@@ -186,7 +186,7 @@ git commit -m "docs(automations): add phase 10 manual checks"
 Run:
 
 ```bash
-/home/drj/projects/codexUI/node_modules/.bin/vitest run src/api/automationsGateway.test.ts src/composables/useAutomations.test.ts src/server/automations/__tests__/routes.test.ts src/server/artifacts/__tests__/routes.test.ts
+pnpm exec vitest run src/api/automationsGateway.test.ts src/composables/useAutomations.test.ts src/server/automations/__tests__/routes.test.ts src/server/artifacts/__tests__/routes.test.ts
 pnpm run build
 git diff --check
 ```

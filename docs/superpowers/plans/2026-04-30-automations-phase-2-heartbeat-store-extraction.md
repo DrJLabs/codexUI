@@ -138,7 +138,7 @@ Before finalizing, fix the partial fixture setup by creating its parent director
 Run:
 
 ```bash
-/home/drj/projects/codexUI/node_modules/.bin/vitest run src/server/automations/__tests__/nativeStore.test.ts
+pnpm exec vitest run src/server/automations/__tests__/nativeStore.test.ts
 ```
 
 Expected: FAIL because `nativeStore.ts` does not exist yet.
@@ -199,7 +199,7 @@ export function parseThreadAutomationWritePayload(payload: Record<string, unknow
 Run:
 
 ```bash
-/home/drj/projects/codexUI/node_modules/.bin/vitest run src/server/automations/__tests__/nativeStore.test.ts
+pnpm exec vitest run src/server/automations/__tests__/nativeStore.test.ts
 ```
 
 Expected: PASS.
@@ -262,7 +262,7 @@ return
 Run:
 
 ```bash
-/home/drj/projects/codexUI/node_modules/.bin/vitest run src/server/automations/__tests__/nativeStore.test.ts src/server/codexAppServerBridge.inlinePayload.test.ts
+pnpm exec vitest run src/server/automations/__tests__/nativeStore.test.ts src/server/codexAppServerBridge.inlinePayload.test.ts
 ```
 
 Expected: PASS.
@@ -295,7 +295,7 @@ Append a section named `Automations Phase 2 heartbeat store extraction` with:
 Run:
 
 ```bash
-/home/drj/projects/codexUI/node_modules/.bin/vitest run src/server/automations/__tests__/nativeStore.test.ts src/server/codexAppServerBridge.inlinePayload.test.ts
+pnpm exec vitest run src/server/automations/__tests__/nativeStore.test.ts src/server/codexAppServerBridge.inlinePayload.test.ts
 pnpm run build
 git diff --check
 ```

@@ -83,7 +83,7 @@ When `kanbanProjection.mode === 'definition_card'`, create or refresh the persis
 Run:
 
 ```bash
-/home/drj/projects/codexUI/node_modules/.bin/vitest run src/server/automations/__tests__/routes.test.ts
+pnpm exec vitest run src/server/automations/__tests__/routes.test.ts
 pnpm run build
 git diff --check
 ```
@@ -167,7 +167,7 @@ Update `createKanbanMiddleware()` / `createKanbanRouter()` so the production ser
 Run:
 
 ```bash
-/home/drj/projects/codexUI/node_modules/.bin/vitest run src/server/automations/__tests__/kanbanProjection.test.ts src/server/automations/__tests__/routes.test.ts src/server/kanban/__tests__/routes.test.ts
+pnpm exec vitest run src/server/automations/__tests__/kanbanProjection.test.ts src/server/automations/__tests__/routes.test.ts src/server/kanban/__tests__/routes.test.ts
 pnpm run build
 git diff --check
 ```
@@ -217,7 +217,7 @@ Append `Automations Phase 9 - Kanban projection` with setup, exact create/patch/
 Run:
 
 ```bash
-/home/drj/projects/codexUI/node_modules/.bin/vitest run src/server/automations/__tests__/kanbanProjection.test.ts src/server/automations/__tests__/runner.test.ts src/server/automations/__tests__/routes.test.ts
+pnpm exec vitest run src/server/automations/__tests__/kanbanProjection.test.ts src/server/automations/__tests__/runner.test.ts src/server/automations/__tests__/routes.test.ts
 pnpm run build
 git diff --check
 ```
@@ -234,7 +234,7 @@ git commit -m "feat(automations): project runs to kanban"
 Run:
 
 ```bash
-/home/drj/projects/codexUI/node_modules/.bin/vitest run src/server/automations/__tests__/kanbanProjection.test.ts src/server/automations/__tests__/runner.test.ts src/server/automations/__tests__/routes.test.ts src/server/kanban/__tests__/storage.test.ts src/server/kanban/__tests__/taskService.test.ts
+pnpm exec vitest run src/server/automations/__tests__/kanbanProjection.test.ts src/server/automations/__tests__/runner.test.ts src/server/automations/__tests__/routes.test.ts src/server/kanban/__tests__/storage.test.ts src/server/kanban/__tests__/taskService.test.ts
 pnpm run build
 git diff --check
 ```
