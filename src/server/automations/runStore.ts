@@ -1,6 +1,10 @@
-import { appendFile, mkdir, readFile, readdir, writeFile } from 'node:fs/promises'
+import { setTimeout as sleep } from 'node:timers/promises'
+import { appendFile, mkdir, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import type { AutomationRun } from '../../types/automations'
+
+const ACTIVE_RUN_INDEX_LOCK_TIMEOUT_MS = 5000
+const ACTIVE_RUN_INDEX_LOCK_POLL_MS = 10
 
 export type AutomationRunStore = {
   createRun(run: AutomationRun): Promise<AutomationRun>
@@ -78,7 +82,10 @@ export function createAutomationRunStore(automationDirPath: string): AutomationR
         return activeRuns.sort((a, b) => compareIsoDesc(a.createdAtIso, b.createdAtIso) || b.id.localeCompare(a.id))
       }
       const activeRuns = (await listRuns()).filter((run) => isActiveAutomationRunState(run.state))
-      await writeActiveRunIndex(runsRoot, activeRuns.map((run) => run.id))
+      await withActiveRunIndexLock(runsRoot, async () => {
+        const current = await readActiveRunIndex(runsRoot)
+        if (!current) await writeActiveRunIndex(runsRoot, activeRuns.map((run) => run.id))
+      })
       return activeRuns
     },
 
@@ -161,15 +168,52 @@ async function writeActiveRunIndex(runsRoot: string, runIds: string[]): Promise<
     }
   })
   await mkdir(runsRoot, { recursive: true })
-  await writeFile(activeRunIndexPath(runsRoot), `${JSON.stringify(uniqueRunIds.sort(), null, 2)}\n`, 'utf8')
+  const indexPath = activeRunIndexPath(runsRoot)
+  const tempPath = `${indexPath}.${process.pid}.${Date.now()}.${Math.random().toString(36).slice(2)}.tmp`
+  try {
+    await writeFile(tempPath, `${JSON.stringify(uniqueRunIds.sort(), null, 2)}\n`, 'utf8')
+    await rename(tempPath, indexPath)
+  } catch (error) {
+    await rm(tempPath, { force: true }).catch(() => {})
+    throw error
+  }
 }
 
 async function syncActiveRunIndex(runsRoot: string, run: AutomationRun): Promise<void> {
-  const current = await readActiveRunIndex(runsRoot) ?? []
-  const next = isActiveAutomationRunState(run.state)
-    ? [...new Set([...current, run.id])]
-    : current.filter((runId) => runId !== run.id)
-  await writeActiveRunIndex(runsRoot, next)
+  await withActiveRunIndexLock(runsRoot, async () => {
+    const current = await readActiveRunIndex(runsRoot) ?? []
+    const next = isActiveAutomationRunState(run.state)
+      ? [...new Set([...current, run.id])]
+      : current.filter((runId) => runId !== run.id)
+    await writeActiveRunIndex(runsRoot, next)
+  })
+}
+
+async function withActiveRunIndexLock<T>(runsRoot: string, fn: () => Promise<T>): Promise<T> {
+  const lockPath = `${activeRunIndexPath(runsRoot)}.lock`
+  const startedAt = Date.now()
+  await mkdir(dirname(lockPath), { recursive: true })
+  for (;;) {
+    try {
+      await mkdir(lockPath)
+      break
+    } catch (error) {
+      if (!isErrorCode(error, 'EEXIST')) throw error
+      if (Date.now() - startedAt >= ACTIVE_RUN_INDEX_LOCK_TIMEOUT_MS) {
+        throw new Error(`Timed out waiting for automation active run index lock at ${lockPath}`)
+      }
+      await sleep(ACTIVE_RUN_INDEX_LOCK_POLL_MS)
+    }
+  }
+  try {
+    return await fn()
+  } finally {
+    await rm(lockPath, { recursive: true, force: true })
+  }
+}
+
+function isErrorCode(error: unknown, code: string): boolean {
+  return typeof error === 'object' && error !== null && 'code' in error && (error as { code?: unknown }).code === code
 }
 
 function assertSafeRunId(runId: string): void {

@@ -314,6 +314,22 @@ describe('AutomationRunner', () => {
     expect(worktreeListAfterSecond).toContain(second.worktreePath)
   })
 
+  it('treats automation worktree locks with missing run records as inactive', async () => {
+    const projectRoot = await createGitRepo()
+    const { codexHomeDir, service } = await createHarness()
+    const automationDir = await writeNative(codexHomeDir, 'daily-check-dir', nativeRecord, {
+      runMode: 'worktree',
+      cwd: projectRoot,
+    })
+    const first = await service.runNow('daily-check')
+    await rm(join(automationDir, 'runs', first.id), { recursive: true, force: true })
+
+    const second = await service.runNow('daily-check')
+
+    expect(second.id).not.toBe(first.id)
+    expect(second.worktreePath).toContain('/worktrees/')
+  })
+
   it('preserves a managed worktree when worktree mode startup fails', async () => {
     const projectRoot = await createGitRepo()
     const { codexHomeDir, service } = await createHarness({ turnStartError: new Error('turn start failed') })
@@ -589,6 +605,7 @@ describe('AutomationRunner', () => {
       resultSummary: '',
       kanbanTaskId: null,
     })
+    await expect(readFile(completed.logPath, 'utf8')).resolves.toContain('thread/read response did not include completed turn turn_1')
     expect(tasks).toEqual([])
   })
 

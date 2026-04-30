@@ -136,6 +136,25 @@ describe('createAutomationRunStore', () => {
     expect(recentRuns.map((run) => run.id)).not.toContain('automation_run_1000_active')
     expect(activeRuns.map((run) => run.id)).toEqual(['automation_run_1000_active'])
   })
+
+  it('preserves all active run ids when concurrent writes update the active index', async () => {
+    const automationDir = await mkdtemp(join(tmpdir(), 'codexui-automation-run-store-'))
+    tempDirs.push(automationDir)
+    const store = createAutomationRunStore(automationDir)
+    const runIds = Array.from({ length: 12 }, (_, index) => `automation_run_concurrent_${index}`)
+
+    await Promise.all(runIds.map(async (runId, index) => {
+      await store.createRun(automationRunFixture({
+        id: runId,
+        state: 'running',
+        createdAtIso: `2026-04-30T10:${String(index).padStart(2, '0')}:00.000Z`,
+      }))
+    }))
+
+    const activeRuns = await store.listActiveRuns()
+
+    expect(activeRuns.map((run) => run.id).sort()).toEqual(runIds.sort())
+  })
 })
 
 function automationRunFixture(overrides: Partial<AutomationRun> = {}): AutomationRun {

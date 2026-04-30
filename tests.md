@@ -5709,3 +5709,34 @@ Review-cycle hardening for automation run-start concurrency, startup recovery ow
 
 #### Rollback/Cleanup
 - Delete disposable automation records, run folders, and managed worktree lock folders created only for this check.
+
+---
+
+### Automations PR review cycle 7 fixes
+
+#### Feature/Change Name
+Review-cycle hardening for active-run index writes, stale automation worktree locks, multiline TOML parsing, and completion-response diagnostics.
+
+#### Prerequisites/Setup
+1. Use `${WORKTREE_ROOT}` on `feat/automations`.
+2. Reuse an existing compatible dependency install if this worktree does not already have dependencies.
+3. Use disposable automation records, run folders, and managed worktree locks only.
+
+#### Steps
+1. Run `pnpm exec vitest run src/server/automations/__tests__/runStore.test.ts src/server/automations/__tests__/runner.test.ts src/server/automations/__tests__/nativeStore.test.ts`.
+2. Run `pnpm test:unit`.
+3. Run `pnpm run build`.
+4. Run `git diff --check`.
+5. Start several active runs concurrently for the same automation run store.
+6. Start a worktree-mode automation run, remove its persisted run record, then start the automation again.
+7. Parse an `automation.toml` multiline basic string containing escaped triple quotes before the real closing delimiter.
+8. Complete an automation run when `thread/read` omits the completed turn.
+
+#### Expected Results
+- Concurrent active-run index updates preserve every active run id.
+- Missing persisted run records make existing automation-owned worktree locks inactive so reruns are not blocked forever.
+- Escaped triple quotes inside multiline basic strings do not terminate parsing early.
+- Completion continues to classify the run without falling back to unrelated turns and records a completion warning in the run log/events.
+
+#### Rollback/Cleanup
+- Delete disposable automation records, run folders, and managed worktree lock folders created only for this check.

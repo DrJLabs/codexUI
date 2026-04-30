@@ -158,7 +158,7 @@ function stripTomlLineComment(value: string): string {
 }
 
 function stripCommentAfterMultilineClose(line: string, delimiter: '"""' | "'''"): string {
-  const closingIndex = line.indexOf(delimiter)
+  const closingIndex = findTomlMultilineCloseIndex(line, delimiter)
   if (closingIndex < 0) return line
   const closingEnd = closingIndex + delimiter.length
   const suffix = stripTomlLineComment(line.slice(closingEnd))
@@ -168,7 +168,27 @@ function stripCommentAfterMultilineClose(line: string, delimiter: '"""' | "'''")
 function getOpenMultilineTomlStringDelimiter(value: string): '"""' | "'''" | null {
   const delimiter = value.startsWith('"""') ? '"""' : value.startsWith("'''") ? "'''" : null
   if (!delimiter) return null
-  return value.indexOf(delimiter, delimiter.length) < 0 ? delimiter : null
+  return findTomlMultilineCloseIndex(value, delimiter, delimiter.length) < 0 ? delimiter : null
+}
+
+function findTomlMultilineCloseIndex(line: string, delimiter: '"""' | "'''", fromIndex = 0): number {
+  let index = line.indexOf(delimiter, fromIndex)
+  while (index >= 0) {
+    if (delimiter === '"""' && isEscapedBasicStringQuote(line, index)) {
+      index = line.indexOf(delimiter, index + 1)
+      continue
+    }
+    return index
+  }
+  return -1
+}
+
+function isEscapedBasicStringQuote(line: string, quoteIndex: number): boolean {
+  let backslashCount = 0
+  for (let index = quoteIndex - 1; index >= 0 && line[index] === '\\'; index -= 1) {
+    backslashCount += 1
+  }
+  return backslashCount % 2 === 1
 }
 
 export function parseAutomationToml(raw: string): ThreadAutomationRecord | null {
@@ -178,11 +198,12 @@ export function parseAutomationToml(raw: string): ThreadAutomationRecord | null 
   let multilineStringLines: string[] = []
   for (const line of raw.split(/\r?\n/u)) {
     if (multilineStringDelimiter) {
-      const nextLine = line.includes(multilineStringDelimiter)
+      const closingIndex = findTomlMultilineCloseIndex(line, multilineStringDelimiter)
+      const nextLine = closingIndex >= 0
         ? stripCommentAfterMultilineClose(line, multilineStringDelimiter)
         : line
       multilineStringLines.push(nextLine)
-      if (line.includes(multilineStringDelimiter)) {
+      if (closingIndex >= 0) {
         if (multilineStringKey) values[multilineStringKey] = multilineStringLines.join('\n')
         multilineStringKey = null
         multilineStringDelimiter = null
@@ -250,7 +271,7 @@ export function serializeAutomationToml(record: ThreadAutomationRecord, previous
 
     if (multilineStringDelimiter) {
       if (!skipMultilineString) merged.push(line)
-      if (line.includes(multilineStringDelimiter)) {
+      if (findTomlMultilineCloseIndex(line, multilineStringDelimiter) >= 0) {
         multilineStringDelimiter = null
         skipMultilineString = false
       }

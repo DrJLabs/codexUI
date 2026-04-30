@@ -277,7 +277,8 @@ export class AutomationRunner {
         try {
           const storedRun = await store.readRun(lock.runId)
           return isActiveAutomationRunState(storedRun.state)
-        } catch {
+        } catch (error) {
+          if (isMissingFileError(error)) return false
           return true
         }
       },
@@ -368,7 +369,8 @@ export class AutomationRunner {
       await this.projectTerminalRun({ definition, store: match.store, run: failed })
       return
     }
-    const resultSummary = extractAssistantText(response, turnId)
+    const extracted = extractAssistantText(response, turnId)
+    const resultSummary = extracted.text
     const now = new Date().toISOString()
     const classification = classifyAutomationRunResult(resultSummary)
     const completed = await match.store.updateRun(match.run.id, {
@@ -384,6 +386,15 @@ export class AutomationRunner {
     })
     this.ownedActiveRunIds.delete(match.run.id)
     const eventPrefix = match.run.trigger === 'schedule' ? 'scheduled_run' : 'manual_run'
+    if (extracted.warning) {
+      await match.store.appendEvent(completed, {
+        type: `${eventPrefix}.completion_warning`,
+        threadId,
+        turnId,
+        message: extracted.warning,
+      })
+      await match.store.appendLog(completed, `Completion warning: ${extracted.warning}`)
+    }
     await match.store.appendEvent(completed, { type: `${eventPrefix}.completed`, threadId, turnId })
     await match.store.appendLog(completed, `${match.run.trigger === 'schedule' ? 'Scheduled' : 'Manual'} run completed ${classification.findings ? 'with findings' : 'with no findings'}`)
     const definition = await this.createProjectionDefinition(match.entry, completed)
@@ -572,18 +583,22 @@ function extractTurnId(params: unknown): string {
   return turn ? readString(turn.id) || readString(turn.turnId) || readString(turn.turn_id) : ''
 }
 
-function extractAssistantText(response: unknown, turnId: string): string {
+function extractAssistantText(response: unknown, turnId: string): { text: string; warning: string | null } {
   const record = asRecord(response)
+  if (!record) return { text: '', warning: 'thread/read response was not an object' }
   const thread = asRecord(record?.thread)
-  const turns = Array.isArray(thread?.turns)
+  const turnsValue = Array.isArray(thread?.turns)
     ? thread.turns
-    : Array.isArray(record?.turns) ? record.turns : []
-  const matchingTurn = turns.find((turn) => {
+    : Array.isArray(record?.turns) ? record.turns : null
+  if (!turnsValue) return { text: '', warning: 'thread/read response did not include turns' }
+  const matchingTurn = turnsValue.find((turn) => {
     const item = asRecord(turn)
     return readString(item?.id) === turnId || readString(item?.turnId) === turnId || readString(item?.turn_id) === turnId
   })
   const turn = asRecord(matchingTurn)
-  const items = Array.isArray(turn?.items) ? turn.items : []
+  if (!turn) return { text: '', warning: `thread/read response did not include completed turn ${turnId}` }
+  if (!Array.isArray(turn.items)) return { text: '', warning: `thread/read completed turn ${turnId} did not include items` }
+  const items = turn.items
   const texts = items.map((item) => {
     const recordItem = asRecord(item)
     if (!recordItem) return ''
@@ -592,7 +607,11 @@ function extractAssistantText(response: unknown, turnId: string): string {
     if (type === 'message' && readString(recordItem.role) !== 'assistant') return ''
     return readString(recordItem.text) || readString(recordItem.content)
   }).filter(Boolean)
-  return texts.join('\n\n').trim()
+  const text = texts.join('\n\n').trim()
+  return {
+    text,
+    warning: text ? null : `thread/read completed turn ${turnId} did not include assistant text`,
+  }
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -603,6 +622,10 @@ function asRecord(value: unknown): Record<string, unknown> | null {
 
 function readString(value: unknown): string {
   return typeof value === 'string' ? value : ''
+}
+
+function isMissingFileError(error: unknown): boolean {
+  return typeof error === 'object' && error !== null && 'code' in error && (error as { code?: unknown }).code === 'ENOENT'
 }
 
 function resolveRunCwd(definition: AutomationDefinition, run: AutomationRun): string | undefined {

@@ -141,6 +141,30 @@ describe('native automation store TOML compatibility', () => {
     expect(parseAutomationToml(raw)).toEqual(pausedRecord)
   })
 
+  it('does not close multiline basic strings on escaped triple quotes', () => {
+    const raw = [
+      'version = 1',
+      'id = "daily-check"',
+      'kind = "heartbeat"',
+      'name = "Daily Check"',
+      'prompt = """',
+      'Say \\""" literally',
+      'and continue',
+      '"""',
+      'status = "PAUSED"',
+      'rrule = "FREQ=DAILY;INTERVAL=1"',
+      'target_thread_id = "thread-123"',
+      'created_at = 1710000000000',
+      'updated_at = 1710000005000',
+      '',
+    ].join('\n')
+
+    expect(parseAutomationToml(raw)).toEqual({
+      ...pausedRecord,
+      prompt: 'Say """ literally\nand continue',
+    })
+  })
+
   it('returns null for invalid or partial records', () => {
     expect(parseAutomationToml('id = "missing-required-fields"\n')).toBeNull()
     expect(parseAutomationToml(`${serializeAutomationToml(pausedRecord)}kind = "timer"\n`)).toBeNull()
