@@ -58,6 +58,24 @@ export function createAutomationsRouter(options: CreateAutomationsRouterOptions 
     res.status(200).json({ data: await service.listRuns(automationId) })
   }))
 
+  router.post('/:automationId/runs/:runId/read', asyncHandler(async (req, res) => {
+    assertTrustedAccessMutation(req, csrf)
+    const { automationId } = parseAutomationRouteParams(req.params)
+    res.status(200).json({ data: await service.markRunRead(automationId, readRouteString(req.params.runId, 'runId')) })
+  }))
+
+  router.post('/:automationId/runs/:runId/archive', asyncHandler(async (req, res) => {
+    assertTrustedAccessMutation(req, csrf)
+    const { automationId } = parseAutomationRouteParams(req.params)
+    res.status(200).json({ data: await service.archiveRun(automationId, readRouteString(req.params.runId, 'runId')) })
+  }))
+
+  router.post('/:automationId/runs/:runId/unarchive', asyncHandler(async (req, res) => {
+    assertTrustedAccessMutation(req, csrf)
+    const { automationId } = parseAutomationRouteParams(req.params)
+    res.status(200).json({ data: await service.unarchiveRun(automationId, readRouteString(req.params.runId, 'runId')) })
+  }))
+
   router.post('/:automationId/run', asyncHandler(async (req, res) => {
     assertExecutionAccessMutation(req, csrf, service.getExecutionPolicy())
     const { automationId } = parseAutomationRouteParams(req.params)
@@ -146,4 +164,13 @@ function createRouteError(statusCode: number, message: string): Error & { status
   const error = new Error(message) as Error & { statusCode: number }
   error.statusCode = statusCode
   return error
+}
+
+function readRouteString(value: unknown, field: string): string {
+  if (typeof value === 'string' && value.trim() && value.trim() === value && isSafeRouteSegment(value)) return value
+  throw createRouteError(400, `${field} is required`)
+}
+
+function isSafeRouteSegment(value: string): boolean {
+  return value !== '.' && value !== '..' && /^[A-Za-z0-9._-]+$/u.test(value)
 }

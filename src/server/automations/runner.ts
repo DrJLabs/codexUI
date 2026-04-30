@@ -9,6 +9,7 @@ import { createRestrictedCodexBridgeAdapter, type RestrictedCodexBridgeAdapter }
 import { resolveCodexTurnStartRunSettings } from '../execution/runProfiles'
 import { ManagedWorktreeService } from '../workspaces/managedWorktreeService'
 import { AutomationConflictError, AutomationValidationError } from './errors'
+import { classifyAutomationRunFailure, classifyAutomationRunResult } from './resultClassifier'
 import {
   assertAutomationExecutionPolicy,
   assertAutomationRunProfileAllowed,
@@ -125,6 +126,14 @@ export class AutomationRunner {
       turnId: null,
       resultSummary: null,
       errorMessage: null,
+      findings: null,
+      inboxTitle: '',
+      inboxSummary: '',
+      readAtIso: null,
+      archivedAtIso: null,
+      kanbanTaskId: null,
+      reviewPacketId: null,
+      proposalIds: [],
       ...createAutomationRunPaths(input.automationDirPath, runId),
       createdAtIso: now,
       startedAtIso: input.trigger === 'schedule' ? null : now,
@@ -188,9 +197,15 @@ export class AutomationRunner {
       return run
     } catch (error) {
       const message = error instanceof Error ? error.message : `Automation ${input.trigger} run failed`
+      const classification = classifyAutomationRunFailure(message)
       const failedRun = await store.updateRun(run.id, {
-        state: 'failed',
+        state: classification.state,
         errorMessage: message,
+        findings: classification.findings,
+        inboxTitle: classification.inboxTitle,
+        inboxSummary: classification.inboxSummary,
+        readAtIso: null,
+        archivedAtIso: null,
         completedAtIso: new Date().toISOString(),
       })
       this.ownedActiveRunIds.delete(run.id)
@@ -324,9 +339,15 @@ export class AutomationRunner {
       response = await this.bridge.rpc('thread/read', { threadId, includeTurns: true })
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Automation completion read failed'
+      const classification = classifyAutomationRunFailure(message)
       const failed = await match.store.updateRun(match.run.id, {
-        state: 'failed',
+        state: classification.state,
         errorMessage: message,
+        findings: classification.findings,
+        inboxTitle: classification.inboxTitle,
+        inboxSummary: classification.inboxSummary,
+        readAtIso: null,
+        archivedAtIso: null,
         completedAtIso: new Date().toISOString(),
       })
       this.ownedActiveRunIds.delete(match.run.id)
@@ -337,16 +358,22 @@ export class AutomationRunner {
     }
     const resultSummary = extractAssistantText(response, turnId)
     const now = new Date().toISOString()
+    const classification = classifyAutomationRunResult(resultSummary)
     const completed = await match.store.updateRun(match.run.id, {
-      state: 'completed_no_findings',
+      state: classification.state,
       resultSummary,
+      findings: classification.findings,
+      inboxTitle: classification.inboxTitle,
+      inboxSummary: classification.inboxSummary,
+      readAtIso: classification.findings ? null : now,
+      archivedAtIso: null,
       completedAtIso: now,
       updatedAtIso: now,
     })
     this.ownedActiveRunIds.delete(match.run.id)
     const eventPrefix = match.run.trigger === 'schedule' ? 'scheduled_run' : 'manual_run'
     await match.store.appendEvent(completed, { type: `${eventPrefix}.completed`, threadId, turnId })
-    await match.store.appendLog(completed, `${match.run.trigger === 'schedule' ? 'Scheduled' : 'Manual'} run completed with no findings`)
+    await match.store.appendLog(completed, `${match.run.trigger === 'schedule' ? 'Scheduled' : 'Manual'} run completed ${classification.findings ? 'with findings' : 'with no findings'}`)
   }
 
   private async findActiveRunForTurn(threadId: string, turnId: string): Promise<{
@@ -372,9 +399,15 @@ export class AutomationRunner {
       if (this.ownedActiveRunIds.has(run.id)) continue
       if (run.trigger === 'schedule') continue
       const message = 'Automation manual run was left active by a previous server session'
+      const classification = classifyAutomationRunFailure(message)
       const failed = await store.updateRun(run.id, {
-        state: 'failed',
+        state: classification.state,
         errorMessage: message,
+        findings: classification.findings,
+        inboxTitle: classification.inboxTitle,
+        inboxSummary: classification.inboxSummary,
+        readAtIso: null,
+        archivedAtIso: null,
         completedAtIso: new Date().toISOString(),
       })
       await store.appendEvent(failed, { type: 'manual_run.recovered_failed', errorMessage: message })

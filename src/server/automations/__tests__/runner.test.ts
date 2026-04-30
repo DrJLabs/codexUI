@@ -309,6 +309,10 @@ describe('AutomationRunner', () => {
       state: 'failed',
       worktreePath: expect.stringContaining('/worktrees/'),
       errorMessage: 'turn start failed',
+      findings: true,
+      inboxTitle: 'Run failed',
+      readAtIso: null,
+      archivedAtIso: null,
     })
     expect(failed.branchName).toMatch(/^codexui\/automation\/daily-check-/u)
     expect(worktreeList).toContain(failed.worktreePath)
@@ -331,9 +335,48 @@ describe('AutomationRunner', () => {
       id: first.id,
       state: 'completed_no_findings',
       resultSummary: 'No findings from the manual automation run.',
+      findings: false,
+      inboxTitle: 'No findings',
+      readAtIso: expect.any(String),
+      archivedAtIso: null,
     })
     expect(second.id).not.toBe(first.id)
     expect(rpcCalls.map((call) => call.method)).toEqual(['thread/resume', 'turn/start', 'thread/read', 'thread/resume', 'turn/start'])
+  })
+
+  it('marks completed turns with findings as unread completed_with_findings', async () => {
+    const { codexHomeDir, service, notificationListeners } = await createHarness({
+      readThreadResponse: {
+        thread: {
+          turns: [
+            {
+              id: 'turn_1',
+              items: [{ type: 'agentMessage', text: 'RESULT: FINDINGS\n- Disk is full' }],
+            },
+          ],
+        },
+      },
+    })
+    await writeNative(codexHomeDir, 'daily-check-dir', nativeRecord, { runMode: 'chat' })
+    const first = await service.runNow('daily-check')
+
+    await Promise.resolve(notificationListeners[0]!({
+      method: 'turn/completed',
+      params: { threadId: 'thread-1', turnId: 'turn_1' },
+      atIso: new Date().toISOString(),
+    }))
+    const completed = (await service.listRuns('daily-check'))[0]!
+
+    expect(completed).toMatchObject({
+      id: first.id,
+      state: 'completed_with_findings',
+      findings: true,
+      inboxTitle: 'Findings reported',
+      inboxSummary: 'RESULT: FINDINGS - Disk is full',
+      readAtIso: null,
+      archivedAtIso: null,
+    })
+    await expect(readFile(completed.logPath, 'utf8')).resolves.toContain('Manual run completed with findings')
   })
 
   it('marks completion read failures as failed so later manual runs are not wedged', async () => {
@@ -355,6 +398,10 @@ describe('AutomationRunner', () => {
       id: first.id,
       state: 'failed',
       errorMessage: 'thread read unavailable',
+      findings: true,
+      inboxTitle: 'Run failed',
+      readAtIso: null,
+      archivedAtIso: null,
     })
     expect(second.id).not.toBe(first.id)
   })
@@ -376,6 +423,10 @@ describe('AutomationRunner', () => {
     expect(runs.find((run) => run.id === orphaned.id)).toMatchObject({
       state: 'failed',
       errorMessage: 'Automation manual run was left active by a previous server session',
+      findings: true,
+      inboxTitle: 'Run failed',
+      readAtIso: null,
+      archivedAtIso: null,
     })
   })
 
@@ -570,6 +621,14 @@ describe('AutomationRunner', () => {
       turnId: null,
       resultSummary: null,
       errorMessage: null,
+      findings: null,
+      inboxTitle: '',
+      inboxSummary: '',
+      readAtIso: null,
+      archivedAtIso: null,
+      kanbanTaskId: null,
+      reviewPacketId: null,
+      proposalIds: [],
       createdAtIso: '2026-04-30T08:55:00.000Z',
       startedAtIso: null,
       completedAtIso: null,
@@ -620,6 +679,10 @@ describe('AutomationRunner', () => {
       expect(runs.find((run) => run.id === runId)).toMatchObject({
         state: 'failed',
         errorMessage: 'Automation run was interrupted by a previous server session',
+        findings: true,
+        inboxTitle: 'Run failed',
+        readAtIso: null,
+        archivedAtIso: null,
         completedAtIso: expect.any(String),
         worktreePath: '/tmp/preserved-worktree',
       })
@@ -675,6 +738,14 @@ describe('AutomationRunner', () => {
       turnId: null,
       resultSummary: null,
       errorMessage: null,
+      findings: null,
+      inboxTitle: '',
+      inboxSummary: '',
+      readAtIso: null,
+      archivedAtIso: null,
+      kanbanTaskId: null,
+      reviewPacketId: null,
+      proposalIds: [],
       createdAtIso: '2026-04-30T08:55:00.000Z',
       startedAtIso: null,
       completedAtIso: null,

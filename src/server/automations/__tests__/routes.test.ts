@@ -347,6 +347,72 @@ describe('createAutomationsMiddleware', () => {
     expect(runs.body.data[1]).toMatchObject({ state: 'completed_no_findings', resultSummary: 'Manual route run completed.' })
   })
 
+  it('marks automation runs read, archived, and unarchived through CSRF-protected triage routes', async () => {
+    const { bridge, notificationListeners } = createBridge()
+    const { baseUrl, codexHomeDir } = await createHarness({ bridge, policy: enabledPolicy })
+    await writeNative(codexHomeDir, 'daily-check-dir', nativeRecord)
+    const csrfHeaders = await readCsrfHeaders(baseUrl)
+
+    const started = await requestJson<{ data: { id: string } }>(
+      `${baseUrl}/codex-api/automations/daily-check/run`,
+      { method: 'POST', headers: csrfHeaders, body: JSON.stringify({}) },
+    )
+    expect(started.status).toBe(202)
+    await Promise.resolve(notificationListeners[0]!({
+      method: 'turn/completed',
+      params: { threadId: 'thread-1', turnId: 'turn_1' },
+      atIso: new Date().toISOString(),
+    }))
+
+    const read = await requestJson<{ data: { id: string; readAtIso: string | null; archivedAtIso: string | null } }>(
+      `${baseUrl}/codex-api/automations/daily-check/runs/${started.body.data.id}/read`,
+      { method: 'POST', headers: csrfHeaders },
+    )
+    const archived = await requestJson<{ data: { id: string; readAtIso: string | null; archivedAtIso: string | null } }>(
+      `${baseUrl}/codex-api/automations/daily-check/runs/${started.body.data.id}/archive`,
+      { method: 'POST', headers: csrfHeaders },
+    )
+    const unarchived = await requestJson<{ data: { id: string; readAtIso: string | null; archivedAtIso: string | null } }>(
+      `${baseUrl}/codex-api/automations/daily-check/runs/${started.body.data.id}/unarchive`,
+      { method: 'POST', headers: csrfHeaders },
+    )
+
+    expect(read.status).toBe(200)
+    expect(read.body.data).toMatchObject({ id: started.body.data.id, readAtIso: expect.any(String), archivedAtIso: null })
+    expect(archived.status).toBe(200)
+    expect(archived.body.data).toMatchObject({ id: started.body.data.id, archivedAtIso: expect.any(String) })
+    expect(unarchived.status).toBe(200)
+    expect(unarchived.body.data).toMatchObject({ id: started.body.data.id, archivedAtIso: null })
+  })
+
+  it('returns 404 when a triage route targets a missing automation run', async () => {
+    const { baseUrl, codexHomeDir } = await createHarness()
+    await writeNative(codexHomeDir, 'daily-check-dir', nativeRecord)
+    const csrfHeaders = await readCsrfHeaders(baseUrl)
+
+    const response = await requestJson<{ error: string }>(
+      `${baseUrl}/codex-api/automations/daily-check/runs/missing-run/read`,
+      { method: 'POST', headers: csrfHeaders },
+    )
+
+    expect(response.status).toBe(404)
+    expect(response.body.error).toContain('Automation run not found')
+  })
+
+  it('rejects path-like run IDs before triage routes can reach the run store', async () => {
+    const { baseUrl, codexHomeDir } = await createHarness()
+    await writeNative(codexHomeDir, 'daily-check-dir', nativeRecord)
+    const csrfHeaders = await readCsrfHeaders(baseUrl)
+
+    const response = await requestJson<{ error: string }>(
+      `${baseUrl}/codex-api/automations/daily-check/runs/${encodeURIComponent('../../other-dir/runs/run_1')}/read`,
+      { method: 'POST', headers: csrfHeaders },
+    )
+
+    expect(response.status).toBe(400)
+    expect(response.body.error).toContain('runId is required')
+  })
+
   it('creates, patches, pauses, resumes, and deletes definitions without changing legacy bridge ownership', async () => {
     const { baseUrl, codexHomeDir } = await createHarness()
     const csrfHeaders = await readCsrfHeaders(baseUrl)

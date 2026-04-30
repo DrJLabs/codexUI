@@ -22,12 +22,33 @@ describe('createAutomationRunStore', () => {
     await mkdir(runDir, { recursive: true })
     const legacyRun = automationRunFixture({ id: runId })
     delete (legacyRun as Partial<AutomationRun>).branchName
+    delete (legacyRun as Partial<AutomationRun>).findings
+    delete (legacyRun as Partial<AutomationRun>).inboxTitle
+    delete (legacyRun as Partial<AutomationRun>).inboxSummary
+    delete (legacyRun as Partial<AutomationRun>).readAtIso
+    delete (legacyRun as Partial<AutomationRun>).archivedAtIso
+    delete (legacyRun as Partial<AutomationRun>).kanbanTaskId
+    delete (legacyRun as Partial<AutomationRun>).reviewPacketId
+    delete (legacyRun as Partial<AutomationRun>).proposalIds
     await writeFile(join(runDir, 'run.json'), `${JSON.stringify(legacyRun, null, 2)}\n`, 'utf8')
 
     const runs = await createAutomationRunStore(automationDir).listRuns()
 
     expect(runs).toHaveLength(1)
-    expect(runs[0]).toMatchObject({ id: runId, dueAtIso: null, nextDueAtIso: null, branchName: null })
+    expect(runs[0]).toMatchObject({
+      id: runId,
+      dueAtIso: null,
+      nextDueAtIso: null,
+      branchName: null,
+      findings: null,
+      inboxTitle: '',
+      inboxSummary: '',
+      readAtIso: null,
+      archivedAtIso: null,
+      kanbanTaskId: null,
+      reviewPacketId: null,
+      proposalIds: [],
+    })
   })
 })
 
@@ -65,6 +86,14 @@ function automationRunFixture(overrides: Partial<AutomationRun> = {}): Automatio
     turnId: 'turn_1',
     resultSummary: null,
     errorMessage: null,
+    findings: null,
+    inboxTitle: '',
+    inboxSummary: '',
+    readAtIso: null,
+    archivedAtIso: null,
+    kanbanTaskId: null,
+    reviewPacketId: null,
+    proposalIds: [],
     runJsonPath: '/tmp/run.json',
     eventsPath: '/tmp/events.jsonl',
     logPath: '/tmp/run.log',

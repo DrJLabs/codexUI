@@ -85,7 +85,14 @@ export function isActiveAutomationRunState(state: string): boolean {
 }
 
 function runJsonPath(runsRoot: string, runId: string): string {
+  assertSafeRunId(runId)
   return join(runsRoot, runId, 'run.json')
+}
+
+function assertSafeRunId(runId: string): void {
+  if (!runId || runId.trim() !== runId || runId === '.' || runId === '..' || !/^[A-Za-z0-9._-]+$/u.test(runId)) {
+    throw new Error('Invalid automation run id')
+  }
 }
 
 function parseRun(raw: string): AutomationRun {
@@ -96,6 +103,16 @@ function parseRun(raw: string): AutomationRun {
     dueAtIso: typeof parsed.dueAtIso === 'string' ? parsed.dueAtIso : null,
     nextDueAtIso: typeof parsed.nextDueAtIso === 'string' ? parsed.nextDueAtIso : null,
     branchName: typeof parsed.branchName === 'string' ? parsed.branchName : null,
+    findings: typeof parsed.findings === 'boolean' ? parsed.findings : null,
+    inboxTitle: typeof parsed.inboxTitle === 'string' ? parsed.inboxTitle : '',
+    inboxSummary: typeof parsed.inboxSummary === 'string' ? parsed.inboxSummary : '',
+    readAtIso: typeof parsed.readAtIso === 'string' ? parsed.readAtIso : null,
+    archivedAtIso: typeof parsed.archivedAtIso === 'string' ? parsed.archivedAtIso : null,
+    kanbanTaskId: typeof parsed.kanbanTaskId === 'string' ? parsed.kanbanTaskId : null,
+    reviewPacketId: typeof parsed.reviewPacketId === 'string' ? parsed.reviewPacketId : null,
+    proposalIds: Array.isArray(parsed.proposalIds)
+      ? parsed.proposalIds.filter((proposalId): proposalId is string => typeof proposalId === 'string')
+      : [],
   } as AutomationRun
 }
 

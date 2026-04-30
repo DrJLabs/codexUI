@@ -23,6 +23,7 @@ import {
   type NativeAutomationStoreOptions,
   type ThreadAutomationRecord,
 } from './nativeStore.js'
+import { classifyAutomationRunFailure } from './resultClassifier'
 import { createAutomationRunStore, isActiveAutomationRunState } from './runStore'
 import { AutomationRunner } from './runner'
 import { evaluateRruleSchedule } from './scheduleCalculator'
@@ -301,9 +302,15 @@ export class AutomationsService {
           await reconcileSchedulerFromScheduledRun(entry, run)
         }
         const message = 'Automation run was interrupted by a previous server session'
+        const classification = classifyAutomationRunFailure(message)
         const failed = await store.updateRun(run.id, {
-          state: 'failed',
+          state: classification.state,
           errorMessage: message,
+          findings: classification.findings,
+          inboxTitle: classification.inboxTitle,
+          inboxSummary: classification.inboxSummary,
+          readAtIso: null,
+          archivedAtIso: null,
           completedAtIso: new Date().toISOString(),
         })
         recovered += 1
@@ -318,6 +325,30 @@ export class AutomationsService {
     const entry = await this.findEntry(automationId)
     if (!entry) throw new AutomationNotFoundError(automationId)
     return await createAutomationRunStore(entry.automationDirPath).listRuns()
+  }
+
+  async markRunRead(automationId: string, runId: string): Promise<AutomationRun> {
+    const entry = await this.findEntry(automationId)
+    if (!entry) throw new AutomationNotFoundError(automationId)
+    return await updateRunTriage(createAutomationRunStore(entry.automationDirPath), runId, {
+      readAtIso: new Date().toISOString(),
+    })
+  }
+
+  async archiveRun(automationId: string, runId: string): Promise<AutomationRun> {
+    const entry = await this.findEntry(automationId)
+    if (!entry) throw new AutomationNotFoundError(automationId)
+    return await updateRunTriage(createAutomationRunStore(entry.automationDirPath), runId, {
+      archivedAtIso: new Date().toISOString(),
+    })
+  }
+
+  async unarchiveRun(automationId: string, runId: string): Promise<AutomationRun> {
+    const entry = await this.findEntry(automationId)
+    if (!entry) throw new AutomationNotFoundError(automationId)
+    return await updateRunTriage(createAutomationRunStore(entry.automationDirPath), runId, {
+      archivedAtIso: null,
+    })
   }
 
   private async updateStatus(automationId: string, status: 'ACTIVE' | 'PAUSED'): Promise<AutomationDefinition> {
@@ -397,6 +428,21 @@ async function reconcileSchedulerFromScheduledRun(entry: NativeAutomationEntry, 
     lastEvaluatedAtIso: nowIso,
     updatedAtIso: nowIso,
   })
+}
+
+async function updateRunTriage(
+  store: ReturnType<typeof createAutomationRunStore>,
+  runId: string,
+  update: Pick<Partial<AutomationRun>, 'readAtIso' | 'archivedAtIso'>,
+): Promise<AutomationRun> {
+  try {
+    return await store.updateRun(runId, update)
+  } catch (error) {
+    if (isNodeError(error) && error.code === 'ENOENT') {
+      throw createServiceError(404, 'Automation run not found')
+    }
+    throw error
+  }
 }
 
 async function mapDefinition(entry: NativeAutomationEntry, sidecar: AutomationSidecar): Promise<{

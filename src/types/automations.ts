@@ -14,6 +14,7 @@ export type AutomationRunState =
   | 'queued'
   | 'starting'
   | 'running'
+  | 'completed_with_findings'
   | 'completed_no_findings'
   | 'failed'
 
@@ -70,6 +71,14 @@ export type AutomationRun = {
   turnId: string | null
   resultSummary: string | null
   errorMessage: string | null
+  findings: boolean | null
+  inboxTitle: string
+  inboxSummary: string
+  readAtIso: string | null
+  archivedAtIso: string | null
+  kanbanTaskId: string | null
+  reviewPacketId: string | null
+  proposalIds: string[]
   runJsonPath: string
   eventsPath: string
   logPath: string
