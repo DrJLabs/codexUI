@@ -355,6 +355,8 @@ Requirements:
 - Imported heartbeat definitions without `cwd` or run profile can only run in `chat` mode until configured.
 - Worktree mode preserves dirty or failed worktrees for manual inspection and never deletes dirty state automatically.
 
+Phase 6 implementation plan: [`2026-04-30-automations-phase-6-manual-run-support.md`](2026-04-30-automations-phase-6-manual-run-support.md).
+
 ### Phase 7: Add Scheduler And Recovery
 
 Add due-run scheduling after manual runs are stable.
