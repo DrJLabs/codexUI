@@ -654,28 +654,15 @@ function computeTransientNextRunAtIso(
 }
 
 function isSchedulerAffectingPatch(patch: AutomationPatchInput): boolean {
-  return hasOwn(patch, 'schedule') ||
-    hasOwn(patch, 'targetThreadId') ||
-    hasOwn(patch, 'cwd') ||
-    hasOwn(patch, 'runMode') ||
-    hasOwn(patch, 'runProfileId') ||
-    hasOwn(patch, 'model') ||
-    hasOwn(patch, 'reasoningEffort')
+  return hasOwn(patch, 'schedule')
 }
 
-function buildScheduleHash(entry: NativeAutomationEntry, sidecar: AutomationSidecar): string {
+function buildScheduleHash(entry: NativeAutomationEntry, _sidecar: AutomationSidecar): string {
   return createHash('sha256')
     .update(JSON.stringify({
       id: entry.record.id,
       sourceDirName: entry.sourceDirName,
       rrule: entry.record.rrule,
-      status: entry.record.status,
-      targetThreadId: entry.record.targetThreadId,
-      cwd: sidecar.cwd,
-      runMode: sidecar.runMode,
-      runProfileId: sidecar.runProfileId,
-      model: sidecar.model,
-      reasoningEffort: sidecar.reasoningEffort,
     }))
     .digest('hex')
 }

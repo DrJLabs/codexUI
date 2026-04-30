@@ -304,6 +304,23 @@ describe('AutomationScheduler', () => {
     expect(schedulerState.nextDueAtIso).toBe('2026-05-01T09:00:00.000Z')
   })
 
+  it('does not rewind the scheduler cursor after execution-only sidecar edits', async () => {
+    const now = new Date('2026-04-30T10:00:00.000Z')
+    const { codexHomeDir, service } = await createHarness()
+    const automationDir = await writeNative(codexHomeDir, 'daily-check-dir', nativeRecord)
+    await writeFreshScheduler(service, 'daily-check', automationDir, {
+      nextDueAtIso: '2026-05-01T09:00:00.000Z',
+    })
+    await writeFile(join(automationDir, 'codexui.json'), `${JSON.stringify({ model: 'gpt-5.4' }, null, 2)}\n`, 'utf8')
+
+    await new AutomationScheduler({ service, now: () => now }).tick()
+
+    const runs = await createAutomationRunStore(automationDir).listRuns()
+    const schedulerState = JSON.parse(await readFile(join(automationDir, 'scheduler.json'), 'utf8')) as AutomationSchedulerState
+    expect(runs).toEqual([])
+    expect(schedulerState.nextDueAtIso).toBe('2026-05-01T09:00:00.000Z')
+  })
+
   it('keeps scheduling healthy automations when another scheduler state file is invalid', async () => {
     const now = new Date('2026-04-30T10:00:00.000Z')
     const { codexHomeDir, service } = await createHarness()
