@@ -88,7 +88,7 @@ export function createServer(options: ServerOptions = {}): ServerInstance {
   const kanbanStorage = new KanbanStorage({ dataDir: kanbanDataDir, projectRoot })
   const kanban = createKanbanMiddleware({ bridge, projectRoot, dataDir: kanbanDataDir })
   const artifacts = createArtifactRouter({ storage: kanbanStorage })
-  const automations = createAutomationsMiddleware({ bridge, policy: kanbanConfig.policy })
+  const automations = createAutomationsMiddleware({ bridge, policy: kanbanConfig.policy, enableScheduler: true })
   const authSession = options.password ? createAuthSession(options.password) : null
 
   // 1. Auth middleware (if password is set)
@@ -270,7 +270,10 @@ export function createServer(options: ServerOptions = {}): ServerInstance {
 
   return {
     app,
-    dispose: () => bridge.dispose(),
+    dispose: () => {
+      automations.dispose?.()
+      bridge.dispose()
+    },
     attachWebSocket: (server: HttpServer) => {
       const wss = new WebSocketServer({ noServer: true })
 

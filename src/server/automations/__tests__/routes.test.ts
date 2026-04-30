@@ -65,6 +65,7 @@ afterEach(async () => {
 async function createHarness(options: {
   bridge?: CodexBridgeRuntime
   policy?: KanbanExecutionPolicy
+  enableScheduler?: boolean
 } = {}) {
   const codexHomeDir = await mkdtemp(join(tmpdir(), 'codexui-automations-api-'))
   codexHomeDirs.push(codexHomeDir)
@@ -73,6 +74,7 @@ async function createHarness(options: {
     codexHomeDir,
     bridge: options.bridge,
     policy: options.policy,
+    enableScheduler: options.enableScheduler,
   }))
   app.use('/codex-api', (_req, res) => {
     res.status(599).json({ error: 'generic bridge reached' })
@@ -184,6 +186,20 @@ describe('createAutomationsMiddleware', () => {
     instance.dispose()
   })
 
+  it('disposes the production scheduler interval with the bridge', () => {
+    vi.useFakeTimers()
+    try {
+      const instance = createCodexUiServer()
+      expect(vi.getTimerCount()).toBeGreaterThan(0)
+
+      instance.dispose()
+
+      expect(vi.getTimerCount()).toBe(0)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('serves health, templates, state, list, and get with data-wrapped first-class definitions', async () => {
     const { baseUrl, codexHomeDir } = await createHarness()
     await writeNative(codexHomeDir, 'daily-check-dir', nativeRecord)
@@ -193,7 +209,7 @@ describe('createAutomationsMiddleware', () => {
 
     const health = await requestJson<{ data: { ok: true } }>(`${baseUrl}/codex-api/automations/health`)
     const templates = await requestJson<{ data: Array<{ kind: string }> }>(`${baseUrl}/codex-api/automations/templates`)
-    const state = await requestJson<{ data: { storageRoot: string; sourceCounts: { native: number }; diagnostics: unknown[]; definitions: Array<{ id: string; nextRunAtIso: string | null }> } }>(`${baseUrl}/codex-api/automations/state`)
+    const state = await requestJson<{ data: { storageRoot: string; featureFlags: { scheduler: boolean }; sourceCounts: { native: number }; diagnostics: unknown[]; definitions: Array<{ id: string; nextRunAtIso: string | null }> } }>(`${baseUrl}/codex-api/automations/state`)
     const list = await requestJson<{ data: Array<{ id: string; status: string; legacyStatus: string; targetThreadId: string | null; nextRunAtIso: string | null; storage: { nativeDirName: string } }> }>(`${baseUrl}/codex-api/automations`)
     const get = await requestJson<{ data: { id: string; targetThreadId: string | null; status: string; nextRunAtIso: string | null } }>(`${baseUrl}/codex-api/automations/detached-check`)
 
@@ -203,6 +219,7 @@ describe('createAutomationsMiddleware', () => {
     expect(templates.body.data[0]).toMatchObject({ kind: 'heartbeat' })
     expect(state.status).toBe(200)
     expect(state.body.data.storageRoot).toBe(join(codexHomeDir, 'automations'))
+    expect(state.body.data.featureFlags.scheduler).toBe(false)
     expect(state.body.data.sourceCounts.native).toBe(2)
     expect(state.body.data.diagnostics).toHaveLength(2)
     expect(state.body.data.diagnostics).toEqual(expect.arrayContaining([
@@ -217,6 +234,15 @@ describe('createAutomationsMiddleware', () => {
     ]))
     expect(get.status).toBe(200)
     expect(get.body.data).toMatchObject({ id: 'detached-check', targetThreadId: null, status: 'paused', nextRunAtIso: expect.any(String) })
+  })
+
+  it('reports scheduler support in state when enabled for the service', async () => {
+    const { baseUrl } = await createHarness({ enableScheduler: true })
+
+    const state = await requestJson<{ data: { featureFlags: { scheduler: boolean } } }>(`${baseUrl}/codex-api/automations/state`)
+
+    expect(state.status).toBe(200)
+    expect(state.body.data.featureFlags.scheduler).toBe(true)
   })
 
   it('requires trusted access for CSRF issuance and trusted CSRF for mutations', async () => {

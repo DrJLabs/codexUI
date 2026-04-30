@@ -5190,3 +5190,42 @@ Manual automation runs in chat, local cwd, and managed worktree modes with route
 - Remove clean manual test worktrees with `git -C <repo-root> worktree remove <worktree-path>`.
 - Remove manual test branches with `git -C <repo-root> branch -D <branch-name>` after removing the worktree.
 - Remove any test automation records or temporary managed-worktree metadata under `${CODEX_HOME:-$HOME/.codex}/worktrees/` if no longer needed.
+
+---
+
+### Automations Phase 7 Scheduler And Recovery
+
+#### Feature/Change Name
+Persisted automation scheduler loop, startup recovery, and conservative run limits.
+
+#### Prerequisites/Setup
+1. Use `/home/drj/.codex/worktrees/52f8/codexUI`.
+2. Reuse the shared dependency install with `node_modules -> /home/drj/projects/codexUI/node_modules` if this worktree does not already have dependencies.
+3. Start a bridge-enabled server with automation execution enabled, then create or select an active heartbeat automation with a supported RRULE schedule.
+4. For local/worktree limit checks, configure two test automations with the same absolute `cwd`.
+5. Light and dark themes are available from Settings.
+
+#### Steps
+1. Run `/home/drj/projects/codexUI/node_modules/.bin/vitest run src/server/automations/__tests__/scheduler.test.ts src/server/automations/__tests__/runner.test.ts src/server/automations/__tests__/routes.test.ts src/server/automations/__tests__/legacyRoutes.test.ts`.
+2. Run the full Phase 7 gate listed in the implementation plan, then run `pnpm run build` and `git diff --check`.
+3. Inspect `${CODEX_HOME:-$HOME/.codex}/automations/<automation-id>/scheduler.json` and confirm it contains `nextDueAtIso`, `missedRunPolicy`, `lastScheduledRunId`, and `unsupportedReason`.
+4. Let the scheduler interval fire, or trigger a due tick in a controlled test environment.
+5. Inspect the automation run history and the corresponding `runs/<run-id>/run.json`.
+6. Restart the server while a scheduled run is persisted in `queued`, `starting`, or `running`, then inspect the same run after startup recovery.
+7. Create or patch valid `FREQ=MONTHLY` and `FREQ=YEARLY` automations and inspect their scheduler state.
+8. In light theme, open `#/automations` and confirm next-run and recent-run history remain readable.
+9. Switch to dark theme and repeat the same route checks.
+
+#### Expected Results
+- Each due scheduler tick starts at most one scheduled catch-up run per automation and advances `nextDueAtIso` beyond the current tick time.
+- Startup recovery marks interrupted active scheduled runs failed before any due scan starts.
+- Global and per-repo active-run limits block additional scheduled starts without advancing `nextDueAtIso`, so the next tick can retry.
+- Paused automations do not execute.
+- Imported native automations missing `scheduler.json` are initialized on tick before scheduler decisions.
+- `FREQ=MONTHLY` and `FREQ=YEARLY` automations remain readable and editable, show no next run, and do not execute until scheduler support is added.
+- Light and dark Automations route surfaces still show next-run and recent-run data without unreadable panels or controls.
+
+#### Rollback/Cleanup
+- Pause test automations from the UI or API to stop future scheduled starts.
+- Remove test scheduler/run artifacts under `${CODEX_HOME:-$HOME/.codex}/automations/<automation-id>/scheduler.json` and `runs/` only for disposable test automations.
+- Remove any temporary local/worktree test repositories created for per-repo limit checks.

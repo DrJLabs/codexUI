@@ -26,7 +26,7 @@ import {
 import { createAutomationRunStore, isActiveAutomationRunState } from './runStore'
 import { AutomationRunner } from './runner'
 import { evaluateRruleSchedule } from './scheduleCalculator'
-import { createAutomationSchedulerStore } from './schedulerStore'
+import { createAutomationSchedulerStore, type AutomationSchedulerState } from './schedulerStore'
 import { parseAutomationSidecarRead, type AutomationCreateInput, type AutomationPatchInput, type AutomationSidecarRead } from './schema.js'
 
 const SIDECAR_FILENAME = 'codexui.json'
@@ -36,6 +36,20 @@ type AutomationSidecar = AutomationSidecarRead
 export type AutomationsServiceOptions = NativeAutomationStoreOptions & {
   bridge?: CodexBridgeRuntime
   policy?: KanbanExecutionPolicy
+  enableScheduler?: boolean
+}
+
+export type AutomationSchedulerEntry = {
+  definition: AutomationDefinition
+  automationDirPath: string
+  sourceDirName: string
+  schedulerState: AutomationSchedulerState | null
+  runs: AutomationRun[]
+}
+
+export type PersistedAutomationActiveRun = {
+  automationId: string
+  run: AutomationRun
 }
 
 export class AutomationsService {
@@ -63,7 +77,7 @@ export class AutomationsService {
     return {
       storageRoot,
       featureFlags: {
-        scheduler: false,
+        scheduler: this.options.enableScheduler === true,
         manualRun: true,
         kanbanProjection: false,
         artifactIndexing: false,
@@ -179,6 +193,63 @@ export class AutomationsService {
 
   getExecutionPolicy(): KanbanExecutionPolicy {
     return this.policy
+  }
+
+  async listSchedulerEntries(): Promise<AutomationSchedulerEntry[]> {
+    const entries = await listNativeAutomationEntries(this.options)
+    const schedulerEntries: AutomationSchedulerEntry[] = []
+    for (const entry of entries.records) {
+      if (entry.record.kind !== 'heartbeat') continue
+      const sidecarResult = await readSidecar(entry)
+      const mapped = await mapDefinition(entry, sidecarResult.sidecar)
+      schedulerEntries.push({
+        definition: mapped.definition,
+        automationDirPath: entry.automationDirPath,
+        sourceDirName: entry.sourceDirName,
+        schedulerState: await readSchedulerStateForTick(entry),
+        runs: await createAutomationRunStore(entry.automationDirPath).listRuns(),
+      })
+    }
+    schedulerEntries.sort((a, b) => a.definition.name.localeCompare(b.definition.name) || a.definition.id.localeCompare(b.definition.id))
+    return schedulerEntries
+  }
+
+  async refreshSchedulerState(automationId: string, nowIso = new Date().toISOString()): Promise<AutomationSchedulerState> {
+    const entry = await this.findEntry(automationId)
+    if (!entry) throw new AutomationNotFoundError(automationId)
+    const sidecarResult = await readSidecar(entry)
+    return await refreshSchedulerState(entry, sidecarResult.sidecar, nowIso)
+  }
+
+  async clearIncompleteSchedulerReservation(automationId: string, dueAtIso: string, nowIso = new Date().toISOString()): Promise<AutomationSchedulerState> {
+    const entry = await this.findEntry(automationId)
+    if (!entry) throw new AutomationNotFoundError(automationId)
+    const store = createAutomationSchedulerStore(entry.automationDirPath)
+    const current = await store.readOrDefault({
+      automationId: entry.record.id,
+      sourceDirName: entry.sourceDirName,
+    })
+    return await store.writeState({
+      ...current,
+      automationId: entry.record.id,
+      sourceDirName: entry.sourceDirName,
+      nextDueAtIso: dueAtIso,
+      lastScheduledRunId: null,
+      lastEvaluatedAtIso: nowIso,
+      updatedAtIso: nowIso,
+    })
+  }
+
+  async listPersistedActiveRuns(): Promise<PersistedAutomationActiveRun[]> {
+    const entries = await listNativeAutomationEntries(this.options)
+    const activeRuns: PersistedAutomationActiveRun[] = []
+    for (const entry of entries.records) {
+      if (entry.record.kind !== 'heartbeat') continue
+      for (const run of await createAutomationRunStore(entry.automationDirPath).listRuns()) {
+        if (isActiveAutomationRunState(run.state)) activeRuns.push({ automationId: entry.record.id, run })
+      }
+    }
+    return activeRuns
   }
 
   async runNow(automationId: string, options: { runProfiles?: CodexRunProfile[]; runProfileId?: string | null } = {}): Promise<AutomationRun> {
@@ -299,6 +370,14 @@ export class AutomationsService {
   }
 }
 
+async function readSchedulerStateForTick(entry: NativeAutomationEntry): Promise<AutomationSchedulerState | null> {
+  try {
+    return await createAutomationSchedulerStore(entry.automationDirPath).readState()
+  } catch {
+    return null
+  }
+}
+
 async function reconcileSchedulerFromScheduledRun(entry: NativeAutomationEntry, run: AutomationRun): Promise<void> {
   if (!run.dueAtIso) return
   const store = createAutomationSchedulerStore(entry.automationDirPath)
@@ -367,19 +446,22 @@ async function mapDefinition(entry: NativeAutomationEntry, sidecar: AutomationSi
   }
 }
 
-async function refreshSchedulerState(entry: NativeAutomationEntry, sidecar: AutomationSidecar): Promise<void> {
-  const nowIso = new Date().toISOString()
+async function refreshSchedulerState(
+  entry: NativeAutomationEntry,
+  sidecar: AutomationSidecar,
+  nowIso = new Date().toISOString(),
+): Promise<AutomationSchedulerState> {
   const decision = evaluateRruleSchedule({
     rrule: entry.record.rrule,
     nowIso,
     nextDueAtIso: null,
     anchorIso: dateIso(entry.record.updatedAtMs ?? entry.record.createdAtMs),
   })
-  await createAutomationSchedulerStore(entry.automationDirPath).writeState({
+  return await createAutomationSchedulerStore(entry.automationDirPath).writeState({
     automationId: entry.record.id,
     sourceDirName: entry.sourceDirName,
     scheduleHash: buildScheduleHash(entry, sidecar),
-    nextDueAtIso: decision.nextDueAtIso,
+    nextDueAtIso: decision.due ? decision.dueAtIso : decision.nextDueAtIso,
     lastDueAtIso: null,
     lastScheduledRunId: null,
     lastEvaluatedAtIso: nowIso,

@@ -106,7 +106,7 @@ export type AutomationDefinition = AutomationTarget & AutomationExecution & {
 export type AutomationsState = {
   storageRoot: string
   featureFlags: {
-    scheduler: false
+    scheduler: boolean
     manualRun: boolean
     kanbanProjection: false
     artifactIndexing: false
