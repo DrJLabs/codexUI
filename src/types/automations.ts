@@ -23,6 +23,12 @@ export type AutomationSchedule = {
   rrule: string
 }
 
+export type AutomationKanbanProjection =
+  | { mode: 'off' }
+  | { mode: 'definition_card'; taskId?: string }
+  | { mode: 'run_card'; createFor: 'every_run' | 'findings_only' | 'failures_only' }
+  | { mode: 'attach_existing_task'; taskId: string }
+
 export type AutomationTarget = {
   targetThreadId: string | null
   projectRoot: string | null
@@ -101,7 +107,7 @@ export type AutomationDefinition = AutomationTarget & AutomationExecution & {
   schedule: AutomationSchedule
   autoArchiveNoFindings: boolean
   notifyOnFindings: boolean
-  kanbanProjection: { mode: 'off' }
+  kanbanProjection: AutomationKanbanProjection
   notes: string
   storage: AutomationStorageInfo
   createdAtIso: string
@@ -117,7 +123,7 @@ export type AutomationsState = {
   featureFlags: {
     scheduler: boolean
     manualRun: boolean
-    kanbanProjection: false
+    kanbanProjection: boolean
     artifactIndexing: false
   }
   sourceCounts: {

@@ -1,5 +1,5 @@
 import { isAbsolute } from 'node:path'
-import type { AutomationRunMode } from '../../types/automations'
+import type { AutomationKanbanProjection, AutomationRunMode } from '../../types/automations'
 import { AutomationValidationError } from './errors.js'
 
 export type AutomationCreateInput = {
@@ -14,6 +14,7 @@ export type AutomationCreateInput = {
   runProfileId: string | null
   model: string | null
   reasoningEffort: string | null
+  kanbanProjection: AutomationKanbanProjection
   notes: string
 }
 
@@ -28,6 +29,7 @@ export type AutomationPatchInput = Partial<{
   runProfileId: string | null
   model: string | null
   reasoningEffort: string | null
+  kanbanProjection: AutomationKanbanProjection
   notes: string
 }>
 
@@ -42,6 +44,7 @@ export type AutomationSidecarRead = {
   runProfileId: string | null
   model: string | null
   reasoningEffort: string | null
+  kanbanProjection: AutomationKanbanProjection
   notes: string
 }
 
@@ -113,6 +116,51 @@ function readNotes(value: unknown): string {
   return notes
 }
 
+function readKanbanTaskId(value: unknown, field: string): string {
+  const taskId = readTrimmedString(value, field)
+  if (!/^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/u.test(taskId)) {
+    throw new AutomationValidationError(`${field} must be a safe non-empty task id`)
+  }
+  return taskId
+}
+
+function readOptionalKanbanTaskId(input: Record<string, unknown>): string | undefined {
+  if (!hasOwn(input, 'taskId')) return undefined
+  return readKanbanTaskId(input.taskId, 'kanbanProjection.taskId')
+}
+
+function readKanbanProjection(value: unknown): AutomationKanbanProjection {
+  if (value === null || value === undefined) return { mode: 'off' }
+  if (!isRecord(value)) throw new AutomationValidationError('kanbanProjection must be an object')
+  if (value.mode === 'off') return { mode: 'off' }
+  if (value.mode === 'definition_card') {
+    const taskId = readOptionalKanbanTaskId(value)
+    return taskId === undefined ? { mode: 'definition_card' } : { mode: 'definition_card', taskId }
+  }
+  if (value.mode === 'run_card') {
+    if (
+      value.createFor !== 'every_run' &&
+      value.createFor !== 'findings_only' &&
+      value.createFor !== 'failures_only'
+    ) {
+      throw new AutomationValidationError('kanbanProjection.createFor must be every_run, findings_only, or failures_only')
+    }
+    return { mode: 'run_card', createFor: value.createFor }
+  }
+  if (value.mode === 'attach_existing_task') {
+    return {
+      mode: 'attach_existing_task',
+      taskId: readKanbanTaskId(value.taskId, 'kanbanProjection.taskId'),
+    }
+  }
+  throw new AutomationValidationError('kanbanProjection.mode must be off, definition_card, run_card, or attach_existing_task')
+}
+
+function readOptionalKanbanProjection(input: Record<string, unknown>): AutomationKanbanProjection | undefined {
+  if (!hasOwn(input, 'kanbanProjection')) return undefined
+  return readKanbanProjection(input.kanbanProjection)
+}
+
 export function parseAutomationSidecarRead(value: unknown): { sidecar: AutomationSidecarRead; invalidFields: string[] } {
   if (!isRecord(value)) throw new AutomationValidationError('sidecar must be an object')
   const sidecar: AutomationSidecarRead = {
@@ -122,6 +170,7 @@ export function parseAutomationSidecarRead(value: unknown): { sidecar: Automatio
     runProfileId: null,
     model: null,
     reasoningEffort: null,
+    kanbanProjection: { mode: 'off' },
     notes: '',
   }
   const invalidFields: string[] = []
@@ -157,6 +206,11 @@ export function parseAutomationSidecarRead(value: unknown): { sidecar: Automatio
     invalidFields.push('reasoningEffort')
   }
   try {
+    sidecar.kanbanProjection = readKanbanProjection(value.kanbanProjection)
+  } catch {
+    invalidFields.push('kanbanProjection')
+  }
+  try {
     sidecar.notes = readNotes(value.notes)
   } catch {
     invalidFields.push('notes')
@@ -185,6 +239,7 @@ export function parseAutomationCreateInput(value: unknown): AutomationCreateInpu
     runProfileId: readNullableString(value.runProfileId, 'runProfileId'),
     model: readNullableString(value.model, 'model'),
     reasoningEffort: readNullableString(value.reasoningEffort, 'reasoningEffort'),
+    kanbanProjection: readKanbanProjection(value.kanbanProjection),
     notes: readNotes(value.notes),
   }
 }
@@ -209,6 +264,8 @@ export function parseAutomationPatchInput(value: unknown): AutomationPatchInput 
   if (model !== undefined) patch.model = model
   const reasoningEffort = readOptionalNullableString(value, 'reasoningEffort')
   if (reasoningEffort !== undefined) patch.reasoningEffort = reasoningEffort
+  const kanbanProjection = readOptionalKanbanProjection(value)
+  if (kanbanProjection !== undefined) patch.kanbanProjection = kanbanProjection
   const notes = readOptionalNotes(value)
   if (notes !== undefined) patch.notes = notes
   return patch

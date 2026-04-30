@@ -168,6 +168,28 @@ describe('automation request schema', () => {
     expect(parseAutomationDeleteOptions({ removeNative: 'true' }, {})).toEqual({ removeNative: true })
     expect(() => parseAutomationDeleteOptions({}, { removeNative: 'yes' })).toThrow(/removeNative/)
   })
+
+  it('parses valid kanban projection settings and rejects malformed inputs', () => {
+    const baseCreate = {
+      kind: 'heartbeat',
+      name: 'Daily',
+      prompt: 'Prompt',
+      schedule: { type: 'rrule', rrule: 'FREQ=DAILY' },
+      targetThreadId: 'thread-1',
+    }
+
+    expect(parseAutomationCreateInput({ ...baseCreate, kanbanProjection: { mode: 'off' } }).kanbanProjection).toEqual({ mode: 'off' })
+    expect(parseAutomationCreateInput({ ...baseCreate, kanbanProjection: { mode: 'definition_card' } }).kanbanProjection).toEqual({ mode: 'definition_card' })
+    expect(parseAutomationCreateInput({ ...baseCreate, kanbanProjection: { mode: 'definition_card', taskId: 'task_existing' } }).kanbanProjection).toEqual({ mode: 'definition_card', taskId: 'task_existing' })
+    expect(parseAutomationCreateInput({ ...baseCreate, kanbanProjection: { mode: 'run_card', createFor: 'findings_only' } }).kanbanProjection).toEqual({ mode: 'run_card', createFor: 'findings_only' })
+    expect(parseAutomationCreateInput({ ...baseCreate, kanbanProjection: { mode: 'attach_existing_task', taskId: 'task_existing' } }).kanbanProjection).toEqual({ mode: 'attach_existing_task', taskId: 'task_existing' })
+    expect(parseAutomationPatchInput({ kanbanProjection: { mode: 'run_card', createFor: 'failures_only' } }).kanbanProjection).toEqual({ mode: 'run_card', createFor: 'failures_only' })
+
+    expect(() => parseAutomationCreateInput({ ...baseCreate, kanbanProjection: { mode: 'run_card', createFor: 'everything' } })).toThrow(/kanbanProjection/)
+    expect(() => parseAutomationCreateInput({ ...baseCreate, kanbanProjection: { mode: 'attach_existing_task', taskId: '' } })).toThrow(/kanbanProjection/)
+    expect(() => parseAutomationCreateInput({ ...baseCreate, kanbanProjection: { mode: 'attach_existing_task', taskId: '../task' } })).toThrow(/kanbanProjection/)
+    expect(() => parseAutomationCreateInput({ ...baseCreate, kanbanProjection: { mode: 'auto_run' } })).toThrow(/kanbanProjection/)
+  })
 })
 
 describe('createAutomationsMiddleware', () => {
@@ -544,6 +566,116 @@ describe('createAutomationsMiddleware', () => {
     const bridgeCheck = await requestJson<{ data: { ok: true } }>(`${baseUrl}/codex-api/automations/health`)
     expect(bridgeCheck.status).toBe(200)
     expect(bridgeCheck.body.data.ok).toBe(true)
+  })
+
+  it('persists kanban projection settings while preserving omitted patch values and legacy defaults', async () => {
+    const { baseUrl, codexHomeDir } = await createHarness()
+    const legacyDir = await writeNative(codexHomeDir, 'legacy-check-dir', {
+      ...nativeRecord,
+      id: 'legacy-check',
+      targetThreadId: 'thread-legacy',
+    })
+    await writeFile(join(legacyDir, 'codexui.json'), JSON.stringify({ notes: 'legacy sidecar' }, null, 2), 'utf8')
+    const csrfHeaders = await readCsrfHeaders(baseUrl)
+
+    const legacy = await requestJson<{ data: { kanbanProjection: unknown } }>(`${baseUrl}/codex-api/automations/legacy-check`)
+    expect(legacy.status).toBe(200)
+    expect(legacy.body.data.kanbanProjection).toEqual({ mode: 'off' })
+
+    const created = await requestJson<{ data: { id: string; kanbanProjection: unknown; storage: { sidecarPath: string } } }>(
+      `${baseUrl}/codex-api/automations`,
+      {
+        method: 'POST',
+        headers: csrfHeaders,
+        body: JSON.stringify({
+          kind: 'heartbeat',
+          name: 'Projection API',
+          prompt: 'Prompt',
+          schedule: { type: 'rrule', rrule: 'FREQ=DAILY' },
+          targetThreadId: 'thread-projection',
+          kanbanProjection: { mode: 'run_card', createFor: 'findings_only' },
+        }),
+      },
+    )
+    expect(created.status).toBe(201)
+    expect(created.body.data.kanbanProjection).toEqual({ mode: 'run_card', createFor: 'findings_only' })
+    await expect(readFile(created.body.data.storage.sidecarPath, 'utf8')).resolves.toContain('"kanbanProjection"')
+
+    const notesOnly = await requestJson<{ data: { kanbanProjection: unknown; notes: string } }>(
+      `${baseUrl}/codex-api/automations/${created.body.data.id}`,
+      {
+        method: 'PATCH',
+        headers: csrfHeaders,
+        body: JSON.stringify({ notes: 'projection preserved' }),
+      },
+    )
+    expect(notesOnly.status).toBe(200)
+    expect(notesOnly.body.data).toMatchObject({
+      notes: 'projection preserved',
+      kanbanProjection: { mode: 'run_card', createFor: 'findings_only' },
+    })
+
+    const attached = await requestJson<{ data: { kanbanProjection: unknown } }>(
+      `${baseUrl}/codex-api/automations/${created.body.data.id}`,
+      {
+        method: 'PATCH',
+        headers: csrfHeaders,
+        body: JSON.stringify({ kanbanProjection: { mode: 'attach_existing_task', taskId: 'task_existing' } }),
+      },
+    )
+    expect(attached.status).toBe(200)
+    expect(attached.body.data.kanbanProjection).toEqual({ mode: 'attach_existing_task', taskId: 'task_existing' })
+
+    const definitionCard = await requestJson<{ data: { kanbanProjection: unknown } }>(
+      `${baseUrl}/codex-api/automations/${created.body.data.id}`,
+      {
+        method: 'PATCH',
+        headers: csrfHeaders,
+        body: JSON.stringify({ kanbanProjection: { mode: 'definition_card' } }),
+      },
+    )
+    expect(definitionCard.status).toBe(200)
+    expect(definitionCard.body.data.kanbanProjection).toEqual({ mode: 'definition_card' })
+
+    const off = await requestJson<{ data: { kanbanProjection: unknown } }>(
+      `${baseUrl}/codex-api/automations/${created.body.data.id}`,
+      {
+        method: 'PATCH',
+        headers: csrfHeaders,
+        body: JSON.stringify({ kanbanProjection: { mode: 'off' } }),
+      },
+    )
+    expect(off.status).toBe(200)
+    expect(off.body.data.kanbanProjection).toEqual({ mode: 'off' })
+
+    const malformed = await requestJson<{ error: string }>(
+      `${baseUrl}/codex-api/automations/${created.body.data.id}`,
+      {
+        method: 'PATCH',
+        headers: csrfHeaders,
+        body: JSON.stringify({ kanbanProjection: { mode: 'attach_existing_task', taskId: '../task' } }),
+      },
+    )
+    expect(malformed.status).toBe(400)
+    expect(malformed.body.error).toContain('kanbanProjection.taskId')
+
+    const malformedCreate = await requestJson<{ error: string }>(
+      `${baseUrl}/codex-api/automations`,
+      {
+        method: 'POST',
+        headers: csrfHeaders,
+        body: JSON.stringify({
+          kind: 'heartbeat',
+          name: 'Bad Projection API',
+          prompt: 'Prompt',
+          schedule: { type: 'rrule', rrule: 'FREQ=DAILY' },
+          targetThreadId: 'thread-bad-projection',
+          kanbanProjection: { mode: 'run_card', createFor: 'everything' },
+        }),
+      },
+    )
+    expect(malformedCreate.status).toBe(400)
+    expect(malformedCreate.body.error).toContain('kanbanProjection.createFor')
   })
 
   it('accepts monthly and yearly RRULEs while clearing scheduler due state as unsupported', async () => {

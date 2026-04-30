@@ -164,6 +164,7 @@ export class AutomationsService {
       runProfileId: hasOwn(patch, 'runProfileId') ? patch.runProfileId ?? null : sidecarResult.sidecar.runProfileId,
       model: hasOwn(patch, 'model') ? patch.model ?? null : sidecarResult.sidecar.model,
       reasoningEffort: hasOwn(patch, 'reasoningEffort') ? patch.reasoningEffort ?? null : sidecarResult.sidecar.reasoningEffort,
+      kanbanProjection: hasOwn(patch, 'kanbanProjection') ? patch.kanbanProjection ?? { mode: 'off' } : sidecarResult.sidecar.kanbanProjection,
       notes: hasOwn(patch, 'notes') ? patch.notes ?? '' : sidecarResult.sidecar.notes,
     }
     await writeSidecar(entry, nextSidecar)
@@ -475,7 +476,7 @@ async function mapDefinition(entry: NativeAutomationEntry, sidecar: AutomationSi
       reasoningEffort: sidecar.reasoningEffort,
       autoArchiveNoFindings: false,
       notifyOnFindings: false,
-      kanbanProjection: { mode: 'off' },
+      kanbanProjection: sidecar.kanbanProjection,
       notes: sidecar.notes,
       storage: {
         nativeDirName: entry.sourceDirName,
@@ -601,6 +602,7 @@ function defaultSidecar(): AutomationSidecar {
     runProfileId: null,
     model: null,
     reasoningEffort: null,
+    kanbanProjection: { mode: 'off' },
     notes: '',
   }
 }
@@ -613,6 +615,7 @@ function sidecarFromCreate(input: AutomationCreateInput): AutomationSidecar {
     runProfileId: input.runProfileId,
     model: input.model,
     reasoningEffort: input.reasoningEffort,
+    kanbanProjection: input.kanbanProjection,
     notes: input.notes,
   }
 }
