@@ -319,6 +319,8 @@ The first UI version should support:
 - Wiring the existing primary-nav `Automations` row instead of adding another entry point.
 - Keeping the current thread menu dialog as a fallback until the shared editor can reliably open with the selected thread prefilled.
 
+Phase 4 implementation plan: [`2026-04-30-automations-phase-4-route-and-editor.md`](2026-04-30-automations-phase-4-route-and-editor.md).
+
 ### Phase 5: Extract Shared Execution Primitives
 
 Generalize Kanban-owned execution modules without breaking Kanban:

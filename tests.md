@@ -197,6 +197,60 @@ This file tracks manual regression and feature verification steps.
 
 ---
 
+### Automations Route And Shared Editor
+
+#### Feature/Change Name
+First-class Automations hash route with shared heartbeat editor.
+
+#### Prerequisites/Setup
+1. Use `/home/drj/.codex/worktrees/52f8/codexUI`.
+2. If this worktree has incomplete dependencies, temporarily point `node_modules` at `/home/drj/projects/codexUI/node_modules` for verification, then restore the original local dependency tree.
+3. Start the app with `pnpm run dev -- --host 0.0.0.0 --port 4173` for manual browser checks.
+
+#### Steps
+1. Run `/home/drj/projects/codexUI/node_modules/.bin/vitest run src/api/automationsGateway.test.ts src/composables/useAutomations.test.ts src/router/index.test.ts`.
+2. Run `pnpm run build`.
+3. In light theme, open `http://127.0.0.1:4173/#/automations`.
+4. Confirm the existing primary sidebar Automations row is active.
+5. Confirm existing heartbeat definitions list with name, status, target thread id, RRULE, source, and updated timestamp.
+6. Confirm diagnostics and native/sidecar storage paths wrap without horizontal overflow.
+7. Create or edit a thread-attached heartbeat automation, then confirm save returns to the shared editor with the affected automation selected.
+8. Pause and resume the selected automation and confirm the status changes.
+9. Click delete and confirm the copy states the native automation folder will be removed; cancel unless intentionally testing deletion.
+10. Open a thread menu and click `Manage automation...`; confirm the route becomes `#/automations?threadId=<id>` and the editor preselects the matching automation or creates a draft for that thread.
+11. Open the same thread menu and click `Quick edit automation...`; confirm the legacy dialog still opens.
+12. Switch to dark theme and repeat steps 3-11 for readable surfaces, controls, diagnostics, and wrapped paths.
+
+#### Expected Results
+- `#/automations` loads without scheduler, manual-run, run-history, artifact, triage, or Kanban-projection controls.
+- The shared editor supports create, edit, pause, resume, and native-folder-removing delete for heartbeat automations.
+- Route query thread prefill works even during initial automation loading.
+- The existing primary nav row is reused instead of adding an ad hoc Automations button.
+- The legacy quick-edit dialog remains visibly reachable from the thread menu.
+- Light and dark themes keep the table, editor fields, action buttons, diagnostics, and long paths readable.
+
+#### Observed Results
+- 2026-04-30: Focused Vitest passed with 3 files and 16 tests.
+- 2026-04-30: `pnpm run build` passed after temporarily symlinking this worktree to `/home/drj/projects/codexUI/node_modules`.
+- 2026-04-30: Headless Chrome verification against `http://127.0.0.1:5174/#/automations` with temporary `CODEX_HOME=/tmp/codexui-phase4-ui-kCktPV` passed:
+  - light theme rendered without `:root.dark`, with readable light panel colors and no horizontal overflow
+  - existing heartbeat listed and selected from `?threadId=thread_phase4`
+  - create, pause, resume, and native-folder-removing delete flow completed against temporary automation storage
+  - `?threadId=thread_prefill_new` opened a create draft with the target thread prefilled
+  - dark theme rendered with `:root.dark`, readable dark panel colors, dark buttons, and no horizontal overflow
+  - browser console/runtime checks reported no warnings or errors
+- 2026-04-30: Headless Chrome thread-menu check with an injected test thread passed:
+  - `Manage automation...` routed to `#/automations?threadId=thread_phase4`
+  - `Quick edit automation...` opened the legacy `Thread automation` dialog
+  - browser console/runtime checks reported no warnings or errors
+
+#### Rollback/Cleanup
+- Stop the dev server.
+- Restore any temporarily moved worktree `node_modules`.
+- Remove any test automation created during manual verification if it is not needed.
+
+---
+
 ### Automations Phase 3 API Spec Review Gaps
 
 #### Feature/Change Name

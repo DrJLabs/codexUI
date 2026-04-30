@@ -178,6 +178,18 @@
   @apply border-emerald-700 bg-emerald-950/80 text-zinc-50;
 }
 
+:root.dark .sidebar-nav-item {
+  @apply text-slate-200 hover:bg-slate-800;
+}
+
+:root.dark .sidebar-nav-item[data-active='true'] {
+  @apply bg-slate-800 text-white;
+}
+
+:root.dark .sidebar-nav-subtitle {
+  @apply text-slate-400;
+}
+
 :root.dark .sidebar-search-toggle {
   @apply text-zinc-400 hover:border-zinc-600 hover:bg-zinc-800;
 }
@@ -1464,6 +1476,72 @@
 
 :root.dark .sdm-btn-secondary {
   @apply bg-zinc-700 text-zinc-200 hover:bg-zinc-600;
+}
+
+:root.dark .automations-page {
+  color: #e5e7eb;
+}
+
+:root.dark .automations-summary,
+:root.dark .automations-workspace,
+:root.dark .automations-diagnostics,
+:root.dark .automations-error {
+  border-color: rgba(71, 85, 105, 0.72);
+  background: rgba(15, 23, 42, 0.86);
+}
+
+:root.dark .automations-summary-label,
+:root.dark .automations-editor-header p,
+:root.dark .automations-status,
+:root.dark .automations-empty,
+:root.dark .automations-table th,
+:root.dark .automations-field,
+:root.dark .automations-storage dt {
+  color: #94a3b8;
+}
+
+:root.dark .automations-list {
+  border-right-color: rgba(71, 85, 105, 0.72);
+}
+
+:root.dark .automations-table th,
+:root.dark .automations-table td {
+  border-bottom-color: rgba(71, 85, 105, 0.58);
+}
+
+:root.dark .automations-table tr[data-active='true'] td {
+  background: rgba(59, 130, 246, 0.16);
+}
+
+:root.dark .automations-row-button,
+:root.dark .automations-field input,
+:root.dark .automations-field textarea,
+:root.dark .automations-page button {
+  color: #e5e7eb;
+}
+
+:root.dark .automations-field input,
+:root.dark .automations-field textarea,
+:root.dark .automations-page button {
+  border-color: rgba(71, 85, 105, 0.82);
+  background: rgba(2, 6, 23, 0.7);
+}
+
+:root.dark .automations-page button.automations-primary {
+  border-color: #3b82f6;
+  background: #2563eb;
+  color: #ffffff;
+}
+
+:root.dark .automations-page button.automations-danger,
+:root.dark .automations-error-inline,
+:root.dark .automations-error {
+  color: #fca5a5;
+}
+
+:root.dark .automations-diagnostics-copy,
+:root.dark .automations-diagnostic-severity {
+  color: #fbbf24;
 }
 
 @media (max-width: 768px) {
