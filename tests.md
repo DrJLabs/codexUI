@@ -5087,3 +5087,33 @@ Shared execution audit log schema, Kanban source wrapper, legacy hash-chain comp
 
 #### Rollback/Cleanup
 - None. Tests write only temporary audit files under the OS temp directory.
+
+---
+
+### Automations Phase 5E Worktree Owner Metadata
+
+#### Feature/Change Name
+Managed worktree lock owner metadata, legacy Kanban lock normalization, and shared workspace lock helpers.
+
+#### Prerequisites/Setup
+1. Use the `feat/automations` worktree.
+2. Reuse the shared dependency install with `node_modules -> /home/drj/projects/codexUI/node_modules` if this worktree does not already have dependencies.
+3. No dev server is required; this slice is server-only and has no light/dark UI surface.
+
+#### Steps
+1. Run `/home/drj/projects/codexUI/node_modules/.bin/vitest run src/server/kanban/__tests__/worktreeManager.test.ts src/server/workspaces/__tests__/worktreeService.test.ts src/server/kanban/__tests__/codexKanbanRunner.test.ts src/server/artifacts/__tests__/routes.test.ts`.
+2. Run `/home/drj/projects/codexUI/node_modules/.bin/vitest run src/server/execution/__tests__/runProfiles.test.ts src/server/execution/__tests__/codexBridgeAdapter.test.ts src/server/execution/__tests__/runQueue.test.ts src/server/execution/__tests__/auditLog.test.ts`.
+3. Run `/home/drj/projects/codexUI/node_modules/.bin/vitest run src/server/kanban/__tests__/codexKanbanRunner.test.ts src/server/kanban/__tests__/taskQueue.test.ts src/server/kanban/__tests__/auditLog.test.ts src/server/kanban/__tests__/worktreeManager.test.ts src/server/workspaces/__tests__/worktreeService.test.ts src/server/kanban/__tests__/policy.test.ts src/server/kanban/__tests__/reviewPacketService.test.ts src/server/kanban/__tests__/startupRecovery.test.ts src/server/kanban/__tests__/recoveryService.test.ts src/server/kanban/__tests__/routes.test.ts src/server/kanban/__tests__/taskService.test.ts`.
+4. Run `pnpm run build`.
+5. Run `git diff --check`.
+
+#### Expected Results
+- New Kanban worktree lock JSON keeps the existing `codexui-kanban-worktree.json` filename and includes `owner: { source: "kanban", id: taskId }`.
+- Legacy locks without `owner` are normalized to Kanban task owners while preserving `taskId`.
+- Active-lock checks use owner metadata and still block a second active Kanban worktree for the same task.
+- Workspace worktree listing exposes `owner` metadata while retaining the existing `taskId` field.
+- Workspace cleanup preserves owner metadata and keeps typed confirmation and dirty-worktree refusal safeguards unchanged.
+- The focused Slice 5E tests, shared execution primitive tests, Phase 5 Kanban compatibility gate, production build, and diff whitespace checks pass.
+
+#### Rollback/Cleanup
+- None. Tests create temporary git repositories and managed worktree roots under the OS temp directory.
