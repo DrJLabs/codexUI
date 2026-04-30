@@ -3,9 +3,14 @@ import { join } from 'node:path'
 import type {
   AutomationDefinition,
   AutomationDiagnostic,
+  AutomationRun,
   AutomationsState,
   AutomationTemplate,
 } from '../../types/automations'
+import type { CodexRunProfile } from '../../types/execution'
+import type { KanbanExecutionPolicy } from '../../types/kanban'
+import type { CodexBridgeRuntime } from '../codexAppServerBridge'
+import { resolveKanbanConfig } from '../kanban/config'
 import { AutomationConflictError, AutomationNotFoundError } from './errors.js'
 import {
   deleteNativeAutomationBySourceDir,
@@ -17,16 +22,33 @@ import {
   type NativeAutomationStoreOptions,
   type ThreadAutomationRecord,
 } from './nativeStore.js'
+import { createAutomationRunStore } from './runStore'
+import { AutomationRunner } from './runner'
 import { parseAutomationSidecarRead, type AutomationCreateInput, type AutomationPatchInput, type AutomationSidecarRead } from './schema.js'
 
 const SIDECAR_FILENAME = 'codexui.json'
 
 type AutomationSidecar = AutomationSidecarRead
 
-export type AutomationsServiceOptions = NativeAutomationStoreOptions
+export type AutomationsServiceOptions = NativeAutomationStoreOptions & {
+  bridge?: CodexBridgeRuntime
+  policy?: KanbanExecutionPolicy
+}
 
 export class AutomationsService {
-  constructor(private readonly options: AutomationsServiceOptions = {}) {}
+  private readonly policy: KanbanExecutionPolicy
+  private readonly runner: AutomationRunner | null
+
+  constructor(private readonly options: AutomationsServiceOptions = {}) {
+    this.policy = options.policy ?? resolveKanbanConfig().policy
+    this.runner = options.bridge
+      ? new AutomationRunner({
+          codexHomeDir: options.codexHomeDir,
+          bridge: options.bridge,
+          policy: this.policy,
+        })
+      : null
+  }
 
   async listDefinitions(): Promise<AutomationDefinition[]> {
     const { definitions } = await this.listDefinitionsWithDiagnostics()
@@ -39,7 +61,7 @@ export class AutomationsService {
       storageRoot,
       featureFlags: {
         scheduler: false,
-        manualRun: false,
+        manualRun: true,
         kanbanProjection: false,
         artifactIndexing: false,
       },
@@ -66,7 +88,7 @@ export class AutomationsService {
     const entry = await this.findEntry(automationId)
     if (!entry) throw new AutomationNotFoundError(automationId)
     const sidecarResult = await readSidecar(entry)
-    return mapDefinition(entry, sidecarResult.sidecar)
+    return await mapDefinition(entry, sidecarResult.sidecar)
   }
 
   async createDefinition(input: AutomationCreateInput): Promise<AutomationDefinition> {
@@ -146,6 +168,29 @@ export class AutomationsService {
     return { removed, removedNative: false }
   }
 
+  getExecutionPolicy(): KanbanExecutionPolicy {
+    return this.policy
+  }
+
+  async runNow(automationId: string, options: { runProfiles?: CodexRunProfile[]; runProfileId?: string | null } = {}): Promise<AutomationRun> {
+    const entry = await this.findEntry(automationId)
+    if (!entry) throw new AutomationNotFoundError(automationId)
+    if (!this.runner) throw createServiceError(503, 'Codex bridge is not available for automation manual runs')
+    const sidecarResult = await readSidecar(entry)
+    return await this.runner.runNow({
+      definition: await mapDefinition(entry, sidecarResult.sidecar),
+      automationDirPath: entry.automationDirPath,
+      runProfiles: options.runProfiles,
+      runProfileId: options.runProfileId,
+    })
+  }
+
+  async listRuns(automationId: string): Promise<AutomationRun[]> {
+    const entry = await this.findEntry(automationId)
+    if (!entry) throw new AutomationNotFoundError(automationId)
+    return await createAutomationRunStore(entry.automationDirPath).listRuns()
+  }
+
   private async updateStatus(automationId: string, status: 'ACTIVE' | 'PAUSED'): Promise<AutomationDefinition> {
     const entry = await this.findEntry(automationId)
     if (!entry) throw new AutomationNotFoundError(automationId)
@@ -176,7 +221,7 @@ export class AutomationsService {
       if (entry.record.kind !== 'heartbeat') continue
       const sidecarResult = await readSidecar(entry)
       if (sidecarResult.diagnostic) diagnostics.push(sidecarResult.diagnostic)
-      definitions.push(mapDefinition(entry, sidecarResult.sidecar))
+      definitions.push(await mapDefinition(entry, sidecarResult.sidecar))
     }
     definitions.sort((a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id))
     return {
@@ -187,9 +232,10 @@ export class AutomationsService {
   }
 }
 
-function mapDefinition(entry: NativeAutomationEntry, sidecar: AutomationSidecar): AutomationDefinition {
+async function mapDefinition(entry: NativeAutomationEntry, sidecar: AutomationSidecar): Promise<AutomationDefinition> {
   const createdAtIso = dateIso(entry.record.createdAtMs)
   const updatedAtIso = dateIso(entry.record.updatedAtMs)
+  const recentRuns = (await createAutomationRunStore(entry.automationDirPath).listRuns()).slice(0, 5)
   return {
     id: entry.record.id,
     kind: 'heartbeat',
@@ -219,8 +265,9 @@ function mapDefinition(entry: NativeAutomationEntry, sidecar: AutomationSidecar)
     },
     createdAtIso,
     updatedAtIso,
-    lastRunAtIso: null,
+    lastRunAtIso: recentRuns[0]?.startedAtIso ?? recentRuns[0]?.createdAtIso ?? null,
     nextRunAtIso: null,
+    recentRuns,
     version: 1,
   }
 }
@@ -311,6 +358,12 @@ function hasOwn(input: object, field: string): boolean {
 
 function isNodeError(error: unknown): error is NodeJS.ErrnoException {
   return error instanceof Error && 'code' in error
+}
+
+function createServiceError(statusCode: number, message: string): Error & { statusCode: number } {
+  const error = new Error(message) as Error & { statusCode: number }
+  error.statusCode = statusCode
+  return error
 }
 
 export function resolveAutomationsStorageRoot(options?: NativeAutomationStoreOptions): string {

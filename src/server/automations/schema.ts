@@ -1,4 +1,5 @@
 import { isAbsolute } from 'node:path'
+import type { AutomationRunMode } from '../../types/automations'
 import { AutomationValidationError } from './errors.js'
 
 export type AutomationCreateInput = {
@@ -9,7 +10,7 @@ export type AutomationCreateInput = {
   schedule: { type: 'rrule'; rrule: string }
   targetThreadId: string
   cwd: string | null
-  runMode: 'chat' | null
+  runMode: AutomationRunMode | null
   runProfileId: string | null
   model: string | null
   reasoningEffort: string | null
@@ -23,7 +24,7 @@ export type AutomationPatchInput = Partial<{
   schedule: { type: 'rrule'; rrule: string }
   targetThreadId: string | null
   cwd: string | null
-  runMode: 'chat' | null
+  runMode: AutomationRunMode | null
   runProfileId: string | null
   model: string | null
   reasoningEffort: string | null
@@ -37,7 +38,7 @@ export type AutomationDeleteOptions = {
 export type AutomationSidecarRead = {
   description: string | null
   cwd: string | null
-  runMode: 'chat' | null
+  runMode: AutomationRunMode | null
   runProfileId: string | null
   model: string | null
   reasoningEffort: string | null
@@ -96,10 +97,12 @@ function readCwd(value: unknown): string | null {
   return cwd
 }
 
-function readRunMode(value: unknown): 'chat' | null {
+function readRunMode(value: unknown): AutomationRunMode | null {
   if (value === null || value === undefined) return null
-  if (value !== 'chat') throw new AutomationValidationError('runMode must be chat or null')
-  return 'chat'
+  if (value !== 'chat' && value !== 'local' && value !== 'worktree') {
+    throw new AutomationValidationError('runMode must be chat, local, worktree, or null')
+  }
+  return value
 }
 
 function readNotes(value: unknown): string {

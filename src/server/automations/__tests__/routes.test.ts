@@ -3,7 +3,9 @@ import { createServer as createHttpServer, type Server } from 'node:http'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import express from 'express'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import type { KanbanExecutionPolicy } from '../../../types/kanban'
+import type { CodexBridgeNotification, CodexBridgeRuntime } from '../../codexAppServerBridge'
 import { createServer as createCodexUiServer } from '../../httpServer'
 import { createAutomationsMiddleware } from '../index'
 import { AUTOMATIONS_CSRF_HEADER } from '../csrf'
@@ -17,6 +19,26 @@ import { serializeAutomationToml, type ThreadAutomationRecord } from '../nativeS
 
 const servers: Server[] = []
 const codexHomeDirs: string[] = []
+
+const enabledPolicy: KanbanExecutionPolicy = {
+  enabled: true,
+  executionMode: 'trusted_remote',
+  executionEnabled: true,
+  requireTrustedAccessForExecution: true,
+  allowTailscaleAccess: true,
+  requireLoopbackForExecution: false,
+  disableExecutionWhenRemote: false,
+  sandboxMode: 'workspace-write',
+  approvalPolicy: 'on-request',
+  networkAccess: false,
+  allowDangerFullAccess: false,
+  allowApprovalNever: false,
+  allowAcceptForSession: false,
+  useThreadShellCommand: false,
+  maxGlobalActiveRuns: 1,
+  maxActiveRunsPerRepo: 1,
+  maxActiveRunsPerTask: 1,
+}
 
 const nativeRecord: ThreadAutomationRecord = {
   id: 'daily-check',
@@ -40,11 +62,18 @@ afterEach(async () => {
   }))
 })
 
-async function createHarness() {
+async function createHarness(options: {
+  bridge?: CodexBridgeRuntime
+  policy?: KanbanExecutionPolicy
+} = {}) {
   const codexHomeDir = await mkdtemp(join(tmpdir(), 'codexui-automations-api-'))
   codexHomeDirs.push(codexHomeDir)
   const app = express()
-  app.use('/codex-api/automations', createAutomationsMiddleware({ codexHomeDir }))
+  app.use('/codex-api/automations', createAutomationsMiddleware({
+    codexHomeDir,
+    bridge: options.bridge,
+    policy: options.policy,
+  }))
   app.use('/codex-api', (_req, res) => {
     res.status(599).json({ error: 'generic bridge reached' })
   })
@@ -57,6 +86,41 @@ async function createHarness() {
     baseUrl: `http://127.0.0.1:${address.port}`,
     codexHomeDir,
   }
+}
+
+function createBridge() {
+  const rpcCalls: Array<{ method: string; params: unknown }> = []
+  const notificationListeners: Array<(notification: CodexBridgeNotification) => void> = []
+  let turnStartCount = 0
+  const bridge: CodexBridgeRuntime = {
+    rpc: async <T = unknown>(method: string, params?: unknown) => {
+      rpcCalls.push({ method, params })
+      if (method === 'thread/resume') return { thread: { id: readRecord(params).threadId } } as T
+      if (method === 'turn/start') {
+        turnStartCount += 1
+        return { turn: { id: `turn_${turnStartCount}` } } as T
+      }
+      if (method === 'thread/read') {
+        return {
+          thread: {
+            turns: [
+              {
+                id: 'turn_1',
+                items: [{ type: 'agentMessage', text: 'Manual route run completed.' }],
+              },
+            ],
+          },
+        } as T
+      }
+      return {} as T
+    },
+    subscribeNotifications: vi.fn((listener) => {
+      notificationListeners.push(listener)
+      return () => {}
+    }),
+    dispose: vi.fn(),
+  }
+  return { bridge, rpcCalls, notificationListeners }
 }
 
 async function requestJson<T>(url: string, init?: RequestInit): Promise<{ status: number; body: T }> {
@@ -173,6 +237,83 @@ describe('createAutomationsMiddleware', () => {
     })
     expect(untrustedMutation.status).toBe(403)
     expect(untrustedMutation.body.error).toContain('trusted local or Tailscale')
+  })
+
+  it('requires trusted CSRF-protected access for manual run requests', async () => {
+    const { bridge, rpcCalls } = createBridge()
+    const { baseUrl, codexHomeDir } = await createHarness({ bridge, policy: enabledPolicy })
+    await writeNative(codexHomeDir, 'daily-check-dir', nativeRecord)
+
+    const missingCsrf = await requestJson<{ error: string }>(`${baseUrl}/codex-api/automations/daily-check/run`, {
+      method: 'POST',
+      body: JSON.stringify({}),
+    })
+    expect(missingCsrf.status).toBe(403)
+    expect(missingCsrf.body.error).toContain('Invalid Automations CSRF token')
+
+    const csrfHeaders = await readCsrfHeaders(baseUrl)
+    const untrusted = await requestJson<{ error: string }>(`${baseUrl}/codex-api/automations/daily-check/run`, {
+      method: 'POST',
+      headers: { ...csrfHeaders, 'x-forwarded-for': '203.0.113.10' },
+      body: JSON.stringify({}),
+    })
+    expect(untrusted.status).toBe(403)
+    expect(untrusted.body.error).toContain('trusted local or Tailscale')
+
+    const started = await requestJson<{ data: { id: string; state: string; threadId: string; turnId: string } }>(
+      `${baseUrl}/codex-api/automations/daily-check/run`,
+      { method: 'POST', headers: csrfHeaders, body: JSON.stringify({}) },
+    )
+    expect(started.status).toBe(202)
+    expect(started.body.data).toMatchObject({ state: 'running', threadId: 'thread-1', turnId: 'turn_1' })
+    expect(rpcCalls.map((call) => call.method)).toEqual(['thread/resume', 'turn/start'])
+  })
+
+  it('rejects manual run requests clearly when the bridge is unavailable', async () => {
+    const { baseUrl, codexHomeDir } = await createHarness({ policy: enabledPolicy })
+    await writeNative(codexHomeDir, 'daily-check-dir', nativeRecord)
+    const csrfHeaders = await readCsrfHeaders(baseUrl)
+
+    const response = await requestJson<{ error: string }>(
+      `${baseUrl}/codex-api/automations/daily-check/run`,
+      { method: 'POST', headers: csrfHeaders, body: JSON.stringify({}) },
+    )
+    const runs = await requestJson<{ data: unknown[] }>(`${baseUrl}/codex-api/automations/daily-check/runs`)
+
+    expect(response.status).toBe(503)
+    expect(response.body.error).toContain('Codex bridge is not available')
+    expect(runs.status).toBe(200)
+    expect(runs.body.data).toEqual([])
+  })
+
+  it('returns manual run history newest-first from persisted runs', async () => {
+    const { bridge, notificationListeners } = createBridge()
+    const { baseUrl, codexHomeDir } = await createHarness({ bridge, policy: enabledPolicy })
+    await writeNative(codexHomeDir, 'daily-check-dir', nativeRecord)
+    const csrfHeaders = await readCsrfHeaders(baseUrl)
+
+    const first = await requestJson<{ data: { id: string } }>(
+      `${baseUrl}/codex-api/automations/daily-check/run`,
+      { method: 'POST', headers: csrfHeaders, body: JSON.stringify({}) },
+    )
+    expect(first.status).toBe(202)
+    await Promise.resolve(notificationListeners[0]!({
+      method: 'turn/completed',
+      params: { threadId: 'thread-1', turnId: 'turn_1' },
+      atIso: new Date().toISOString(),
+    }))
+    const second = await requestJson<{ data: { id: string } }>(
+      `${baseUrl}/codex-api/automations/daily-check/run`,
+      { method: 'POST', headers: csrfHeaders, body: JSON.stringify({}) },
+    )
+    const runs = await requestJson<{ data: Array<{ id: string; state: string; resultSummary: string | null }> }>(
+      `${baseUrl}/codex-api/automations/daily-check/runs`,
+    )
+
+    expect(second.status).toBe(202)
+    expect(runs.status).toBe(200)
+    expect(runs.body.data.map((run) => run.id)).toEqual([second.body.data.id, first.body.data.id])
+    expect(runs.body.data[1]).toMatchObject({ state: 'completed_no_findings', resultSummary: 'Manual route run completed.' })
   })
 
   it('creates, patches, pauses, resumes, and deletes definitions without changing legacy bridge ownership', async () => {
@@ -433,3 +574,9 @@ describe('createAutomationsMiddleware', () => {
     ]))
   })
 })
+
+function readRecord(value: unknown): Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : {}
+}

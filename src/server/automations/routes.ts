@@ -1,6 +1,7 @@
 import express, { type Request, type RequestHandler } from 'express'
 import { AUTOMATIONS_CSRF_HEADER, AutomationsCsrfProtection } from './csrf.js'
 import { AutomationNotFoundError, getAutomationHttpStatus } from './errors.js'
+import { assertAutomationExecutionAccess } from './policy.js'
 import { classifyAutomationsRemoteAccess, type AutomationsRemoteAccess } from './remoteAccess.js'
 import {
   parseAutomationCreateInput,
@@ -50,6 +51,17 @@ export function createAutomationsRouter(options: CreateAutomationsRouterOptions 
   router.get('/:automationId', asyncHandler(async (req, res) => {
     const { automationId } = parseAutomationRouteParams(req.params)
     res.status(200).json({ data: await service.getDefinition(automationId) })
+  }))
+
+  router.get('/:automationId/runs', asyncHandler(async (req, res) => {
+    const { automationId } = parseAutomationRouteParams(req.params)
+    res.status(200).json({ data: await service.listRuns(automationId) })
+  }))
+
+  router.post('/:automationId/run', asyncHandler(async (req, res) => {
+    assertExecutionAccessMutation(req, csrf, service.getExecutionPolicy())
+    const { automationId } = parseAutomationRouteParams(req.params)
+    res.status(202).json({ data: await service.runNow(automationId) })
   }))
 
   router.patch('/:automationId', asyncHandler(async (req, res) => {
@@ -111,6 +123,19 @@ function assertTrustedAccessRequest(req: Request): AutomationsRemoteAccess {
 
 function assertTrustedAccessMutation(req: Request, csrf: AutomationsCsrfProtection): AutomationsRemoteAccess {
   const access = assertTrustedAccessRequest(req)
+  if (!csrf.verifyRequest(req)) {
+    throw createRouteError(403, 'Invalid Automations CSRF token')
+  }
+  return access
+}
+
+function assertExecutionAccessMutation(
+  req: Request,
+  csrf: AutomationsCsrfProtection,
+  policy: ReturnType<AutomationsService['getExecutionPolicy']>,
+): AutomationsRemoteAccess {
+  const access = classifyAutomationsRemoteAccess(req)
+  assertAutomationExecutionAccess(access, policy)
   if (!csrf.verifyRequest(req)) {
     throw createRouteError(403, 'Invalid Automations CSRF token')
   }

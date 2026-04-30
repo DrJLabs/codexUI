@@ -88,7 +88,7 @@ export function createServer(options: ServerOptions = {}): ServerInstance {
   const kanbanStorage = new KanbanStorage({ dataDir: kanbanDataDir, projectRoot })
   const kanban = createKanbanMiddleware({ bridge, projectRoot, dataDir: kanbanDataDir })
   const artifacts = createArtifactRouter({ storage: kanbanStorage })
-  const automations = createAutomationsMiddleware()
+  const automations = createAutomationsMiddleware({ bridge, policy: kanbanConfig.policy })
   const authSession = options.password ? createAuthSession(options.password) : null
 
   // 1. Auth middleware (if password is set)

@@ -5117,3 +5117,32 @@ Managed worktree lock owner metadata, legacy Kanban lock normalization, and shar
 
 #### Rollback/Cleanup
 - None. Tests create temporary git repositories and managed worktree roots under the OS temp directory.
+
+---
+
+### Automations Phase 6A Manual Chat And Local Runs
+
+#### Feature/Change Name
+Persisted manual automation run API for chat and local modes.
+
+#### Prerequisites/Setup
+1. Use the `feat/automations` worktree.
+2. Reuse the shared dependency install with `node_modules -> /home/drj/projects/codexUI/node_modules` if this worktree does not already have dependencies.
+3. No dev server or browser theme verification is required for Slice 6A; this slice is server-only and does not change UI.
+
+#### Steps
+1. Run `/home/drj/projects/codexUI/node_modules/.bin/vitest run src/server/automations/__tests__/runner.test.ts src/server/automations/__tests__/routes.test.ts src/server/automations/__tests__/legacyRoutes.test.ts`.
+2. Run `pnpm run build`.
+3. Run `git diff --check`.
+
+#### Expected Results
+- `POST /codex-api/automations/:automationId/run` requires trusted CSRF-protected execution access and returns a clear error when the bridge is unavailable.
+- Chat runs resume the configured target thread, start a turn with the automation prompt, persist `run.json`, append `events.jsonl`, and write `run.log`.
+- Local runs require an absolute `cwd`, start a new thread in that cwd, and pass resolved Codex run settings to `turn/start`.
+- Duplicate active run requests, including concurrent requests for the same automation, start at most one bridge turn.
+- Execution-disabled, `danger-full-access`, `approvalPolicy: never`, and disallowed network profiles are blocked before bridge calls.
+- Matching `turn/completed` notifications read the thread, mark the run `completed_no_findings`, persist the result summary, and allow another run.
+- `GET /codex-api/automations/:automationId/runs` returns persisted runs newest-first.
+
+#### Rollback/Cleanup
+- None. Tests create temporary automation directories under the OS temp directory.
