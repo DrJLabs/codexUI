@@ -43,6 +43,25 @@ This file tracks manual regression and feature verification steps.
 #### Rollback/Cleanup
 - Remove any test automation from the thread automation dialog or delete its folder under `$CODEX_HOME/automations/<automation-id>/`.
 
+### Automations Phase 2 heartbeat store extraction
+
+#### Prerequisites
+- Use the `feat/automations` worktree.
+- If this worktree lacks dependencies, or `node_modules` exists but does not include Vitest/build tooling, temporarily link `node_modules` to `/home/drj/projects/codexUI/node_modules` and remove the link after verification.
+
+#### Steps
+1. Run `/home/drj/projects/codexUI/node_modules/.bin/vitest run src/server/automations/__tests__/nativeStore.test.ts src/server/automations/__tests__/legacyRoutes.test.ts src/server/codexAppServerBridge.inlinePayload.test.ts`.
+2. Run `pnpm run build`.
+
+#### Expected Results
+- Native automation TOML parsing, serialization, invalid-record skipping, and injected-Codex-home filesystem behavior pass.
+- Existing bridge inline payload behavior remains green after delegating legacy thread automation endpoints to the extracted store and adapter.
+- Legacy thread automation routes keep data-wrapped response shapes and uppercase status behavior.
+- The production build completes without TypeScript, Vite, or CLI bundle errors.
+
+#### Rollback/Cleanup
+- Remove only a temporary `node_modules` symlink if one was created for this worktree.
+
 ### Feature: Projectless new chat folders
 
 #### Prerequisites

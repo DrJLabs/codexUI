@@ -258,6 +258,8 @@ Move current heartbeat automation parsing, serialization, listing, reading, writ
 
 Add `src/server/automations/legacyAdapter.ts` for status casing and field-name translation between native records, first-class definitions, and legacy thread endpoint responses.
 
+Phase 2 implementation plan: [`2026-04-30-automations-phase-2-heartbeat-store-extraction.md`](2026-04-30-automations-phase-2-heartbeat-store-extraction.md).
+
 Keep existing endpoints working:
 
 - `GET /codex-api/thread-automations`
