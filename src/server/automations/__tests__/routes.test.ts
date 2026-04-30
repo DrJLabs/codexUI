@@ -336,13 +336,24 @@ describe('createAutomationsMiddleware', () => {
     expect(state.body.data.featureFlags.artifactIndexing).toBe(true)
   })
 
-  it('requires trusted access for CSRF issuance and trusted CSRF for mutations', async () => {
-    const { baseUrl } = await createHarness()
+  it('requires trusted access for sensitive reads, CSRF issuance, and trusted CSRF for mutations', async () => {
+    const { baseUrl, codexHomeDir } = await createHarness()
+    await writeNative(codexHomeDir, 'daily-check-dir', nativeRecord)
 
     const untrustedCsrf = await requestJson<{ error: string }>(`${baseUrl}/codex-api/automations/csrf`, {
       headers: { 'x-forwarded-for': '203.0.113.10' },
     })
     expect(untrustedCsrf.status).toBe(403)
+    const untrustedHeaders = { 'x-forwarded-for': '203.0.113.10' }
+    const untrustedState = await requestJson<{ error: string }>(`${baseUrl}/codex-api/automations/state`, { headers: untrustedHeaders })
+    const untrustedTemplates = await requestJson<{ error: string }>(`${baseUrl}/codex-api/automations/templates`, { headers: untrustedHeaders })
+    const untrustedList = await requestJson<{ error: string }>(`${baseUrl}/codex-api/automations`, { headers: untrustedHeaders })
+    const untrustedGet = await requestJson<{ error: string }>(`${baseUrl}/codex-api/automations/daily-check`, { headers: untrustedHeaders })
+    const untrustedRuns = await requestJson<{ error: string }>(`${baseUrl}/codex-api/automations/daily-check/runs`, { headers: untrustedHeaders })
+    for (const response of [untrustedState, untrustedTemplates, untrustedList, untrustedGet, untrustedRuns]) {
+      expect(response.status).toBe(403)
+      expect(response.body.error).toContain('trusted local or Tailscale')
+    }
 
     const missingCsrf = await requestJson<{ error: string }>(`${baseUrl}/codex-api/automations`, {
       method: 'POST',

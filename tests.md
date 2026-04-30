@@ -5550,6 +5550,34 @@ Review-cycle hardening for generated automation IDs, production artifact indexin
 
 #### Rollback/Cleanup
 - Delete disposable automation records and run folders created only for this check.
+
+---
+
+### Automations PR review cycle 5 fixes
+
+#### Feature/Change Name
+Trusted-access protection for automations read routes.
+
+#### Prerequisites/Setup
+1. Use the `feat/automations` worktree.
+2. Reuse an existing compatible dependency install if this worktree does not already have dependencies.
+3. Use disposable automation records and run folders only.
+
+#### Steps
+1. Run `pnpm exec vitest run src/server/automations/__tests__/routes.test.ts`.
+2. Run `pnpm test:unit`.
+3. Run `pnpm run build`.
+4. Run `git diff --check`.
+5. From an untrusted forwarded address, request `/codex-api/automations/state`, `/templates`, `/`, `/:automationId`, and `/:automationId/runs`.
+6. From trusted loopback or Tailscale access, request the same routes.
+
+#### Expected Results
+- Untrusted clients receive `403` for all automations read routes that expose definitions, prompts, paths, or run metadata.
+- Trusted clients can still read automations state, templates, definitions, and run history.
+- `/codex-api/automations/health` remains a non-sensitive health endpoint.
+
+#### Rollback/Cleanup
+- Delete disposable automation records and run folders created only for this check.
 - No UI state cleanup is required.
 
 ---

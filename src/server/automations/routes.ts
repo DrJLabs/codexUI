@@ -31,15 +31,18 @@ export function createAutomationsRouter(options: CreateAutomationsRouterOptions 
     res.status(200).json({ data: { csrfToken: csrf.readToken(), headerName: AUTOMATIONS_CSRF_HEADER } })
   })
 
-  router.get('/state', asyncHandler(async (_req, res) => {
+  router.get('/state', asyncHandler(async (req, res) => {
+    assertTrustedAccessRequest(req)
     res.status(200).json({ data: await service.listState() })
   }))
 
-  router.get('/templates', (_req, res) => {
+  router.get('/templates', (req, res) => {
+    assertTrustedAccessRequest(req)
     res.status(200).json({ data: service.listTemplates() })
   })
 
-  router.get('/', asyncHandler(async (_req, res) => {
+  router.get('/', asyncHandler(async (req, res) => {
+    assertTrustedAccessRequest(req)
     res.status(200).json({ data: await service.listDefinitions() })
   }))
 
@@ -49,11 +52,13 @@ export function createAutomationsRouter(options: CreateAutomationsRouterOptions 
   }))
 
   router.get('/:automationId', asyncHandler(async (req, res) => {
+    assertTrustedAccessRequest(req)
     const { automationId } = parseAutomationRouteParams(req.params)
     res.status(200).json({ data: await service.getDefinition(automationId) })
   }))
 
   router.get('/:automationId/runs', asyncHandler(async (req, res) => {
+    assertTrustedAccessRequest(req)
     const { automationId } = parseAutomationRouteParams(req.params)
     res.status(200).json({ data: await service.listRuns(automationId) })
   }))
