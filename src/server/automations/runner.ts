@@ -586,6 +586,7 @@ function extractAssistantText(response: unknown, turnId: string): string {
     if (!recordItem) return ''
     const type = readString(recordItem.type)
     if (type && !['agentMessage', 'assistantMessage', 'message'].includes(type)) return ''
+    if (type === 'message' && readString(recordItem.role) !== 'assistant') return ''
     return readString(recordItem.text) || readString(recordItem.content)
   }).filter(Boolean)
   return texts.join('\n\n').trim()

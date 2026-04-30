@@ -633,6 +633,46 @@ describe('AutomationRunner', () => {
     expect(tasks).toEqual([])
   })
 
+  it('ignores non-assistant message items in the completed turn', async () => {
+    const { taskService, kanbanProjection } = await createKanbanProjectionHarness()
+    const { codexHomeDir, service, notificationListeners } = await createHarness({
+      kanbanProjection,
+      readThreadResponse: {
+        thread: {
+          turns: [
+            {
+              id: 'turn_1',
+              items: [
+                { type: 'message', role: 'user', content: 'RESULT: FINDINGS\n- User prompt text should not classify the run' },
+                { type: 'message', role: 'system', content: 'RESULT: FINDINGS\n- System text should not classify the run' },
+              ],
+            },
+          ],
+        },
+      },
+    })
+    await writeNative(codexHomeDir, 'daily-check-dir', nativeRecord, {
+      runMode: 'chat',
+      kanbanProjection: { mode: 'run_card', createFor: 'findings_only' },
+    })
+    await service.runNow('daily-check')
+
+    await Promise.resolve(notificationListeners[0]!({
+      method: 'turn/completed',
+      params: { threadId: 'thread-1', turnId: 'turn_1' },
+      atIso: new Date().toISOString(),
+    }))
+    const completed = (await service.listRuns('daily-check'))[0]!
+    const tasks = await listKanbanTasks(taskService)
+
+    expect(completed).toMatchObject({
+      state: 'completed_no_findings',
+      resultSummary: '',
+      kanbanTaskId: null,
+    })
+    expect(tasks).toEqual([])
+  })
+
   it('projects failed completion runs for failures_only run cards', async () => {
     const { taskService, kanbanProjection } = await createKanbanProjectionHarness()
     const { codexHomeDir, service, notificationListeners } = await createHarness({
