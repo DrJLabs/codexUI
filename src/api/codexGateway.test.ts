@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { startThreadTurn } from './codexGateway'
+import { listWorkspaceArtifacts, startThreadTurn } from './codexGateway'
 
 function mockRpcFetch(): { requests: Array<{ method: string, params: Record<string, unknown> }> } {
   const requests: Array<{ method: string, params: Record<string, unknown> }> = []
@@ -58,5 +58,42 @@ describe('startThreadTurn collaboration mode payloads', () => {
         developer_instructions: null,
       },
     })
+  })
+})
+
+describe('listWorkspaceArtifacts', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('serializes automation filters and normalizes automation artifacts', async () => {
+    const requests: string[] = []
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+      requests.push(String(input))
+      return new Response(JSON.stringify({
+        data: [{
+          id: 'automation:evidence:daily-check:run_1',
+          kind: 'evidence',
+          source: 'automation',
+          title: 'Run evidence run_1',
+          automationId: 'daily-check',
+          runId: 'run_1',
+          logPath: '/tmp/run.log',
+        }],
+      }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    }))
+
+    const artifacts = await listWorkspaceArtifacts({ source: 'automation', automationId: 'daily-check' })
+
+    expect(requests).toEqual(['/codex-api/artifacts?source=automation&automationId=daily-check'])
+    expect(artifacts).toEqual([expect.objectContaining({
+      id: 'automation:evidence:daily-check:run_1',
+      source: 'automation',
+      automationId: 'daily-check',
+      kind: 'evidence',
+    })])
   })
 })

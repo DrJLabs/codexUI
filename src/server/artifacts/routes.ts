@@ -2,15 +2,18 @@ import { stat, readFile } from 'node:fs/promises'
 import express, { type Request, type Response, type Router } from 'express'
 import type { KanbanProposal, KanbanReviewPacket, KanbanRun, KanbanTask } from '../../types/kanban'
 import type { WorkspaceArtifact, WorkspaceArtifactKind, WorkspaceArtifactQuery, WorkspaceArtifactSource } from '../../types/workspaceArtifacts'
+import type { NativeAutomationStoreOptions } from '../automations/nativeStore'
 import type { KanbanStateFileV1 } from '../kanban/migrations'
 import { classifyKanbanRemoteAccess } from '../kanban/remoteAccess'
 import type { KanbanStorage } from '../kanban/storage'
-import { WorkspaceArtifactIndex } from './artifactIndex'
+import { WorkspaceArtifactIndex, type WorkspaceArtifactContent } from './artifactIndex'
+import { createAutomationWorkspaceArtifactProvider } from './adapters/automationArtifacts'
 import { createKanbanWorkspaceArtifactProvider } from './adapters/kanbanArtifacts'
 import { ARTIFACT_PREVIEW_MAX_BYTES, ARTIFACT_RAW_MAX_BYTES, assertIndexedArtifactPath } from './security'
 
 export type CreateArtifactRouterOptions = {
   storage: KanbanStorage
+  automations?: NativeAutomationStoreOptions
   index?: WorkspaceArtifactIndex
   audit?: (event: ArtifactAccessAuditEvent) => void
 }
@@ -21,18 +24,12 @@ export type ArtifactAccessAuditEvent = {
   atIso: string
 }
 
-type ArtifactContent = {
-  contentType: string
-  filename: string
-  body: string | Buffer
-  encoding: 'utf8' | 'binary'
-}
-
 type AsyncRouteHandler = (req: Request, res: Response) => Promise<void>
 
 export function createArtifactRouter(options: CreateArtifactRouterOptions): Router {
   const index = options.index ?? new WorkspaceArtifactIndex([
     createKanbanWorkspaceArtifactProvider(options.storage),
+    createAutomationWorkspaceArtifactProvider(options.automations),
   ])
   const router = express.Router()
 
@@ -59,7 +56,7 @@ export function createArtifactRouter(options: CreateArtifactRouterOptions): Rout
 
   router.get('/:artifactId/preview', asyncHandler(async (req, res) => {
     const artifact = await readArtifact(index, readRouteParam(req.params.artifactId))
-    const content = await resolveCappedArtifactContent(options.storage, artifact, ARTIFACT_PREVIEW_MAX_BYTES)
+    const content = await resolveCappedArtifactContent(index, options.storage, artifact, ARTIFACT_PREVIEW_MAX_BYTES)
     audit(options, artifact.id, 'preview')
     res.status(200).json({
       data: {
@@ -76,7 +73,7 @@ export function createArtifactRouter(options: CreateArtifactRouterOptions): Rout
 
   router.get('/:artifactId/raw', asyncHandler(async (req, res) => {
     const artifact = await readArtifact(index, readRouteParam(req.params.artifactId))
-    const content = await resolveCappedArtifactContent(options.storage, artifact, ARTIFACT_RAW_MAX_BYTES)
+    const content = await resolveCappedArtifactContent(index, options.storage, artifact, ARTIFACT_RAW_MAX_BYTES)
     audit(options, artifact.id, 'raw')
     res.type(content.contentType)
     res.status(200).send(content.body)
@@ -84,7 +81,7 @@ export function createArtifactRouter(options: CreateArtifactRouterOptions): Rout
 
   router.get('/:artifactId/download', asyncHandler(async (req, res) => {
     const artifact = await readArtifact(index, readRouteParam(req.params.artifactId))
-    const content = await resolveCappedArtifactContent(options.storage, artifact, ARTIFACT_RAW_MAX_BYTES)
+    const content = await resolveCappedArtifactContent(index, options.storage, artifact, ARTIFACT_RAW_MAX_BYTES)
     audit(options, artifact.id, 'download')
     res.setHeader('Content-Disposition', createContentDisposition(content.filename))
     res.type(content.contentType)
@@ -102,7 +99,7 @@ export function createArtifactRouter(options: CreateArtifactRouterOptions): Rout
   return router
 }
 
-export async function resolveArtifactContent(storage: KanbanStorage, artifact: WorkspaceArtifact, options: { maxBytes?: number } = {}): Promise<ArtifactContent> {
+export async function resolveArtifactContent(storage: KanbanStorage, artifact: WorkspaceArtifact, options: { maxBytes?: number } = {}): Promise<WorkspaceArtifactContent> {
   const state = await storage.load()
   switch (artifact.kind) {
     case 'plan':
@@ -125,8 +122,8 @@ export async function resolveArtifactContent(storage: KanbanStorage, artifact: W
   }
 }
 
-async function resolveCappedArtifactContent(storage: KanbanStorage, artifact: WorkspaceArtifact, maxBytes: number): Promise<ArtifactContent> {
-  const content = await resolveArtifactContent(storage, artifact, { maxBytes })
+async function resolveCappedArtifactContent(index: WorkspaceArtifactIndex, storage: KanbanStorage, artifact: WorkspaceArtifact, maxBytes: number): Promise<WorkspaceArtifactContent> {
+  const content = await index.resolveArtifactContent(artifact, { maxBytes }) ?? await resolveArtifactContent(storage, artifact, { maxBytes })
   const byteLength = Buffer.byteLength(content.body)
   if (byteLength > maxBytes) {
     throw createHttpError(413, `Artifact content exceeds ${maxBytes} bytes`)
@@ -151,9 +148,11 @@ function readArtifactQuery(value: Record<string, unknown>): WorkspaceArtifactQue
   const taskId = readQueryString(value.taskId)
   const runId = readQueryString(value.runId)
   const threadId = readQueryString(value.threadId)
+  const automationId = readAutomationId(value.automationId)
   if (source) query.source = source
   if (kind) query.kind = kind
   if (taskId) query.taskId = taskId
+  if (automationId) query.automationId = automationId
   if (runId) query.runId = runId
   if (threadId) query.threadId = threadId
   return query
@@ -166,22 +165,33 @@ function readQueryString(value: unknown): string {
 
 function readSource(value: unknown): WorkspaceArtifactSource | undefined {
   const raw = readQueryString(value)
-  return raw === 'thread' || raw === 'kanban' ? raw : undefined
+  if (!raw) return undefined
+  if (raw === 'thread' || raw === 'kanban' || raw === 'automation') return raw
+  throw createHttpError(400, 'Invalid artifact source')
 }
 
 function readKind(value: unknown): WorkspaceArtifactKind | undefined {
   const raw = readQueryString(value)
-  return raw === 'plan'
+  if (!raw) return undefined
+  if (raw === 'plan'
     || raw === 'run_metadata'
     || raw === 'evidence'
     || raw === 'review_packet'
     || raw === 'proposal'
-    || raw === 'worktree'
-    ? raw
-    : undefined
+    || raw === 'worktree') return raw
+  throw createHttpError(400, 'Invalid artifact kind')
 }
 
-async function createEvidenceContent(artifact: Extract<WorkspaceArtifact, { kind: 'evidence' }>, maxBytes: number): Promise<ArtifactContent> {
+function readAutomationId(value: unknown): string {
+  const raw = readQueryString(value)
+  if (!raw) return ''
+  if (raw === '.' || raw === '..' || !/^[A-Za-z0-9._-]+$/u.test(raw)) {
+    throw createHttpError(400, 'Invalid automationId')
+  }
+  return raw
+}
+
+async function createEvidenceContent(artifact: Extract<WorkspaceArtifact, { kind: 'evidence' }>, maxBytes: number): Promise<WorkspaceArtifactContent> {
   const filePaths = Array.from(new Set([artifact.logPath, artifact.eventsPath].filter((value): value is string => Boolean(value?.trim()))))
   if (filePaths.length === 0) throw createHttpError(404, 'Artifact has no indexed evidence file')
   let blockedReason = ''
@@ -258,11 +268,11 @@ function readProposal(state: KanbanStateFileV1, proposalId: string): KanbanPropo
   return proposal
 }
 
-function createTextContent(body: string, filename: string, contentType: string): ArtifactContent {
+function createTextContent(body: string, filename: string, contentType: string): WorkspaceArtifactContent {
   return { body, filename, contentType, encoding: 'utf8' }
 }
 
-function createJsonContent(body: unknown, filename: string): ArtifactContent {
+function createJsonContent(body: unknown, filename: string): WorkspaceArtifactContent {
   return createTextContent(`${JSON.stringify(body, null, 2)}\n`, filename, 'application/json; charset=utf-8')
 }
 

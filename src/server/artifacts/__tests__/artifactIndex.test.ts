@@ -1,8 +1,14 @@
+import { mkdir, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { mkdtemp } from 'node:fs/promises'
 import { describe, expect, it } from 'vitest'
 import type { KanbanProposal, KanbanReviewPacket, KanbanRun } from '../../../types/kanban'
+import type { AutomationRun } from '../../../types/automations'
 import { createEmptyStateFile } from '../../kanban/migrations'
 import { BUILTIN_KANBAN_RUN_PROFILES } from '../../kanban/runProfiles'
 import { WorkspaceArtifactIndex } from '../artifactIndex'
+import { createAutomationWorkspaceArtifactProvider } from '../adapters/automationArtifacts'
 import { listKanbanWorkspaceArtifacts } from '../adapters/kanbanArtifacts'
 
 describe('WorkspaceArtifactIndex', () => {
@@ -119,4 +125,96 @@ describe('WorkspaceArtifactIndex', () => {
     })
     expect(await index.listArtifacts({ kind: 'proposal' })).toHaveLength(1)
   })
+
+  it('indexes native automation run artifacts and filters by automation id', async () => {
+    const codexHomeDir = await mkdtemp(join(tmpdir(), 'codexui-automation-artifacts-'))
+    const automationDir = join(codexHomeDir, 'automations', 'daily-check')
+    const runDir = join(automationDir, 'runs', 'run_1')
+    const logPath = join(runDir, 'run.log')
+    const eventsPath = join(runDir, 'events.jsonl')
+    await mkdir(runDir, { recursive: true })
+    await writeFile(join(automationDir, 'automation.toml'), [
+      'version = 1',
+      'id = "daily-check"',
+      'kind = "heartbeat"',
+      'name = "Daily check"',
+      'prompt = "Check the workspace."',
+      'status = "ACTIVE"',
+      'rrule = "FREQ=DAILY"',
+      'target_thread_id = "thread_1"',
+      'created_at = 1770000000000',
+      'updated_at = 1770000000000',
+      '',
+    ].join('\n'), 'utf8')
+    await writeFile(logPath, 'RESULT: FINDINGS\n', 'utf8')
+    await writeFile(eventsPath, '{"event":"run.completed"}\n', 'utf8')
+    await writeFile(join(runDir, 'run.json'), JSON.stringify(automationRunFixture({
+      id: 'run_1',
+      automationId: 'daily-check',
+      automationName: 'Daily check',
+      logPath,
+      eventsPath,
+      worktreePath: '/repo-worktree',
+      branchName: 'codexui/automation/daily-check',
+      reviewPacketId: null,
+      proposalIds: [],
+    }), null, 2), 'utf8')
+
+    const index = new WorkspaceArtifactIndex([
+      createAutomationWorkspaceArtifactProvider({ codexHomeDir }),
+    ])
+
+    const artifacts = await index.listArtifacts({ source: 'automation', automationId: 'daily-check' })
+
+    expect(artifacts.map((artifact) => artifact.kind)).toEqual(['run_metadata', 'evidence', 'worktree'])
+    expect(await index.getArtifact('automation:evidence:daily-check:run_1')).toMatchObject({
+      source: 'automation',
+      kind: 'evidence',
+      automationId: 'daily-check',
+      runId: 'run_1',
+      logPath,
+      eventsPath,
+    })
+  })
 })
+
+function automationRunFixture(overrides: Partial<AutomationRun> = {}): AutomationRun {
+  return {
+    id: 'run_1',
+    automationId: 'daily-check',
+    automationName: 'Daily check',
+    trigger: 'manual',
+    runMode: 'local',
+    state: 'completed_with_findings',
+    promptSnapshot: 'Check the workspace.',
+    scheduleSnapshot: { type: 'rrule', rrule: 'FREQ=DAILY' },
+    dueAtIso: null,
+    nextDueAtIso: null,
+    runProfileId: 'workspace-coding',
+    runProfileSnapshot: BUILTIN_KANBAN_RUN_PROFILES[1]!,
+    targetThreadId: 'thread_1',
+    cwd: '/repo',
+    worktreePath: null,
+    branchName: null,
+    threadId: 'thread_1',
+    turnId: 'turn_1',
+    resultSummary: 'RESULT: FINDINGS',
+    errorMessage: null,
+    findings: true,
+    inboxTitle: 'Findings reported',
+    inboxSummary: 'RESULT: FINDINGS',
+    readAtIso: null,
+    archivedAtIso: null,
+    kanbanTaskId: null,
+    reviewPacketId: null,
+    proposalIds: [],
+    runJsonPath: '',
+    eventsPath: '',
+    logPath: '',
+    createdAtIso: '2026-04-30T00:00:00.000Z',
+    startedAtIso: '2026-04-30T00:00:01.000Z',
+    completedAtIso: '2026-04-30T00:00:02.000Z',
+    updatedAtIso: '2026-04-30T00:00:02.000Z',
+    ...overrides,
+  }
+}

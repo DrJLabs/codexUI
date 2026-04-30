@@ -12,6 +12,14 @@ const KIND_ORDER = new Map([
 export type WorkspaceArtifactProvider = {
   source: string
   listArtifacts(): Promise<WorkspaceArtifact[]>
+  resolveArtifactContent?: (artifact: WorkspaceArtifact, options?: { maxBytes?: number }) => Promise<WorkspaceArtifactContent | null>
+}
+
+export type WorkspaceArtifactContent = {
+  contentType: string
+  filename: string
+  body: string | Buffer
+  encoding: 'utf8' | 'binary'
 }
 
 export class WorkspaceArtifactIndex {
@@ -29,12 +37,18 @@ export class WorkspaceArtifactIndex {
     const artifacts = await this.listArtifacts()
     return artifacts.find((artifact) => artifact.id === artifactId) ?? null
   }
+
+  async resolveArtifactContent(artifact: WorkspaceArtifact, options: { maxBytes?: number } = {}): Promise<WorkspaceArtifactContent | null> {
+    const provider = this.providers.find((candidate) => candidate.source === artifact.source)
+    return await provider?.resolveArtifactContent?.(artifact, options) ?? null
+  }
 }
 
 function matchesQuery(artifact: WorkspaceArtifact, query: WorkspaceArtifactQuery): boolean {
   return (!query.source || artifact.source === query.source)
     && (!query.kind || artifact.kind === query.kind)
     && (!query.taskId || artifact.taskId === query.taskId)
+    && (!query.automationId || artifact.automationId === query.automationId)
     && (!query.runId || artifact.runId === query.runId)
     && (!query.threadId || artifact.threadId === query.threadId)
 }

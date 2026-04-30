@@ -1,5 +1,5 @@
 import { createServer, type Server } from 'node:http'
-import { mkdtemp, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import express from 'express'
@@ -13,6 +13,7 @@ import { WorkspaceArtifactIndex } from '../artifactIndex'
 import { ARTIFACT_PREVIEW_MAX_BYTES, ARTIFACT_RAW_MAX_BYTES } from '../security'
 
 const servers: Server[] = []
+const tempDirs: string[] = []
 
 const runProfile: CodexRunProfile = {
   id: 'workspace-coding',
@@ -32,11 +33,15 @@ afterEach(async () => {
   await Promise.all(servers.splice(0).map(async (server) => await new Promise<void>((resolve, reject) => {
     server.close((error) => error ? reject(error) : resolve())
   })))
+  await Promise.all(tempDirs.splice(0).map(async (dir) => {
+    await rm(dir, { recursive: true, force: true })
+  }))
 })
 
 async function createHarness() {
   const dataDir = await mkdtemp(join(tmpdir(), 'codexui-artifacts-data-'))
   const projectRoot = await mkdtemp(join(tmpdir(), 'codexui-artifacts-project-'))
+  tempDirs.push(dataDir, projectRoot)
   const logPath = join(dataDir, 'run.log')
   await writeFile(logPath, 'RESULT: SUCCESS\nartifact evidence\n', 'utf8')
   const storage = new KanbanStorage({ dataDir, projectRoot })
@@ -68,13 +73,21 @@ async function createHarness() {
 async function createTestServer(options: {
   storage: KanbanStorage
   artifacts?: WorkspaceArtifact[]
+  automations?: { codexHomeDir?: string }
   audit?: (event: ArtifactAccessAuditEvent) => void
 }) {
   const app = express()
+  const emptyAutomationsHome = options.automations ? null : await mkdtemp(join(tmpdir(), 'codexui-artifacts-empty-automations-'))
+  if (emptyAutomationsHome) tempDirs.push(emptyAutomationsHome)
   const index = options.artifacts
     ? new WorkspaceArtifactIndex([{ source: 'kanban', async listArtifacts() { return options.artifacts ?? [] } }])
     : undefined
-  app.use('/codex-api/artifacts', createArtifactRouter({ storage: options.storage, index, audit: options.audit }))
+  app.use('/codex-api/artifacts', createArtifactRouter({
+    storage: options.storage,
+    automations: options.automations ?? { codexHomeDir: emptyAutomationsHome ?? undefined },
+    index,
+    audit: options.audit,
+  }))
   const server = createServer(app)
   servers.push(server)
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
@@ -111,6 +124,58 @@ describe('artifact routes', () => {
 
     expect(response.data.map((artifact) => artifact.id)).toEqual(['kanban:evidence:run_1'])
     expect(events.map((event) => event.action)).toEqual(['list'])
+  })
+
+  it('rejects invalid artifact query filters', async () => {
+    const { storage } = await createHarness()
+    const baseUrl = await createTestServer({ storage })
+
+    const invalidSource = await fetch(`${baseUrl}/codex-api/artifacts?source=nope`)
+    const invalidKind = await fetch(`${baseUrl}/codex-api/artifacts?kind=nope`)
+    const invalidAutomationId = await fetch(`${baseUrl}/codex-api/artifacts?automationId=../daily`)
+
+    expect(invalidSource.status).toBe(400)
+    await expect(invalidSource.json()).resolves.toMatchObject({ error: 'Invalid artifact source' })
+    expect(invalidKind.status).toBe(400)
+    await expect(invalidKind.json()).resolves.toMatchObject({ error: 'Invalid artifact kind' })
+    expect(invalidAutomationId.status).toBe(400)
+    await expect(invalidAutomationId.json()).resolves.toMatchObject({ error: 'Invalid automationId' })
+  })
+
+  it('lists and serves automation artifacts through indexed descriptors', async () => {
+    const events: ArtifactAccessAuditEvent[] = []
+    const { storage } = await createHarness()
+    const { codexHomeDir, logPath } = await createAutomationHarness()
+    const baseUrl = await createTestServer({
+      storage,
+      automations: { codexHomeDir },
+      audit: (event) => events.push(event),
+    })
+
+    const list = await fetchJson<{ data: WorkspaceArtifact[] }>(`${baseUrl}/codex-api/artifacts?source=automation&automationId=daily-check`)
+    const preview = await fetchJson<{ data: { preview: { text: string; contentType: string } } }>(`${baseUrl}/codex-api/artifacts/${encodeURIComponent('automation:evidence:daily-check:run_1')}/preview?path=/etc/passwd`)
+    const raw = await fetch(`${baseUrl}/codex-api/artifacts/${encodeURIComponent('automation:evidence:daily-check:run_1')}/raw?path=/etc/passwd`)
+    const metadataRaw = await fetch(`${baseUrl}/codex-api/artifacts/${encodeURIComponent('automation:run:daily-check:run_1')}/raw`)
+
+    expect(list.data.map((artifact) => artifact.id)).toEqual([
+      'automation:run:daily-check:run_1',
+      'automation:evidence:daily-check:run_1',
+      'automation:worktree:daily-check:run_1',
+      'automation:review_packet:daily-check:run_1',
+      'automation:proposal:daily-check:run_1:proposal_1',
+    ])
+    expect(list.data.every((artifact) => artifact.source === 'automation' && artifact.automationId === 'daily-check')).toBe(true)
+    expect(preview.data.preview).toMatchObject({
+      text: 'RESULT: FINDINGS\nautomation evidence\n',
+      contentType: 'text/plain; charset=utf-8',
+    })
+    expect(await raw.text()).toBe('RESULT: FINDINGS\nautomation evidence\n')
+    expect(await metadataRaw.json()).toMatchObject({
+      id: 'run_1',
+      automationId: 'daily-check',
+      logPath,
+    })
+    expect(events.map((event) => event.action)).toEqual(['list', 'preview', 'raw', 'raw'])
   })
 
   it('blocks untrusted forwarded artifact access', async () => {
@@ -272,6 +337,69 @@ describe('artifact routes', () => {
     expect(response.status).toBe(404)
   })
 })
+
+async function createAutomationHarness() {
+  const codexHomeDir = await mkdtemp(join(tmpdir(), 'codexui-artifacts-automations-'))
+  tempDirs.push(codexHomeDir)
+  const automationDir = join(codexHomeDir, 'automations', 'daily-check')
+  const runDir = join(automationDir, 'runs', 'run_1')
+  const logPath = join(runDir, 'run.log')
+  const eventsPath = join(runDir, 'events.jsonl')
+  await mkdir(runDir, { recursive: true })
+  await writeFile(join(automationDir, 'automation.toml'), [
+    'version = 1',
+    'id = "daily-check"',
+    'kind = "heartbeat"',
+    'name = "Daily check"',
+    'prompt = "Check the workspace."',
+    'status = "ACTIVE"',
+    'rrule = "FREQ=DAILY"',
+    'target_thread_id = "thread_1"',
+    'created_at = 1770000000000',
+    'updated_at = 1770000000000',
+    '',
+  ].join('\n'), 'utf8')
+  await writeFile(logPath, 'RESULT: FINDINGS\nautomation evidence\n', 'utf8')
+  await writeFile(eventsPath, '{"event":"run.completed"}\n', 'utf8')
+  await writeFile(join(runDir, 'run.json'), JSON.stringify({
+    id: 'run_1',
+    automationId: 'daily-check',
+    automationName: 'Daily check',
+    trigger: 'manual',
+    runMode: 'worktree',
+    state: 'completed_with_findings',
+    promptSnapshot: 'Check the workspace.',
+    scheduleSnapshot: { type: 'rrule', rrule: 'FREQ=DAILY' },
+    dueAtIso: null,
+    nextDueAtIso: null,
+    runProfileId: 'workspace-coding',
+    runProfileSnapshot: runProfile,
+    targetThreadId: 'thread_1',
+    cwd: '/repo',
+    worktreePath: '/repo-worktree',
+    branchName: 'codexui/automation/daily-check',
+    threadId: 'thread_1',
+    turnId: 'turn_1',
+    resultSummary: 'RESULT: FINDINGS',
+    errorMessage: null,
+    findings: true,
+    inboxTitle: 'Findings reported',
+    inboxSummary: 'RESULT: FINDINGS',
+    readAtIso: null,
+    archivedAtIso: null,
+    kanbanTaskId: null,
+    reviewPacketId: 'review_packet_1',
+    proposalIds: ['proposal_1'],
+    runJsonPath: join(runDir, 'run.json'),
+    eventsPath,
+    logPath,
+    createdAtIso: '2026-04-30T00:00:00.000Z',
+    startedAtIso: '2026-04-30T00:00:01.000Z',
+    completedAtIso: '2026-04-30T00:00:02.000Z',
+    updatedAtIso: '2026-04-30T00:00:02.000Z',
+  }, null, 2), 'utf8')
+  return { codexHomeDir, logPath }
+}
 
 function createTask(nowIso: string): KanbanTask {
   return {
