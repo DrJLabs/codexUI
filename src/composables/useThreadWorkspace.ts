@@ -52,7 +52,7 @@ export function useThreadWorkspace(input: {
         true,
         hasThread ? AUTOMATIONS_FEATURE_REASON : disabledThreadReason,
       ),
-      createSection('worktrees', 'Worktrees', worktreeCount, hasThread, false, hasThread ? '' : disabledThreadReason),
+      createSection('worktrees', 'Worktrees', runCount + worktreeCount, hasThread, false, hasThread ? '' : disabledThreadReason),
       createSection('artifacts', 'Artifacts', artifactCount, true, false, ''),
       createSection(
         'actions',

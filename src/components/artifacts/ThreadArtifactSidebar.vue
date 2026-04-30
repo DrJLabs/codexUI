@@ -49,13 +49,6 @@
         <span>{{ panelCopy('thread') }}</span>
       </div>
       <ArtifactTabs v-model="activeTab" :tabs="tabs" />
-      <p
-        v-if="threadProposalSection"
-        class="thread-artifact-subsection-note"
-      >
-        <strong>{{ threadProposalSection.label }}</strong>
-        <span>{{ threadProposalSection.count }} tracked with Review</span>
-      </p>
       <section class="thread-artifact-sidebar-body">
         <ArtifactEmptyState
           v-if="visibleThreadArtifacts.length === 0"
@@ -78,7 +71,7 @@
         title="Thread review packet"
       />
       <ArtifactProposalsPanel
-        v-if="activeTab === 'review' && proposals.length > 0"
+        v-if="activeTab === 'proposals' && proposals.length > 0"
         :proposals="proposals"
         title="Thread proposals"
         status-label="pending"
@@ -203,16 +196,16 @@ const { allArtifacts, tabs, artifactsForTab } = useThreadArtifacts({
 const visibleThreadArtifacts = computed(() => artifactsForTab(activeTab.value))
 const worktreeArtifacts = computed(() => artifactsForKinds(['run_metadata', 'worktree']))
 const threadEmptyTitle = computed(() => `${tabs.value.find((tab) => tab.id === activeTab.value)?.label ?? 'Artifact'} artifacts`)
-const threadProposalSection = computed(() => props.workspaceModel?.threadArtifactSections.find((section) => section.id === 'proposals') ?? null)
 const deferredPanelReason = computed(() => {
   const section = props.workspaceModel?.sections.find((item) => item.id === activeSectionId.value)
   return section?.reason || panelCopy(activeSectionId.value)
 })
 
 watch(
-  () => props.workspaceModel?.activeSectionId,
-  (sectionId) => {
+  () => [props.workspaceModel?.activeSectionId, props.workspaceModel?.threadId] as const,
+  ([sectionId]) => {
     activeSectionId.value = sectionId ?? 'artifacts'
+    activeTab.value = 'plan'
   },
 )
 
@@ -382,30 +375,6 @@ function emptyCopy(sectionId: ThreadWorkspaceSectionId): string {
   line-height: 1.35;
 }
 
-.thread-artifact-subsection-note {
-  display: flex;
-  min-height: 30px;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  margin: 0;
-  border: 1px dashed #d4d4d8;
-  border-radius: 8px;
-  padding: 6px 8px;
-}
-
-.thread-artifact-subsection-note strong {
-  color: #27272a;
-  font-size: 11px;
-  font-weight: 900;
-}
-
-.thread-artifact-subsection-note span {
-  color: #71717a;
-  font-size: 11px;
-  font-weight: 800;
-}
-
 .thread-artifact-deferred-note {
   margin: 0;
   border: 1px dashed #d4d4d8;
@@ -450,7 +419,6 @@ function emptyCopy(sectionId: ThreadWorkspaceSectionId): string {
 
 :global(:root.dark) .thread-artifact-sidebar-header strong,
 :global(:root.dark) .thread-artifact-panel-heading strong,
-:global(:root.dark) .thread-artifact-subsection-note strong,
 :global(:root.dark) .thread-artifact-item strong {
   color: #f4f4f5;
 }
@@ -460,7 +428,6 @@ function emptyCopy(sectionId: ThreadWorkspaceSectionId): string {
 :global(:root.dark) .thread-artifact-section-button small,
 :global(:root.dark) .thread-artifact-section-reason,
 :global(:root.dark) .thread-artifact-panel-heading span,
-:global(:root.dark) .thread-artifact-subsection-note span,
 :global(:root.dark) .thread-artifact-deferred-note {
   color: #a1a1aa;
 }
@@ -492,10 +459,6 @@ function emptyCopy(sectionId: ThreadWorkspaceSectionId): string {
 }
 
 :global(:root.dark) .thread-artifact-deferred-note {
-  border-color: #52525b;
-}
-
-:global(:root.dark) .thread-artifact-subsection-note {
   border-color: #52525b;
 }
 

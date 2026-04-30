@@ -12,18 +12,27 @@ const baseArtifact = {
   runId: 'run_1',
 } satisfies WorkspaceArtifact
 
+const runArtifact = {
+  id: 'kanban:run:run_1',
+  source: 'kanban',
+  kind: 'run_metadata',
+  title: 'Run metadata',
+  threadId: 'thread_1',
+  runId: 'run_1',
+} satisfies WorkspaceArtifact
+
 describe('useThreadWorkspace', () => {
   it('builds first-level workspace sections and nested thread artifact sections for a selected thread', () => {
     const model = useThreadWorkspace({
       threadId: ref('thread_1'),
-      artifacts: computed(() => [baseArtifact]),
+      artifacts: computed(() => [baseArtifact, runArtifact]),
       proposalCount: ref(2),
       activeWorktreeCount: ref(1),
       availableActionCount: ref(3),
     })
 
     expect(model.value.hasThread).toBe(true)
-    expect(model.value.artifactCount).toBe(1)
+    expect(model.value.artifactCount).toBe(2)
     expect(model.value.activeSectionId).toBe('thread')
     expect(model.value.sections.map((section) => section.id)).toEqual([
       'thread',
@@ -42,9 +51,13 @@ describe('useThreadWorkspace', () => {
       'proposals',
     ])
     expect(model.value.sections.find((section) => section.id === 'thread')).toMatchObject({
-      count: 3,
+      count: 4,
       enabled: true,
       deferred: false,
+    })
+    expect(model.value.sections.find((section) => section.id === 'worktrees')).toMatchObject({
+      count: 1,
+      enabled: true,
     })
     expect(model.value.threadArtifactSections.find((section) => section.id === 'evidence')).toMatchObject({
       count: 1,

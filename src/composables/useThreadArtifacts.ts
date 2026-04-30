@@ -1,7 +1,7 @@
 import { computed, type Ref } from 'vue'
 import type { WorkspaceArtifact, WorkspaceArtifactKind } from '../types/workspaceArtifacts'
 
-export type ThreadArtifactTabId = 'plan' | 'run' | 'evidence' | 'review'
+export type ThreadArtifactTabId = 'plan' | 'run' | 'evidence' | 'review' | 'proposals'
 
 export type ThreadArtifactTab = {
   id: ThreadArtifactTabId
@@ -13,7 +13,8 @@ const TAB_KIND_MAP: Record<ThreadArtifactTabId, WorkspaceArtifactKind[]> = {
   plan: ['plan'],
   run: ['run_metadata', 'worktree'],
   evidence: ['evidence'],
-  review: ['review_packet', 'proposal'],
+  review: ['review_packet'],
+  proposals: ['proposal'],
 }
 
 export function useThreadArtifacts(input: {
@@ -31,6 +32,7 @@ export function useThreadArtifacts(input: {
     { id: 'run', label: 'Run', count: countArtifacts(allArtifacts.value, TAB_KIND_MAP.run) },
     { id: 'evidence', label: 'Evidence', count: countArtifacts(allArtifacts.value, TAB_KIND_MAP.evidence) },
     { id: 'review', label: 'Review', count: countArtifacts(allArtifacts.value, TAB_KIND_MAP.review) },
+    { id: 'proposals', label: 'Proposals', count: countArtifacts(allArtifacts.value, TAB_KIND_MAP.proposals) },
   ])
 
   function artifactsForTab(tabId: ThreadArtifactTabId): WorkspaceArtifact[] {
