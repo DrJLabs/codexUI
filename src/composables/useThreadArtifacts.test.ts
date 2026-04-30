@@ -20,8 +20,9 @@ describe('useThreadArtifacts', () => {
       ['plan', 1],
       ['run', 1],
       ['evidence', 0],
-      ['review', 1],
+      ['review', 0],
+      ['proposals', 1],
     ])
-    expect(model.artifactsForTab('review').map((artifact) => artifact.id)).toEqual(['proposal_1'])
+    expect(model.artifactsForTab('proposals').map((artifact) => artifact.id)).toEqual(['proposal_1'])
   })
 })

@@ -1,5 +1,10 @@
 <template>
-  <div class="artifact-tabs" role="tablist" aria-label="Thread artifacts">
+  <div
+    class="artifact-tabs"
+    role="tablist"
+    aria-label="Thread artifacts"
+    :style="{ gridTemplateColumns: artifactTabColumns }"
+  >
     <button
       v-for="tab in tabs"
       :key="tab.id"
@@ -17,9 +22,10 @@
 </template>
 
 <script setup lang="ts">
+import { computed } from 'vue'
 import type { ThreadArtifactTab, ThreadArtifactTabId } from '../../composables/useThreadArtifacts'
 
-defineProps<{
+const props = defineProps<{
   tabs: ThreadArtifactTab[]
   modelValue: ThreadArtifactTabId
 }>()
@@ -27,12 +33,13 @@ defineProps<{
 defineEmits<{
   'update:modelValue': [value: ThreadArtifactTabId]
 }>()
+
+const artifactTabColumns = computed(() => `repeat(${Math.max(props.tabs.length, 1)}, minmax(0, 1fr))`)
 </script>
 
 <style scoped>
 .artifact-tabs {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 4px;
 }
 

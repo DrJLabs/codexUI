@@ -1,19 +1,21 @@
-export type ThreadWorkspaceSectionId =
+export type ThreadArtifactTabId =
   | 'plan'
   | 'run'
   | 'evidence'
   | 'review'
   | 'proposals'
 
-export type WorkspaceSectionId =
+export type ThreadWorkspaceSectionId =
+  | 'thread'
+  | 'kanban'
+  | 'automations'
   | 'worktrees'
+  | 'artifacts'
   | 'actions'
   | 'permissions'
-  | 'automations_deferred'
 
 export type ThreadWorkspaceDrawerSection = {
-  id: ThreadWorkspaceSectionId | WorkspaceSectionId
-  scope: 'thread' | 'workspace'
+  id: ThreadWorkspaceSectionId
   label: string
   count: number
   enabled: boolean
@@ -21,15 +23,23 @@ export type ThreadWorkspaceDrawerSection = {
   reason: string
 }
 
+export type ThreadArtifactDrawerSection = {
+  id: ThreadArtifactTabId
+  label: string
+  count: number
+  enabled: boolean
+  reason: string
+}
+
 export type ThreadWorkspaceModel = {
   threadId: string
   hasThread: boolean
   artifactCount: number
-  activeSectionId: ThreadWorkspaceDrawerSection['id']
-  threadSections: ThreadWorkspaceDrawerSection[]
-  workspaceSections: ThreadWorkspaceDrawerSection[]
+  activeSectionId: ThreadWorkspaceSectionId
+  sections: ThreadWorkspaceDrawerSection[]
+  threadArtifactSections: ThreadArtifactDrawerSection[]
   deferredFollowUps: Array<{
-    id: 'chat_integration_wiring'
+    id: 'chat_integration_wiring' | 'automations_feature'
     notePath: string
     reason: string
   }>
