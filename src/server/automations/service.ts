@@ -23,7 +23,7 @@ import {
   type NativeAutomationStoreOptions,
   type ThreadAutomationRecord,
 } from './nativeStore.js'
-import { createAutomationRunStore } from './runStore'
+import { createAutomationRunStore, isActiveAutomationRunState } from './runStore'
 import { AutomationRunner } from './runner'
 import { evaluateRruleSchedule } from './scheduleCalculator'
 import { createAutomationSchedulerStore } from './schedulerStore'
@@ -194,6 +194,55 @@ export class AutomationsService {
     })
   }
 
+  async runScheduled(
+    automationId: string,
+    input: {
+      dueAtIso: string
+      nextDueAtIso: string | null
+      runProfiles?: CodexRunProfile[]
+      runProfileId?: string | null
+    },
+  ): Promise<AutomationRun> {
+    const entry = await this.findEntry(automationId)
+    if (!entry) throw new AutomationNotFoundError(automationId)
+    if (!this.runner) throw createServiceError(503, 'Codex bridge is not available for automation scheduled runs')
+    const sidecarResult = await readSidecar(entry)
+    return await this.runner.runScheduled({
+      definition: (await mapDefinition(entry, sidecarResult.sidecar)).definition,
+      automationDirPath: entry.automationDirPath,
+      sourceDirName: entry.sourceDirName,
+      dueAtIso: input.dueAtIso,
+      nextDueAtIso: input.nextDueAtIso,
+      runProfiles: input.runProfiles,
+      runProfileId: input.runProfileId,
+    })
+  }
+
+  async recoverInterruptedRuns(): Promise<{ recovered: number }> {
+    const entries = await listNativeAutomationEntries(this.options)
+    let recovered = 0
+    for (const entry of entries.records) {
+      if (entry.record.kind !== 'heartbeat') continue
+      const store = createAutomationRunStore(entry.automationDirPath)
+      const activeRuns = (await store.listRuns()).filter((run) => isActiveAutomationRunState(run.state))
+      for (const run of activeRuns) {
+        if (run.trigger === 'schedule') {
+          await reconcileSchedulerFromScheduledRun(entry, run)
+        }
+        const message = 'Automation run was interrupted by a previous server session'
+        const failed = await store.updateRun(run.id, {
+          state: 'failed',
+          errorMessage: message,
+          completedAtIso: new Date().toISOString(),
+        })
+        recovered += 1
+        await store.appendEvent(failed, { type: 'scheduler.recovered_failed', errorMessage: message })
+        await store.appendLog(failed, message)
+      }
+    }
+    return { recovered }
+  }
+
   async listRuns(automationId: string): Promise<AutomationRun[]> {
     const entry = await this.findEntry(automationId)
     if (!entry) throw new AutomationNotFoundError(automationId)
@@ -248,6 +297,27 @@ export class AutomationsService {
       storageRoot: entries.storageRoot,
     }
   }
+}
+
+async function reconcileSchedulerFromScheduledRun(entry: NativeAutomationEntry, run: AutomationRun): Promise<void> {
+  if (!run.dueAtIso) return
+  const store = createAutomationSchedulerStore(entry.automationDirPath)
+  const current = await store.readOrDefault({
+    automationId: entry.record.id,
+    sourceDirName: entry.sourceDirName,
+  })
+  if (current.nextDueAtIso && run.nextDueAtIso && Date.parse(current.nextDueAtIso) > Date.parse(run.nextDueAtIso)) return
+  const nowIso = new Date().toISOString()
+  await store.writeState({
+    ...current,
+    automationId: entry.record.id,
+    sourceDirName: entry.sourceDirName,
+    lastDueAtIso: run.dueAtIso,
+    nextDueAtIso: run.nextDueAtIso,
+    lastScheduledRunId: run.id,
+    lastEvaluatedAtIso: nowIso,
+    updatedAtIso: nowIso,
+  })
 }
 
 async function mapDefinition(entry: NativeAutomationEntry, sidecar: AutomationSidecar): Promise<{

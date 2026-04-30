@@ -21,6 +21,7 @@ import {
   createAutomationRunStore,
   isActiveAutomationRunState,
 } from './runStore'
+import { createAutomationSchedulerStore } from './schedulerStore'
 
 export type AutomationRunnerOptions = NativeAutomationStoreOptions & {
   bridge: CodexBridgeRuntime
@@ -53,13 +54,37 @@ export class AutomationRunner {
     automationDirPath: string
   } & AutomationRunProfileInput): Promise<AutomationRun> {
     return await this.withAutomationLock(input.definition.id, async () => {
-      return await this.startRun(input)
+      return await this.startRun({
+        ...input,
+        trigger: 'manual',
+        dueAtIso: null,
+        nextDueAtIso: null,
+      })
+    })
+  }
+
+  async runScheduled(input: {
+    definition: AutomationDefinition
+    automationDirPath: string
+    sourceDirName: string
+    dueAtIso: string
+    nextDueAtIso: string | null
+  } & AutomationRunProfileInput): Promise<AutomationRun> {
+    return await this.withAutomationLock(input.definition.id, async () => {
+      return await this.startRun({
+        ...input,
+        trigger: 'schedule',
+      })
     })
   }
 
   private async startRun(input: {
     definition: AutomationDefinition
     automationDirPath: string
+    sourceDirName?: string
+    trigger: AutomationRun['trigger']
+    dueAtIso: string | null
+    nextDueAtIso: string | null
   } & AutomationRunProfileInput): Promise<AutomationRun> {
     assertAutomationExecutionPolicy(this.policy)
     const definition = input.definition
@@ -72,22 +97,24 @@ export class AutomationRunner {
     await this.failOrphanedActiveRuns(store)
     const activeRun = (await store.listRuns()).find((run) => isActiveAutomationRunState(run.state))
     if (activeRun) {
-      throw new AutomationConflictError(`Automation ${definition.id} already has an active manual run`)
+      const activeTrigger = activeRun.trigger === 'schedule' ? 'scheduled' : 'manual'
+      throw new AutomationConflictError(`Automation ${definition.id} already has an active ${activeTrigger} run`)
     }
 
     const now = new Date().toISOString()
+    const eventPrefix = input.trigger === 'schedule' ? 'scheduled_run' : 'manual_run'
     const runId = `automation_run_${Date.now()}_${String(++automationRunSequence).padStart(6, '0')}_${randomUUID()}`
     let run: AutomationRun = {
       id: runId,
       automationId: definition.id,
       automationName: definition.name,
-      trigger: 'manual',
+      trigger: input.trigger,
       runMode,
-      state: 'starting',
+      state: input.trigger === 'schedule' ? 'queued' : 'starting',
       promptSnapshot: definition.prompt,
       scheduleSnapshot: definition.schedule,
-      dueAtIso: null,
-      nextDueAtIso: null,
+      dueAtIso: input.dueAtIso,
+      nextDueAtIso: input.nextDueAtIso,
       runProfileId: runProfileSnapshot.id,
       runProfileSnapshot,
       targetThreadId: definition.targetThreadId,
@@ -100,14 +127,40 @@ export class AutomationRunner {
       errorMessage: null,
       ...createAutomationRunPaths(input.automationDirPath, runId),
       createdAtIso: now,
-      startedAtIso: now,
+      startedAtIso: input.trigger === 'schedule' ? null : now,
       completedAtIso: null,
       updatedAtIso: now,
     }
     await store.createRun(run)
     this.ownedActiveRunIds.add(run.id)
-    await store.appendEvent(run, { type: 'manual_run.started', automationId: definition.id, runMode })
-    await store.appendLog(run, `Manual run started for ${definition.name}`)
+    if (input.trigger === 'schedule') {
+      await store.appendEvent(run, {
+        type: 'scheduled_run.queued',
+        automationId: definition.id,
+        runMode,
+        dueAtIso: input.dueAtIso,
+        nextDueAtIso: input.nextDueAtIso,
+      })
+      await store.appendLog(run, `Scheduled run queued for ${definition.name}`)
+      await this.advanceSchedulerForQueuedRun({
+        automationDirPath: input.automationDirPath,
+        automationId: definition.id,
+        sourceDirName: input.sourceDirName ?? definition.storage.nativeDirName ?? definition.id,
+        run,
+        dueAtIso: input.dueAtIso,
+        nextDueAtIso: input.nextDueAtIso,
+      })
+      const startedAtIso = new Date().toISOString()
+      run = await store.updateRun(run.id, {
+        state: 'starting',
+        startedAtIso,
+      })
+      await store.appendEvent(run, { type: 'scheduled_run.started', automationId: definition.id, runMode })
+      await store.appendLog(run, `Scheduled run started for ${definition.name}`)
+    } else {
+      await store.appendEvent(run, { type: 'manual_run.started', automationId: definition.id, runMode })
+      await store.appendLog(run, `Manual run started for ${definition.name}`)
+    }
 
     try {
       if (runMode === 'worktree') {
@@ -117,7 +170,7 @@ export class AutomationRunner {
           branchName: worktree.branchName,
         })
         await store.appendEvent(run, {
-          type: 'manual_run.worktree_created',
+          type: `${eventPrefix}.worktree_created`,
           worktreePath: worktree.worktreePath,
           branchName: worktree.branchName,
         })
@@ -129,23 +182,48 @@ export class AutomationRunner {
         state: 'running',
         threadId,
         turnId,
-        startedAtIso: now,
       })
-      await store.appendEvent(run, { type: 'manual_run.turn_started', threadId, turnId })
+      await store.appendEvent(run, { type: `${eventPrefix}.turn_started`, threadId, turnId })
       await store.appendLog(run, `Turn started: ${turnId}`)
       return run
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Automation manual run failed'
+      const message = error instanceof Error ? error.message : `Automation ${input.trigger} run failed`
       const failedRun = await store.updateRun(run.id, {
         state: 'failed',
         errorMessage: message,
         completedAtIso: new Date().toISOString(),
       })
       this.ownedActiveRunIds.delete(run.id)
-      await store.appendEvent(failedRun, { type: 'manual_run.failed', errorMessage: message })
+      await store.appendEvent(failedRun, { type: `${eventPrefix}.failed`, errorMessage: message })
       await store.appendLog(failedRun, `Run failed: ${message}`)
       throw error
     }
+  }
+
+  private async advanceSchedulerForQueuedRun(input: {
+    automationDirPath: string
+    automationId: string
+    sourceDirName: string
+    run: AutomationRun
+    dueAtIso: string | null
+    nextDueAtIso: string | null
+  }): Promise<void> {
+    const store = createAutomationSchedulerStore(input.automationDirPath)
+    const current = await store.readOrDefault({
+      automationId: input.automationId,
+      sourceDirName: input.sourceDirName,
+    })
+    const nowIso = new Date().toISOString()
+    await store.writeState({
+      ...current,
+      automationId: input.automationId,
+      sourceDirName: input.sourceDirName,
+      lastDueAtIso: input.dueAtIso,
+      nextDueAtIso: input.nextDueAtIso,
+      lastScheduledRunId: input.run.id,
+      lastEvaluatedAtIso: nowIso,
+      updatedAtIso: nowIso,
+    })
   }
 
   private validateRunTarget(definition: AutomationDefinition, runMode: AutomationRunMode): void {
@@ -252,7 +330,8 @@ export class AutomationRunner {
         completedAtIso: new Date().toISOString(),
       })
       this.ownedActiveRunIds.delete(match.run.id)
-      await match.store.appendEvent(failed, { type: 'manual_run.failed', threadId, turnId, errorMessage: message })
+      const eventPrefix = match.run.trigger === 'schedule' ? 'scheduled_run' : 'manual_run'
+      await match.store.appendEvent(failed, { type: `${eventPrefix}.failed`, threadId, turnId, errorMessage: message })
       await match.store.appendLog(failed, `Run failed during completion: ${message}`)
       return
     }
@@ -265,8 +344,9 @@ export class AutomationRunner {
       updatedAtIso: now,
     })
     this.ownedActiveRunIds.delete(match.run.id)
-    await match.store.appendEvent(completed, { type: 'manual_run.completed', threadId, turnId })
-    await match.store.appendLog(completed, 'Manual run completed with no findings')
+    const eventPrefix = match.run.trigger === 'schedule' ? 'scheduled_run' : 'manual_run'
+    await match.store.appendEvent(completed, { type: `${eventPrefix}.completed`, threadId, turnId })
+    await match.store.appendLog(completed, `${match.run.trigger === 'schedule' ? 'Scheduled' : 'Manual'} run completed with no findings`)
   }
 
   private async findActiveRunForTurn(threadId: string, turnId: string): Promise<{
@@ -290,6 +370,7 @@ export class AutomationRunner {
     const activeRuns = (await store.listRuns()).filter((run) => isActiveAutomationRunState(run.state))
     for (const run of activeRuns) {
       if (this.ownedActiveRunIds.has(run.id)) continue
+      if (run.trigger === 'schedule') continue
       const message = 'Automation manual run was left active by a previous server session'
       const failed = await store.updateRun(run.id, {
         state: 'failed',

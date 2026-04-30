@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process'
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
@@ -10,6 +10,8 @@ import type { KanbanExecutionPolicy } from '../../../types/kanban'
 import type { CodexBridgeNotification, CodexBridgeRuntime } from '../../codexAppServerBridge'
 import { MANAGED_WORKTREE_LOCK_FILENAME } from '../../workspaces/worktreeLocks'
 import { serializeAutomationToml, type ThreadAutomationRecord } from '../nativeStore'
+import { createAutomationRunPaths, createAutomationRunStore } from '../runStore'
+import type { AutomationSchedulerState } from '../schedulerStore'
 import { AutomationsService } from '../service'
 
 const codexHomeDirs: string[] = []
@@ -60,6 +62,7 @@ async function createHarness(options: {
   turnStartError?: Error
   readThreadResponse?: unknown
   readThreadError?: Error
+  beforeRpc?: (method: string) => Promise<void> | void
 } = {}) {
   const codexHomeDir = await mkdtemp(join(tmpdir(), 'codexui-automation-runner-'))
   codexHomeDirs.push(codexHomeDir)
@@ -69,6 +72,7 @@ async function createHarness(options: {
   let turnStartCount = 0
   const bridge: CodexBridgeRuntime = {
     rpc: async <T = unknown>(method: string, params?: unknown) => {
+      await options.beforeRpc?.(method)
       rpcCalls.push({ method, params })
       if (method === 'thread/resume') return { thread: { id: readRecord(params).threadId } } as T
       if (method === 'thread/start') {
@@ -120,6 +124,24 @@ async function writeNative(codexHomeDir: string, dirName: string, record: Thread
   return dir
 }
 
+async function writeScheduler(automationDir: string, state: Partial<AutomationSchedulerState> = {}) {
+  const schedulerState: AutomationSchedulerState = {
+    automationId: 'daily-check',
+    sourceDirName: 'daily-check-dir',
+    scheduleHash: 'test-schedule-hash',
+    nextDueAtIso: '2026-04-30T09:00:00.000Z',
+    lastDueAtIso: null,
+    lastScheduledRunId: null,
+    lastEvaluatedAtIso: null,
+    missedRunPolicy: 'one_catch_up',
+    unsupportedReason: null,
+    updatedAtIso: '2026-04-30T08:00:00.000Z',
+    ...state,
+  }
+  await writeFile(join(automationDir, 'scheduler.json'), `${JSON.stringify(schedulerState, null, 2)}\n`, 'utf8')
+  return schedulerState
+}
+
 async function createGitRepo(): Promise<string> {
   const projectRoot = await mkdtemp(join(tmpdir(), 'codexui-automation-worktree-repo-'))
   codexHomeDirs.push(projectRoot)
@@ -159,7 +181,10 @@ describe('AutomationRunner', () => {
     })
     expect(storedRun).toMatchObject({
       id: run.id,
+      trigger: 'manual',
       state: 'running',
+      dueAtIso: null,
+      nextDueAtIso: null,
       eventsPath: join(automationDir, 'runs', run.id, 'events.jsonl'),
       logPath: join(automationDir, 'runs', run.id, 'run.log'),
     })
@@ -424,6 +449,245 @@ describe('AutomationRunner', () => {
     const runs = await service.listRuns('daily-check')
 
     expect(runs.map((run) => run.id)).toEqual([second.id, first.id])
+  })
+
+  it('persists a queued scheduled run and advances scheduler state before bridge calls start', async () => {
+    const dueAtIso = '2026-04-30T09:00:00.000Z'
+    const nextDueAtIso = '2026-05-01T09:00:00.000Z'
+    let inspectedBeforeBridge = false
+    let automationDir = ''
+    const { codexHomeDir, service, rpcCalls } = await createHarness({
+      beforeRpc: async () => {
+        if (inspectedBeforeBridge) return
+        inspectedBeforeBridge = true
+        expect(rpcCalls).toEqual([])
+        const runDirs = await readdir(join(automationDir, 'runs'))
+        expect(runDirs).toHaveLength(1)
+        const queuedRun = JSON.parse(await readFile(join(automationDir, 'runs', runDirs[0]!, 'run.json'), 'utf8')) as AutomationRun
+        const scheduler = JSON.parse(await readFile(join(automationDir, 'scheduler.json'), 'utf8')) as AutomationSchedulerState
+
+        expect(queuedRun).toMatchObject({
+          trigger: 'schedule',
+          state: 'starting',
+          dueAtIso,
+          nextDueAtIso,
+          startedAtIso: expect.any(String),
+        })
+        await expect(readFile(queuedRun.eventsPath, 'utf8')).resolves.toContain('scheduled_run.queued')
+        expect(scheduler).toMatchObject({
+          lastDueAtIso: dueAtIso,
+          nextDueAtIso,
+          lastScheduledRunId: queuedRun.id,
+        })
+        expect(scheduler.lastEvaluatedAtIso).toEqual(expect.any(String))
+      },
+    })
+    automationDir = await writeNative(codexHomeDir, 'daily-check-dir', nativeRecord, { runMode: 'chat' })
+    await writeScheduler(automationDir, { nextDueAtIso: dueAtIso })
+
+    const run = await service.runScheduled('daily-check', { dueAtIso, nextDueAtIso })
+    const storedRun = JSON.parse(await readFile(join(automationDir, 'runs', run.id, 'run.json'), 'utf8')) as AutomationRun
+
+    expect(inspectedBeforeBridge).toBe(true)
+    expect(run).toMatchObject({
+      trigger: 'schedule',
+      state: 'running',
+      dueAtIso,
+      nextDueAtIso,
+      threadId: 'thread-1',
+      turnId: 'turn_1',
+    })
+    expect(storedRun).toMatchObject({ id: run.id, trigger: 'schedule', state: 'running' })
+    expect(rpcCalls.map((call) => call.method)).toEqual(['thread/resume', 'turn/start'])
+    await expect(readFile(storedRun.eventsPath, 'utf8')).resolves.toContain('scheduled_run.queued')
+    await expect(readFile(storedRun.logPath, 'utf8')).resolves.toContain('Scheduled run queued')
+  })
+
+  it('does not advance scheduler state if scheduled run queue persistence fails', async () => {
+    const { codexHomeDir, service, rpcCalls } = await createHarness()
+    const automationDir = await writeNative(codexHomeDir, 'daily-check-dir', nativeRecord, { runMode: 'chat' })
+    const initialScheduler = await writeScheduler(automationDir)
+    await writeFile(join(automationDir, 'runs'), 'not a directory', 'utf8')
+
+    await expect(service.runScheduled('daily-check', {
+      dueAtIso: '2026-04-30T09:00:00.000Z',
+      nextDueAtIso: '2026-05-01T09:00:00.000Z',
+    })).rejects.toThrow()
+    const scheduler = JSON.parse(await readFile(join(automationDir, 'scheduler.json'), 'utf8')) as AutomationSchedulerState
+
+    expect(scheduler).toEqual(initialScheduler)
+    expect(rpcCalls).toEqual([])
+  })
+
+  it('rejects scheduled and manual starts while an active scheduled run exists', async () => {
+    const { codexHomeDir, service } = await createHarness()
+    const automationDir = await writeNative(codexHomeDir, 'daily-check-dir', nativeRecord, { runMode: 'chat' })
+    await writeScheduler(automationDir)
+
+    const first = await service.runScheduled('daily-check', {
+      dueAtIso: '2026-04-30T09:00:00.000Z',
+      nextDueAtIso: '2026-05-01T09:00:00.000Z',
+    })
+
+    await expect(service.runScheduled('daily-check', {
+      dueAtIso: '2026-05-01T09:00:00.000Z',
+      nextDueAtIso: '2026-05-02T09:00:00.000Z',
+    })).rejects.toThrow('already has an active scheduled run')
+    await expect(service.runNow('daily-check')).rejects.toThrow('already has an active scheduled run')
+    expect((await service.listRuns('daily-check'))[0]).toMatchObject({ id: first.id, state: 'running' })
+  })
+
+  it('recovers interrupted active runs and reconciles stale scheduler state from scheduled run snapshots', async () => {
+    const { codexHomeDir, service } = await createHarness()
+    const automationDir = await writeNative(codexHomeDir, 'daily-check-dir', nativeRecord, { runMode: 'chat' })
+    await writeScheduler(automationDir, { nextDueAtIso: '2026-04-30T09:00:00.000Z' })
+    const store = createAutomationRunStore(automationDir)
+    const baseRun: Omit<AutomationRun, 'id' | 'trigger' | 'state' | 'dueAtIso' | 'nextDueAtIso' | 'runJsonPath' | 'eventsPath' | 'logPath'> = {
+      automationId: 'daily-check',
+      automationName: 'Daily Check',
+      runMode: 'chat',
+      promptSnapshot: 'Review the thread',
+      scheduleSnapshot: { type: 'rrule', rrule: 'FREQ=DAILY;INTERVAL=1' },
+      runProfileId: 'default',
+      runProfileSnapshot: {
+        id: 'default',
+        name: 'Default',
+        description: '',
+        model: '',
+        reasoningEffort: 'medium',
+        sandboxMode: 'workspace-write',
+        approvalPolicy: 'on-request',
+        networkAccess: false,
+        writableRoots: [],
+        createdAtIso: '2026-04-30T08:00:00.000Z',
+        updatedAtIso: '2026-04-30T08:00:00.000Z',
+      },
+      targetThreadId: 'thread-1',
+      cwd: null,
+      worktreePath: '/tmp/preserved-worktree',
+      branchName: 'codexui/automation/preserved',
+      threadId: null,
+      turnId: null,
+      resultSummary: null,
+      errorMessage: null,
+      createdAtIso: '2026-04-30T08:55:00.000Z',
+      startedAtIso: null,
+      completedAtIso: null,
+      updatedAtIso: '2026-04-30T08:55:00.000Z',
+    }
+    const queuedScheduled: AutomationRun = {
+      ...baseRun,
+      id: 'scheduled-queued',
+      trigger: 'schedule',
+      state: 'queued',
+      dueAtIso: '2026-04-30T09:00:00.000Z',
+      nextDueAtIso: '2026-05-01T09:00:00.000Z',
+      ...createAutomationRunPaths(automationDir, 'scheduled-queued'),
+    }
+    const startingManual: AutomationRun = {
+      ...baseRun,
+      id: 'manual-starting',
+      trigger: 'manual',
+      state: 'starting',
+      dueAtIso: null,
+      nextDueAtIso: null,
+      ...createAutomationRunPaths(automationDir, 'manual-starting'),
+    }
+    const runningManual: AutomationRun = {
+      ...baseRun,
+      id: 'manual-running',
+      trigger: 'manual',
+      state: 'running',
+      dueAtIso: null,
+      nextDueAtIso: null,
+      startedAtIso: '2026-04-30T08:56:00.000Z',
+      threadId: 'thread-1',
+      turnId: 'turn-1',
+      ...createAutomationRunPaths(automationDir, 'manual-running'),
+    }
+    await store.createRun(queuedScheduled)
+    await store.createRun(startingManual)
+    await store.createRun(runningManual)
+
+    const result = await service.recoverInterruptedRuns()
+    const secondResult = await service.recoverInterruptedRuns()
+    const runs = await service.listRuns('daily-check')
+    const scheduler = JSON.parse(await readFile(join(automationDir, 'scheduler.json'), 'utf8')) as AutomationSchedulerState
+
+    expect(result).toEqual({ recovered: 3 })
+    expect(secondResult).toEqual({ recovered: 0 })
+    for (const runId of ['scheduled-queued', 'manual-starting', 'manual-running']) {
+      expect(runs.find((run) => run.id === runId)).toMatchObject({
+        state: 'failed',
+        errorMessage: 'Automation run was interrupted by a previous server session',
+        completedAtIso: expect.any(String),
+        worktreePath: '/tmp/preserved-worktree',
+      })
+      await expect(readFile(join(automationDir, 'runs', runId, 'events.jsonl'), 'utf8')).resolves.toContain('scheduler.recovered_failed')
+      await expect(readFile(join(automationDir, 'runs', runId, 'run.log'), 'utf8')).resolves.toContain('Automation run was interrupted')
+    }
+    expect(scheduler).toMatchObject({
+      lastDueAtIso: queuedScheduled.dueAtIso,
+      nextDueAtIso: queuedScheduled.nextDueAtIso,
+      lastScheduledRunId: queuedScheduled.id,
+    })
+  })
+
+  it('does not move scheduler state backwards while recovering an older scheduled run', async () => {
+    const { codexHomeDir, service } = await createHarness()
+    const automationDir = await writeNative(codexHomeDir, 'daily-check-dir', nativeRecord, { runMode: 'chat' })
+    const newerScheduler = await writeScheduler(automationDir, {
+      nextDueAtIso: '2026-05-03T09:00:00.000Z',
+      lastDueAtIso: '2026-05-02T09:00:00.000Z',
+      lastScheduledRunId: 'newer-run',
+    })
+    const runId = 'older-scheduled'
+    await createAutomationRunStore(automationDir).createRun({
+      id: runId,
+      automationId: 'daily-check',
+      automationName: 'Daily Check',
+      trigger: 'schedule',
+      runMode: 'chat',
+      state: 'queued',
+      promptSnapshot: 'Review the thread',
+      scheduleSnapshot: { type: 'rrule', rrule: 'FREQ=DAILY;INTERVAL=1' },
+      dueAtIso: '2026-04-30T09:00:00.000Z',
+      nextDueAtIso: '2026-05-01T09:00:00.000Z',
+      runProfileId: 'default',
+      runProfileSnapshot: {
+        id: 'default',
+        name: 'Default',
+        description: '',
+        model: '',
+        reasoningEffort: 'medium',
+        sandboxMode: 'workspace-write',
+        approvalPolicy: 'on-request',
+        networkAccess: false,
+        writableRoots: [],
+        createdAtIso: '2026-04-30T08:00:00.000Z',
+        updatedAtIso: '2026-04-30T08:00:00.000Z',
+      },
+      targetThreadId: 'thread-1',
+      cwd: null,
+      worktreePath: null,
+      branchName: null,
+      threadId: null,
+      turnId: null,
+      resultSummary: null,
+      errorMessage: null,
+      createdAtIso: '2026-04-30T08:55:00.000Z',
+      startedAtIso: null,
+      completedAtIso: null,
+      updatedAtIso: '2026-04-30T08:55:00.000Z',
+      ...createAutomationRunPaths(automationDir, runId),
+    })
+
+    expect(await service.recoverInterruptedRuns()).toEqual({ recovered: 1 })
+    const scheduler = JSON.parse(await readFile(join(automationDir, 'scheduler.json'), 'utf8')) as AutomationSchedulerState
+
+    expect(scheduler.nextDueAtIso).toBe(newerScheduler.nextDueAtIso)
+    expect(scheduler.lastDueAtIso).toBe(newerScheduler.lastDueAtIso)
+    expect(scheduler.lastScheduledRunId).toBe(newerScheduler.lastScheduledRunId)
   })
 })
 
