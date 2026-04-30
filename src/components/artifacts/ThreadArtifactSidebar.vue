@@ -202,7 +202,7 @@ const deferredPanelReason = computed(() => {
 })
 
 watch(
-  () => [props.workspaceModel?.activeSectionId, props.workspaceModel?.threadId] as const,
+  [() => props.workspaceModel?.activeSectionId, () => props.workspaceModel?.threadId],
   ([sectionId]) => {
     activeSectionId.value = sectionId ?? 'artifacts'
     activeTab.value = 'plan'
