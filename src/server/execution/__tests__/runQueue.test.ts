@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { ExecutionRunQueue } from '../runQueue'
+import {
+  ExecutionRunQueue,
+  ExecutionRunQueueDuplicateOwnerError,
+  ExecutionRunQueueDuplicateRunError,
+} from '../runQueue'
 
 describe('ExecutionRunQueue', () => {
   it('keeps one global active run and promotes the next eligible item on completion', () => {
@@ -47,8 +51,12 @@ describe('ExecutionRunQueue', () => {
 
     expect(() => queue.enqueue({ runId: 'run_1', ownerKey: 'owner:3', repoRoot: '/repo/c' }))
       .toThrow('Execution run run_1 is already queued')
+    expect(() => queue.enqueue({ runId: 'run_1', ownerKey: 'owner:3', repoRoot: '/repo/c' }))
+      .toThrow(ExecutionRunQueueDuplicateRunError)
     expect(() => queue.enqueue({ runId: 'run_2', ownerKey: 'owner:3', repoRoot: '/repo/c' }))
       .toThrow('Execution run run_2 is already queued')
+    expect(() => queue.enqueue({ runId: 'run_2', ownerKey: 'owner:3', repoRoot: '/repo/c' }))
+      .toThrow(ExecutionRunQueueDuplicateRunError)
   })
 
   it('rejects duplicate queued owners', () => {
@@ -62,6 +70,8 @@ describe('ExecutionRunQueue', () => {
 
     expect(() => queue.enqueue({ runId: 'run_3', ownerKey: 'owner:2', repoRoot: '/repo/c' }))
       .toThrow('Execution owner owner:2 already has a queued run')
+    expect(() => queue.enqueue({ runId: 'run_3', ownerKey: 'owner:2', repoRoot: '/repo/c' }))
+      .toThrow(ExecutionRunQueueDuplicateOwnerError)
     expect(queue.getQueuedRunIds()).toEqual(['run_2'])
   })
 

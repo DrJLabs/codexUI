@@ -1,5 +1,7 @@
 import {
   ExecutionRunQueue,
+  ExecutionRunQueueDuplicateOwnerError,
+  ExecutionRunQueueDuplicateRunError,
   type ExecutionRunQueueItem,
   type ExecutionRunQueueLimitReason,
   type ExecutionRunQueueLimits,
@@ -100,12 +102,12 @@ function fromKanbanOwnerKey(ownerKey: string): string {
 }
 
 function toKanbanQueueError(error: unknown, item: KanbanTaskQueueItem): Error {
-  const message = error instanceof Error ? error.message : String(error)
-  if (message === `Execution run ${item.runId} is already queued`) {
+  if (error instanceof ExecutionRunQueueDuplicateRunError) {
     return new Error(`Kanban run ${item.runId} is already queued`)
   }
-  if (message === `Execution owner ${toKanbanOwnerKey(item.taskId)} already has a queued run`) {
+  if (error instanceof ExecutionRunQueueDuplicateOwnerError) {
     return new Error(`Kanban task ${item.taskId} already has a queued run`)
   }
+  const message = error instanceof Error ? error.message : String(error)
   return error instanceof Error ? error : new Error(message)
 }

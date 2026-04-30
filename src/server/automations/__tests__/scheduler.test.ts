@@ -535,4 +535,33 @@ describe('AutomationScheduler', () => {
     expect(service.recoverInterruptedRuns).toHaveBeenCalledTimes(1)
     expect(rpcCalls.map((call) => call.method)).toEqual(['thread/resume', 'turn/start'])
   })
+
+  it('retries startup recovery after a failure and then schedules due work', async () => {
+    const { codexHomeDir, service, rpcCalls } = await createHarness()
+    const automationDir = await writeNative(codexHomeDir, 'daily-check-dir', nativeRecord)
+    await writeFreshScheduler(service, 'daily-check', automationDir)
+    const recoveryError = new Error('first recovery failed')
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+    vi.spyOn(service, 'recoverInterruptedRuns')
+      .mockRejectedValueOnce(recoveryError)
+      .mockResolvedValueOnce({ recovered: 0 })
+    const scheduler = new AutomationScheduler({
+      service,
+      intervalMs: 60_000,
+      now: () => new Date('2026-04-30T10:00:00.000Z'),
+    })
+
+    scheduler.start()
+    await expect(scheduler.tick()).rejects.toThrow('first recovery failed')
+    expect(await createAutomationRunStore(automationDir).listRuns()).toEqual([])
+
+    await scheduler.tick()
+    scheduler.stop()
+
+    const runs = await createAutomationRunStore(automationDir).listRuns()
+    expect(service.recoverInterruptedRuns).toHaveBeenCalledTimes(2)
+    expect(runs).toHaveLength(1)
+    expect(runs[0]).toMatchObject({ automationId: 'daily-check', trigger: 'schedule' })
+    expect(rpcCalls.map((call) => call.method)).toEqual(['thread/resume', 'turn/start'])
+  })
 })

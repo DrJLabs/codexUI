@@ -544,7 +544,7 @@ async function mapDefinition(entry: NativeAutomationEntry, sidecar: AutomationSi
 }> {
   const createdAtIso = dateIso(entry.record.createdAtMs)
   const updatedAtIso = dateIso(entry.record.updatedAtMs)
-  const recentRuns = (await createAutomationRunStore(entry.automationDirPath).listRuns()).slice(0, 5)
+  const recentRuns = await createAutomationRunStore(entry.automationDirPath).listRuns({ limit: 5 })
   const nextRun = await readDefinitionNextRunAtIso(entry, createdAtIso, updatedAtIso)
   return {
     diagnostic: nextRun.diagnostic,

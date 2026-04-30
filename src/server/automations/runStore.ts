@@ -5,7 +5,7 @@ import type { AutomationRun } from '../../types/automations'
 export type AutomationRunStore = {
   createRun(run: AutomationRun): Promise<AutomationRun>
   readRun(runId: string): Promise<AutomationRun>
-  listRuns(): Promise<AutomationRun[]>
+  listRuns(options?: { limit?: number }): Promise<AutomationRun[]>
   updateRun(runId: string, update: Partial<AutomationRun>): Promise<AutomationRun>
   appendEvent(run: AutomationRun, event: Record<string, unknown>): Promise<void>
   appendLog(run: AutomationRun, message: string): Promise<void>
@@ -27,25 +27,25 @@ export function createAutomationRunStore(automationDirPath: string): AutomationR
 
     readRun,
 
-    async listRuns() {
+    async listRuns(options = {}) {
       let entries
       try {
         entries = await readdir(runsRoot, { withFileTypes: true })
       } catch {
         return []
       }
-      const runs = await Promise.all(entries
-        .filter((entry) => entry.isDirectory())
-        .map(async (entry) => {
-          try {
-            return parseRun(await readFile(runJsonPath(runsRoot, entry.name), 'utf8'), automationDirPath, entry.name)
-          } catch {
-            return null
-          }
-        }))
+      const runs: AutomationRun[] = []
+      for (const entry of entries) {
+        if (!entry.isDirectory()) continue
+        try {
+          runs.push(parseRun(await readFile(runJsonPath(runsRoot, entry.name), 'utf8'), automationDirPath, entry.name))
+        } catch {
+          // Ignore stale or malformed run directories so one bad run does not hide the rest.
+        }
+      }
       return runs
-        .filter((run): run is AutomationRun => run !== null)
         .sort((a, b) => compareIsoDesc(a.createdAtIso, b.createdAtIso) || b.id.localeCompare(a.id))
+        .slice(0, normalizeListLimit(options.limit))
     },
 
     async updateRun(runId, update) {
@@ -133,6 +133,12 @@ function normalizeRunPaths(run: AutomationRun, automationDirPath: string, runId:
 
 function serializeRun(run: AutomationRun): string {
   return `${JSON.stringify(run, null, 2)}\n`
+}
+
+function normalizeListLimit(limit: number | undefined): number {
+  if (limit === undefined) return Number.POSITIVE_INFINITY
+  if (!Number.isInteger(limit) || limit < 1) return Number.POSITIVE_INFINITY
+  return limit
 }
 
 function compareIsoDesc(a: string, b: string): number {

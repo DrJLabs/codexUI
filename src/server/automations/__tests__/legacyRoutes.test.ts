@@ -101,10 +101,10 @@ describe('legacy thread automation routes', () => {
         }),
       },
     )
-    expect(updated.data).toMatchObject({ targetThreadId: 'thread-route-1', status: 'ACTIVE' })
+    expect(updated.data).toMatchObject({ targetThreadId: 'thread-route-1', status: 'PAUSED' })
 
     const list = await requestJson<{ data: Record<string, { status: string }> }>(`${baseUrl}/codex-api/thread-automations`)
-    expect(list.data['thread-route-1']).toMatchObject({ status: 'ACTIVE' })
+    expect(list.data['thread-route-1']).toMatchObject({ status: 'PAUSED' })
 
     const deleted = await requestJson<{ data: { removed: boolean } }>(
       `${baseUrl}/codex-api/thread-automation?threadId=thread-route-1`,

@@ -162,6 +162,7 @@ export class KanbanWorktreeManager {
         locks.push(normalizeManagedWorktreeLock(JSON.parse(await readFile(lockPath, 'utf8')) as LegacyManagedWorktreeLock))
       } catch (error) {
         if (error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT') continue
+        if (error instanceof SyntaxError || (error instanceof Error && error.message === 'Invalid managed worktree owner')) continue
         throw error
       }
     }

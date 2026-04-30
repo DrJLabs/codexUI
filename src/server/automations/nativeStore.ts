@@ -87,15 +87,34 @@ function buildAutomationTomlFields(record: ThreadAutomationRecord): Record<strin
   }
 }
 
+function readTopLevelTomlAssignment(line: string): { key: string, value: string } | null {
+  const trimmed = line.trim()
+  const separatorIndex = trimmed.indexOf('=')
+  if (separatorIndex < 0) return null
+  const key = trimmed.slice(0, separatorIndex).trim()
+  if (!key) return null
+  return { key, value: trimmed.slice(separatorIndex + 1).trim() }
+}
+
+function getOpenMultilineTomlStringDelimiter(value: string): '"""' | "'''" | null {
+  const delimiter = value.startsWith('"""') ? '"""' : value.startsWith("'''") ? "'''" : null
+  if (!delimiter) return null
+  return value.indexOf(delimiter, delimiter.length) < 0 ? delimiter : null
+}
+
 export function parseAutomationToml(raw: string): ThreadAutomationRecord | null {
   const values: Record<string, string> = {}
+  let multilineStringDelimiter: '"""' | "'''" | null = null
   for (const line of raw.split(/\r?\n/u)) {
-    const trimmed = line.trim()
-    if (!trimmed || trimmed.startsWith('#') || !trimmed.includes('=')) continue
-    const separatorIndex = trimmed.indexOf('=')
-    const key = trimmed.slice(0, separatorIndex).trim()
-    const value = trimmed.slice(separatorIndex + 1).trim()
-    if (key) values[key] = value
+    if (multilineStringDelimiter) {
+      if (line.includes(multilineStringDelimiter)) multilineStringDelimiter = null
+      continue
+    }
+
+    const assignment = readTopLevelTomlAssignment(line)
+    if (!assignment) continue
+    values[assignment.key] = assignment.value
+    multilineStringDelimiter = getOpenMultilineTomlStringDelimiter(assignment.value)
   }
 
   const id = readTomlString(values.id ?? '')
@@ -137,17 +156,39 @@ export function serializeAutomationToml(record: ThreadAutomationRecord, previous
 
   const seen = new Set<string>()
   const lines = previousRaw.split(/\r?\n/u)
-  const merged = lines
-    .filter((line, index) => index < lines.length - 1 || line.length > 0)
-    .flatMap((line) => {
-      const trimmed = line.trim()
-      const separatorIndex = trimmed.indexOf('=')
-      const key = separatorIndex >= 0 ? trimmed.slice(0, separatorIndex).trim() : ''
-      if (!knownKeys.has(key)) return [line]
-      if (seen.has(key)) return []
-      seen.add(key)
-      return [`${key} = ${fields[key]}`]
-    })
+  const merged: string[] = []
+  let multilineStringDelimiter: '"""' | "'''" | null = null
+  let skipMultilineString = false
+
+  for (const [index, line] of lines.entries()) {
+    if (index === lines.length - 1 && line.length === 0) continue
+
+    if (multilineStringDelimiter) {
+      if (!skipMultilineString) merged.push(line)
+      if (line.includes(multilineStringDelimiter)) {
+        multilineStringDelimiter = null
+        skipMultilineString = false
+      }
+      continue
+    }
+
+    const assignment = readTopLevelTomlAssignment(line)
+    if (!assignment || !knownKeys.has(assignment.key)) {
+      merged.push(line)
+      if (assignment) multilineStringDelimiter = getOpenMultilineTomlStringDelimiter(assignment.value)
+      continue
+    }
+
+    const nextDelimiter = getOpenMultilineTomlStringDelimiter(assignment.value)
+    if (!seen.has(assignment.key)) {
+      seen.add(assignment.key)
+      merged.push(`${assignment.key} = ${fields[assignment.key]}`)
+    }
+    if (nextDelimiter) {
+      multilineStringDelimiter = nextDelimiter
+      skipMultilineString = true
+    }
+  }
 
   for (const key of orderedKeys) {
     if (!seen.has(key)) merged.push(`${key} = ${fields[key]}`)

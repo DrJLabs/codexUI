@@ -45,6 +45,9 @@ export type CreateKanbanRouterOptions = {
 type AsyncRouteHandler = (req: Request, res: Response) => Promise<void>
 
 export function createKanbanRouter(options: CreateKanbanRouterOptions = {}): Router {
+  if (options.taskService && !options.storage) {
+    throw new Error('Kanban taskService injection requires matching storage')
+  }
   const config = resolveKanbanConfig()
   const projectRoot = normalizeProjectRoot(options.projectRoot ?? process.cwd())
   const dataDir = resolveKanbanDataDir(options.dataDir ?? config.dataDir)

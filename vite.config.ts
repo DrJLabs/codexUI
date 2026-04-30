@@ -154,8 +154,8 @@ export default defineConfig({
         });
         const kanbanApp = express();
         kanbanApp.use("/codex-api/kanban", kanban);
-        kanbanApp.use("/codex-api/artifacts", createArtifactRouter({ storage: kanbanStorage }));
-        kanbanApp.use("/codex-api/automations", createAutomationsMiddleware({
+        kanbanApp.use("/codex-api/artifacts", createArtifactRouter({ storage: kanbanStorage, automations: {} }));
+        const automations = createAutomationsMiddleware({
           bridge,
           policy: kanbanConfig.policy,
           enableScheduler: true,
@@ -164,7 +164,8 @@ export default defineConfig({
           kanbanStorage,
           kanbanProjection,
           artifactIndexing: true,
-        }));
+        });
+        kanbanApp.use("/codex-api/automations", automations);
         const httpServer = server.httpServer;
         if (httpServer) {
           httpServer.once("listening", () => {
@@ -411,6 +412,7 @@ export default defineConfig({
         });
         server.middlewares.use(bridge);
         server.httpServer?.once("close", () => {
+          automations.dispose?.();
           bridge.dispose();
         });
       },

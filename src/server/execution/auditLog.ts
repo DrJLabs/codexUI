@@ -37,27 +37,34 @@ export type ExecutionAuditLogOptions<TInput extends ExecutionAuditEventInput = E
   corruptMessage?: string
 }
 
+type SharedAuditFileState = {
+  writeQueue: Promise<void>
+  lastEventHash: string | null | undefined
+}
+
+const auditFileStates = new Map<string, SharedAuditFileState>()
+
 export class ExecutionAuditLog<TInput extends ExecutionAuditEventInput = ExecutionAuditEventInput> {
   private readonly filePath: string
   private readonly source: ExecutionAuditSource
   private readonly redact: ExecutionAuditRedactor<TInput> | undefined
   private readonly corruptMessage: string
-  private writeQueue: Promise<void> = Promise.resolve()
-  private lastEventHash: string | null | undefined
+  private readonly fileState: SharedAuditFileState
 
   constructor(options: ExecutionAuditLogOptions<TInput>) {
     this.filePath = options.filePath
     this.source = options.source
     this.redact = options.redact
     this.corruptMessage = options.corruptMessage ?? 'Execution audit log is corrupt'
+    this.fileState = readAuditFileState(options.filePath)
   }
 
   append(
     input: TInput,
     options: ExecutionAuditAppendOptions<TInput> = {},
   ): Promise<ExecutionAuditRecord<TInput>> {
-    const next = this.writeQueue.then(() => this.appendNow(input, options))
-    this.writeQueue = next.then(() => undefined, () => undefined)
+    const next = this.fileState.writeQueue.then(() => this.appendNow(input, options))
+    this.fileState.writeQueue = next.then(() => undefined, () => undefined)
     return next
   }
 
@@ -84,21 +91,30 @@ export class ExecutionAuditLog<TInput extends ExecutionAuditEventInput = Executi
 
     await mkdir(dirname(this.filePath), { recursive: true })
     await appendFile(this.filePath, `${JSON.stringify(record)}\n`, 'utf8')
-    this.lastEventHash = record.eventHash
+    this.fileState.lastEventHash = record.eventHash
     return record
   }
 
   private async readPreviousEventHash(): Promise<string | null> {
-    if (this.lastEventHash !== undefined) return this.lastEventHash
+    if (this.fileState.lastEventHash !== undefined) return this.fileState.lastEventHash
     const lastLine = await readLastNonEmptyLine(this.filePath)
     if (!lastLine) return null
     const lastRecord = JSON.parse(lastLine) as { eventHash?: unknown }
     if (typeof lastRecord.eventHash !== 'string' || !/^[a-f0-9]{64}$/u.test(lastRecord.eventHash)) {
       throw new Error(this.corruptMessage)
     }
-    this.lastEventHash = lastRecord.eventHash
+    this.fileState.lastEventHash = lastRecord.eventHash
     return lastRecord.eventHash
   }
+}
+
+function readAuditFileState(filePath: string): SharedAuditFileState {
+  let state = auditFileStates.get(filePath)
+  if (!state) {
+    state = { writeQueue: Promise.resolve(), lastEventHash: undefined }
+    auditFileStates.set(filePath, state)
+  }
+  return state
 }
 
 async function readLastNonEmptyLine(filePath: string): Promise<string | null> {

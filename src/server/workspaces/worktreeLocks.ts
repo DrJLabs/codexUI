@@ -29,6 +29,7 @@ export type LegacyManagedWorktreeLock = Omit<ManagedWorktreeLock, 'owner'> & {
 
 export function normalizeManagedWorktreeOwner(lock: Pick<LegacyManagedWorktreeLock, 'taskId' | 'owner'>): ManagedWorktreeOwner {
   if (isManagedWorktreeOwner(lock.owner)) return lock.owner
+  if (lock.owner !== undefined && lock.owner !== null) throw new Error('Invalid managed worktree owner')
   return { source: 'kanban', id: lock.taskId }
 }
 

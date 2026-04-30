@@ -118,4 +118,24 @@ describe('createAutomationSchedulerStore', () => {
 
     await expect(createAutomationSchedulerStore(automationDir).readState()).rejects.toThrow(/nextDueAtIso/)
   })
+
+  it('rejects scheduler state with invalid identity fields', async () => {
+    const automationDir = await createTempAutomationDir()
+    const schedulerPath = join(automationDir, 'scheduler.json')
+    await mkdir(automationDir, { recursive: true })
+    await writeFile(schedulerPath, `${JSON.stringify({
+      automationId: '',
+      sourceDirName: '../daily-check',
+      scheduleHash: 'hash-a',
+      nextDueAtIso: null,
+      lastDueAtIso: null,
+      lastScheduledRunId: null,
+      lastEvaluatedAtIso: null,
+      missedRunPolicy: 'one_catch_up',
+      unsupportedReason: null,
+      updatedAtIso: null,
+    })}\n`, 'utf8')
+
+    await expect(createAutomationSchedulerStore(automationDir).readState()).rejects.toThrow(/automationId/)
+  })
 })

@@ -82,6 +82,19 @@ describe('KanbanWorktreeManager', () => {
     })).rejects.toThrow('Active Kanban worktree already exists for task task_123')
   })
 
+  it('ignores malformed lock files while scanning active worktrees', async () => {
+    const { dataDir, projectRoot } = await createGitRepo()
+    const manager = new KanbanWorktreeManager({ dataDir, projectRoot })
+    const first = await manager.createManagedWorktree({ taskId: 'task_123', taskTitle: 'One', runId: 'run_1' })
+    await writeFile(first.lockPath, '{not json', 'utf8')
+
+    await expect(manager.createManagedWorktree({
+      taskId: 'task_123',
+      taskTitle: 'Two',
+      runId: 'run_2',
+    })).resolves.toMatchObject({ runId: 'run_2' })
+  })
+
   it('includes the run id in branch names so later runs do not collide with old branches', async () => {
     const { dataDir, projectRoot } = await createGitRepo()
     const manager = new KanbanWorktreeManager({ dataDir, projectRoot })

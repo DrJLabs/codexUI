@@ -73,12 +73,14 @@ export class KanbanTaskService {
   }
 
   async createTaskIfNoActiveLabel(labelName: string, input: CreateKanbanTaskInput): Promise<KanbanTask> {
+    const normalizedLabelName = labelName.trim()
+    if (!normalizedLabelName) throw new Error('labelName is required')
     let task: KanbanTask | null = null
     await this.storage.mutate((state) => {
       const existing = Object.values(state.tasks).find((candidate) => (
-        !candidate.archived && candidate.labels.some((label) => label.name === labelName)
+        !candidate.archived && candidate.labels.some((label) => label.name === normalizedLabelName)
       ))
-      task = existing ?? createTaskInState(state, input, this.projectRoot, new Date().toISOString())
+      task = existing ?? createTaskInState(state, ensureTaskLabel(input, normalizedLabelName), this.projectRoot, new Date().toISOString())
     })
     if (!task) throw new Error('Failed to create or find Kanban task')
     return task
@@ -354,6 +356,18 @@ function createTaskInState(
   }
   state.tasks[taskId] = task
   return task
+}
+
+function ensureTaskLabel(input: CreateKanbanTaskInput, labelName: string): CreateKanbanTaskInput {
+  const labels = input.labels ?? []
+  if (labels.some((label) => label.name === labelName)) return input
+  return {
+    ...input,
+    labels: [
+      ...labels,
+      { id: createKanbanId('label'), name: labelName, color: '#64748b' },
+    ],
+  }
 }
 
 function createValidatedKanbanConfig(currentConfig: KanbanBoardConfig, input: UpdateKanbanBoardConfigInput): KanbanBoardConfig {

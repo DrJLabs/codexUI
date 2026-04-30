@@ -6,7 +6,7 @@ import type { NativeAutomationStoreOptions } from '../automations/nativeStore'
 import type { KanbanStateFileV1 } from '../kanban/migrations'
 import { classifyKanbanRemoteAccess } from '../kanban/remoteAccess'
 import type { KanbanStorage } from '../kanban/storage'
-import { WorkspaceArtifactIndex, type WorkspaceArtifactContent } from './artifactIndex'
+import { WorkspaceArtifactIndex, type WorkspaceArtifactContent, type WorkspaceArtifactProvider } from './artifactIndex'
 import { createAutomationWorkspaceArtifactProvider } from './adapters/automationArtifacts'
 import { createKanbanWorkspaceArtifactProvider } from './adapters/kanbanArtifacts'
 import { ARTIFACT_PREVIEW_MAX_BYTES, ARTIFACT_RAW_MAX_BYTES, assertIndexedArtifactPath } from './security'
@@ -27,10 +27,11 @@ export type ArtifactAccessAuditEvent = {
 type AsyncRouteHandler = (req: Request, res: Response) => Promise<void>
 
 export function createArtifactRouter(options: CreateArtifactRouterOptions): Router {
-  const index = options.index ?? new WorkspaceArtifactIndex([
-    createKanbanWorkspaceArtifactProvider(options.storage),
-    createAutomationWorkspaceArtifactProvider(options.automations),
-  ])
+  const providers: WorkspaceArtifactProvider[] = [createKanbanWorkspaceArtifactProvider(options.storage)]
+  if (options.automations) {
+    providers.push(createAutomationWorkspaceArtifactProvider(options.automations))
+  }
+  const index = options.index ?? new WorkspaceArtifactIndex(providers)
   const router = express.Router()
 
   router.use((req, _res, next) => {

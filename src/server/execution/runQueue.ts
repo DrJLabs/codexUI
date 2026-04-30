@@ -25,6 +25,26 @@ export const DEFAULT_EXECUTION_RUN_QUEUE_LIMITS: ExecutionRunQueueLimits = {
   maxActiveRunsPerOwner: 1,
 }
 
+export class ExecutionRunQueueDuplicateRunError extends Error {
+  readonly runId: string
+
+  constructor(runId: string, message = `Execution run ${runId} is already queued`) {
+    super(message)
+    this.name = 'ExecutionRunQueueDuplicateRunError'
+    this.runId = runId
+  }
+}
+
+export class ExecutionRunQueueDuplicateOwnerError extends Error {
+  readonly ownerKey: string
+
+  constructor(ownerKey: string, message = `Execution owner ${ownerKey} already has a queued run`) {
+    super(message)
+    this.name = 'ExecutionRunQueueDuplicateOwnerError'
+    this.ownerKey = ownerKey
+  }
+}
+
 export class ExecutionRunQueue {
   private readonly limits: ExecutionRunQueueLimits
   private readonly active = new Map<string, ExecutionRunQueueItem>()
@@ -102,13 +122,13 @@ export class ExecutionRunQueue {
 
   private assertUniqueRun(runId: string): void {
     if (this.active.has(runId) || this.queued.some((item) => item.runId === runId)) {
-      throw new Error(`Execution run ${runId} is already queued`)
+      throw new ExecutionRunQueueDuplicateRunError(runId)
     }
   }
 
   private assertNoDuplicateQueuedOwner(ownerKey: string): void {
     if (this.queued.some((item) => item.ownerKey === ownerKey)) {
-      throw new Error(`Execution owner ${ownerKey} already has a queued run`)
+      throw new ExecutionRunQueueDuplicateOwnerError(ownerKey)
     }
   }
 }

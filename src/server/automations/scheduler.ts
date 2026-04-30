@@ -9,6 +9,8 @@ export class AutomationScheduler {
   private readonly now: () => Date
   private interval: ReturnType<typeof setInterval> | null = null
   private startupRecoveryPromise: Promise<unknown> | null = null
+  private startupRecoveryRequired = false
+  private startupRecoveryComplete = false
   private activeTick: Promise<void> | null = null
 
   constructor(options: {
@@ -22,12 +24,8 @@ export class AutomationScheduler {
   }
 
   start(): void {
-    if (!this.startupRecoveryPromise) {
-      this.startupRecoveryPromise = this.service.recoverInterruptedRuns().catch((error) => {
-        console.warn('Automation scheduler startup recovery failed:', error)
-        throw error
-      })
-    }
+    this.startupRecoveryRequired = true
+    void this.ensureStartupRecovery().catch(() => {})
     if (this.interval) return
     this.interval = setInterval(() => {
       void this.tick().catch((error) => {
@@ -53,7 +51,7 @@ export class AutomationScheduler {
   }
 
   private async runTick(): Promise<void> {
-    if (this.startupRecoveryPromise) await this.startupRecoveryPromise
+    await this.ensureStartupRecovery()
     const nowIso = this.now().toISOString()
     const activeRunIndex = buildActiveRunIndex(await this.service.listPersistedActiveRuns())
     const policy = this.service.getExecutionPolicy()
@@ -97,6 +95,26 @@ export class AutomationScheduler {
         activeRunIndex.repoActiveRuns.set(repoKey, (activeRunIndex.repoActiveRuns.get(repoKey) ?? 0) + 1)
       }
     }
+  }
+
+  private async ensureStartupRecovery(): Promise<void> {
+    if (!this.startupRecoveryRequired || this.startupRecoveryComplete) return
+    if (!this.startupRecoveryPromise) {
+      const startupRecoveryPromise = this.service.recoverInterruptedRuns()
+        .then((result) => {
+          this.startupRecoveryComplete = true
+          return result
+        })
+        .catch((error) => {
+          if (this.startupRecoveryPromise === startupRecoveryPromise) {
+            this.startupRecoveryPromise = null
+          }
+          console.warn('Automation scheduler startup recovery failed:', error)
+          throw error
+        })
+      this.startupRecoveryPromise = startupRecoveryPromise
+    }
+    await this.startupRecoveryPromise
   }
 
   private async repairIncompleteReservation(

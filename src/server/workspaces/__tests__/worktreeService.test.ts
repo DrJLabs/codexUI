@@ -70,6 +70,20 @@ describe('WorkspaceWorktreeService', () => {
     ])
   })
 
+  it('skips invalid shared lock owners instead of coercing them to Kanban ownership', async () => {
+    const { dataDir, projectRoot } = await createGitRepo()
+    const manager = new KanbanWorktreeManager({ dataDir, projectRoot })
+    const service = new WorkspaceWorktreeService({ dataDir, projectRoot })
+    const managed = await manager.createManagedWorktree({ taskId: 'task_legacy', taskTitle: 'Legacy', runId: 'run_legacy' })
+    const lock = JSON.parse(await readFile(managed.lockPath, 'utf8')) as Record<string, unknown>
+    await writeFile(managed.lockPath, `${JSON.stringify({
+      ...lock,
+      owner: { source: 'automation', id: '' },
+    }, null, 2)}\n`, 'utf8')
+
+    await expect(service.listWorktrees()).resolves.toEqual([])
+  })
+
   it('finds locks when the workspace service starts from a repository subdirectory', async () => {
     const { dataDir, projectRoot } = await createGitRepo()
     const subdirectory = join(projectRoot, 'packages', 'app')

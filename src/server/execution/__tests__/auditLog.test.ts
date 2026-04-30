@@ -91,6 +91,22 @@ describe('ExecutionAuditLog', () => {
     expect(lines[1].prevEventHash).toBe(legacyRecord.eventHash)
   })
 
+  it('serializes concurrent appends from separate instances for the same file', async () => {
+    const { filePath } = await createHarness('automation')
+    const firstLog = new ExecutionAuditLog({ filePath, source: 'automation' })
+    const secondLog = new ExecutionAuditLog({ filePath, source: 'automation' })
+
+    await Promise.all([
+      firstLog.append(createEvent('run.first')),
+      secondLog.append(createEvent('run.second')),
+    ])
+    const lines = (await readFile(filePath, 'utf8')).trim().split('\n').map((line) => JSON.parse(line))
+
+    expect(lines).toHaveLength(2)
+    expect(lines[0].prevEventHash).toBeNull()
+    expect(lines[1].prevEventHash).toBe(lines[0].eventHash)
+  })
+
   it('redacts input before hashing and persistence', async () => {
     const { auditLog, filePath } = await createHarness('action')
 

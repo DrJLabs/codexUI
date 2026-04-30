@@ -127,11 +127,51 @@ function parseIso(value: string, field: string): Date {
 
 function findNextOccurrence(rrule: SupportedRrule, anchor: Date, after: Date): Date {
   const start = roundDownToMinute(new Date(Math.max(anchor.getTime(), after.getTime()) + 60_000))
-  const maxIterations = 10 * 366 * 24 * 60
-  for (let offset = 0; offset < maxIterations; offset += 1) {
-    const candidate = new Date(start.getTime() + offset * 60_000)
-    if (candidate.getTime() <= after.getTime()) continue
-    if (matchesOccurrence(candidate, anchor, rrule)) return candidate
+  const searchEnd = new Date(start.getTime() + 10 * 366 * 24 * 60 * 60_000)
+
+  if (rrule.freq === 'MINUTELY') {
+    const anchorMinute = roundDownToMinute(anchor)
+    const startOffset = Math.max(1, Math.ceil(wholeMinutesBetween(anchorMinute, start) / rrule.interval) * rrule.interval)
+    for (let offset = startOffset; ; offset += rrule.interval) {
+      const candidate = new Date(anchorMinute.getTime() + offset * 60_000)
+      if (candidate.getTime() > searchEnd.getTime()) break
+      if (candidate.getTime() > after.getTime() && matchesOccurrence(candidate, anchor, rrule)) return candidate
+    }
+    throw new Error('Unsupported automation RRULE for scheduler: no occurrence found in search window')
+  }
+
+  if (rrule.freq === 'HOURLY') {
+    for (let bucket = roundDownToHour(start); bucket.getTime() <= searchEnd.getTime(); bucket = new Date(bucket.getTime() + 60 * 60_000)) {
+      const minutes = rrule.byminute ?? [roundDownToMinute(anchor).getUTCMinutes()]
+      for (const minute of minutes) {
+        const candidate = new Date(Date.UTC(
+          bucket.getUTCFullYear(),
+          bucket.getUTCMonth(),
+          bucket.getUTCDate(),
+          bucket.getUTCHours(),
+          minute,
+        ))
+        if (candidate.getTime() > after.getTime() && matchesOccurrence(candidate, anchor, rrule)) return candidate
+      }
+    }
+    throw new Error('Unsupported automation RRULE for scheduler: no occurrence found in search window')
+  }
+
+  const hours = rrule.byhour ?? [roundDownToMinute(anchor).getUTCHours()]
+  const minutes = rrule.byminute ?? [roundDownToMinute(anchor).getUTCMinutes()]
+  for (let day = startOfUtcDay(start); day.getTime() <= searchEnd.getTime(); day = new Date(day.getTime() + 24 * 60 * 60_000)) {
+    for (const hour of hours) {
+      for (const minute of minutes) {
+        const candidate = new Date(Date.UTC(
+          day.getUTCFullYear(),
+          day.getUTCMonth(),
+          day.getUTCDate(),
+          hour,
+          minute,
+        ))
+        if (candidate.getTime() > after.getTime() && matchesOccurrence(candidate, anchor, rrule)) return candidate
+      }
+    }
   }
   throw new Error('Unsupported automation RRULE for scheduler: no occurrence found in search window')
 }

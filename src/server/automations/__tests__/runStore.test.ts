@@ -88,6 +88,18 @@ describe('createAutomationRunStore', () => {
     await expect(readFile(outsideEventsPath, 'utf8')).rejects.toThrow()
     await expect(readFile(outsideLogPath, 'utf8')).rejects.toThrow()
   })
+
+  it('limits listed runs after sorting newest first', async () => {
+    const automationDir = await mkdtemp(join(tmpdir(), 'codexui-automation-run-store-'))
+    tempDirs.push(automationDir)
+    const store = createAutomationRunStore(automationDir)
+    await store.createRun(automationRunFixture({ id: 'run_old', createdAtIso: '2026-04-30T08:00:00.000Z' }))
+    await store.createRun(automationRunFixture({ id: 'run_new', createdAtIso: '2026-04-30T10:00:00.000Z' }))
+
+    const runs = await store.listRuns({ limit: 1 })
+
+    expect(runs.map((run) => run.id)).toEqual(['run_new'])
+  })
 })
 
 function automationRunFixture(overrides: Partial<AutomationRun> = {}): AutomationRun {

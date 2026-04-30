@@ -77,14 +77,12 @@ async function createTestServer(options: {
   audit?: (event: ArtifactAccessAuditEvent) => void
 }) {
   const app = express()
-  const emptyAutomationsHome = options.automations ? null : await mkdtemp(join(tmpdir(), 'codexui-artifacts-empty-automations-'))
-  if (emptyAutomationsHome) tempDirs.push(emptyAutomationsHome)
   const index = options.artifacts
     ? new WorkspaceArtifactIndex([{ source: 'kanban', async listArtifacts() { return options.artifacts ?? [] } }])
     : undefined
   app.use('/codex-api/artifacts', createArtifactRouter({
     storage: options.storage,
-    automations: options.automations ?? { codexHomeDir: emptyAutomationsHome ?? undefined },
+    automations: options.automations,
     index,
     audit: options.audit,
   }))
@@ -124,6 +122,26 @@ describe('artifact routes', () => {
 
     expect(response.data.map((artifact) => artifact.id)).toEqual(['kanban:evidence:run_1'])
     expect(events.map((event) => event.action)).toEqual(['list'])
+  })
+
+  it('does not index ambient automations unless automation storage is configured', async () => {
+    const { storage } = await createHarness()
+    const { codexHomeDir } = await createAutomationHarness()
+    const previousCodexHome = process.env.CODEX_HOME
+    process.env.CODEX_HOME = codexHomeDir
+    try {
+      const baseUrl = await createTestServer({ storage })
+
+      const response = await fetchJson<{ data: WorkspaceArtifact[] }>(`${baseUrl}/codex-api/artifacts?source=automation`)
+
+      expect(response.data).toEqual([])
+    } finally {
+      if (previousCodexHome === undefined) {
+        delete process.env.CODEX_HOME
+      } else {
+        process.env.CODEX_HOME = previousCodexHome
+      }
+    }
   })
 
   it('rejects invalid artifact query filters', async () => {

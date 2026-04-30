@@ -14,7 +14,7 @@ function readStringField(payload: Record<string, unknown>, key: string): string 
 }
 
 export function normalizeThreadAutomationStatus(value: unknown): ThreadAutomationStatus {
-  return value === 'PAUSED' ? 'PAUSED' : 'ACTIVE'
+  return typeof value === 'string' && value.trim().toUpperCase() === 'PAUSED' ? 'PAUSED' : 'ACTIVE'
 }
 
 export function parseThreadAutomationWritePayload(payload: Record<string, unknown> | null): ThreadAutomationWritePayload {

@@ -5482,3 +5482,39 @@ Automations review fixes for per-entry scheduler failure isolation and direct lo
 - Delete disposable local/worktree automations created for this check.
 - Remove temporary scheduler/run artifacts only under disposable automation directories.
 - Stop the dev server if it was started only for this test.
+
+---
+
+### Automations PR review cycle 1 fixes
+
+#### Feature/Change Name
+Review-cycle hardening for automation scheduler recovery, TOML persistence, artifact indexing scope, execution queue errors, run history listing, worktree locks, audit logs, and dev-server cleanup.
+
+#### Prerequisites/Setup
+1. Use `/home/drj/.codex/worktrees/52f8/codexUI`.
+2. Start the app with `pnpm run dev -- --host 0.0.0.0 --port 4173` for manual UI checks.
+3. Use disposable automation records, Kanban tasks, and managed worktrees only.
+4. Ensure light and dark themes are available from Settings.
+
+#### Steps
+1. Run `pnpm exec vitest run src/server/automations/__tests__/scheduler.test.ts src/server/automations/__tests__/nativeStore.test.ts src/server/execution/__tests__/runQueue.test.ts src/server/kanban/__tests__/taskQueue.test.ts src/server/artifacts/__tests__/routes.test.ts src/server/automations/__tests__/schedulerStore.test.ts src/server/execution/__tests__/auditLog.test.ts src/server/workspaces/__tests__/worktreeService.test.ts src/server/kanban/__tests__/worktreeManager.test.ts src/server/workspaces/__tests__/managedWorktreeService.test.ts src/server/kanban/__tests__/taskService.test.ts src/server/kanban/__tests__/routes.test.ts src/server/automations/__tests__/scheduleCalculator.test.ts src/server/automations/__tests__/runStore.test.ts`.
+2. Run `pnpm test:unit`.
+3. Run `pnpm run build`.
+4. Run `git diff --check`.
+5. In light theme, open `http://127.0.0.1:4173/#/automations` while the initial list is loading and confirm the editor controls are disabled until load settles.
+6. Confirm existing automations, recent runs, and storage details remain readable after load.
+7. Repeat steps 5-6 in dark theme.
+
+#### Expected Results
+- A failed scheduler startup recovery can be retried by a later tick.
+- Multiline TOML values with key-like text do not corrupt known automation fields.
+- Artifact routes do not index ambient automation storage unless automation storage is explicitly configured.
+- Queue duplicate handling uses typed errors instead of message matching.
+- Malformed or invalid worktree locks are isolated instead of breaking all lock scans.
+- Audit writes to the same file remain hash-chained across separate log instances.
+- Vite dev-server shutdown disposes the automation scheduler middleware.
+- Light and dark themes keep the loading-disabled Automations editor readable.
+
+#### Rollback/Cleanup
+- Delete disposable automation records, run folders, Kanban tasks, and worktrees created only for this check.
+- Stop the dev server if it was started only for this test.

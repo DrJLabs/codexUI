@@ -69,9 +69,11 @@ export function createMissingSchedulerState(input: MissingSchedulerStateInput): 
 
 function parseState(raw: string): AutomationSchedulerState {
   const parsed = JSON.parse(raw) as Partial<AutomationSchedulerState>
+  const automationId = readIdentity(parsed.automationId, 'automationId')
+  const sourceDirName = readIdentity(parsed.sourceDirName, 'sourceDirName')
   return {
-    automationId: typeof parsed.automationId === 'string' ? parsed.automationId : '',
-    sourceDirName: typeof parsed.sourceDirName === 'string' ? parsed.sourceDirName : '',
+    automationId,
+    sourceDirName,
     scheduleHash: typeof parsed.scheduleHash === 'string' ? parsed.scheduleHash : '',
     nextDueAtIso: readNullableIso(parsed.nextDueAtIso, 'nextDueAtIso'),
     lastDueAtIso: readNullableIso(parsed.lastDueAtIso, 'lastDueAtIso'),
@@ -81,6 +83,17 @@ function parseState(raw: string): AutomationSchedulerState {
     unsupportedReason: typeof parsed.unsupportedReason === 'string' ? parsed.unsupportedReason : null,
     updatedAtIso: readNullableIso(parsed.updatedAtIso, 'updatedAtIso'),
   }
+}
+
+function readIdentity(value: unknown, field: string): string {
+  if (typeof value !== 'string' || !isSafeIdentity(value)) {
+    throw new Error(`Invalid scheduler state ${field}`)
+  }
+  return value
+}
+
+function isSafeIdentity(value: string): boolean {
+  return Boolean(value && value.trim() === value && value !== '.' && value !== '..' && !value.includes('/') && !value.includes('\\'))
 }
 
 function readNullableIso(value: unknown, field: string): string | null {

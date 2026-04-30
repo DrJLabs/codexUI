@@ -55,7 +55,7 @@
       <aside class="automations-list" aria-label="Heartbeat automations">
         <div class="automations-list-header">
           <h2>Heartbeats</h2>
-          <button type="button" :disabled="isSaving" @click="startCreate()">New</button>
+          <button type="button" :disabled="isLoading || isSaving" @click="startCreate()">New</button>
         </div>
 
         <p v-if="isLoading" class="automations-status">Loading automations...</p>
@@ -85,7 +85,7 @@
                   <button
                     type="button"
                     class="automations-row-button"
-                    :disabled="isSaving"
+                    :disabled="isLoading || isSaving"
                     @click="selectAutomation(definition.id)"
                   >
                     {{ definition.name }}
@@ -117,6 +117,7 @@
 
         <p v-if="mutationError" class="automations-error-inline" role="alert">{{ mutationError }}</p>
 
+        <fieldset class="automations-editor-fieldset" :disabled="isLoading || isSaving">
         <div class="automations-field-grid">
           <label class="automations-field">
             <span>Name</span>
@@ -282,7 +283,7 @@
         </section>
 
         <div class="automations-editor-actions">
-          <button class="automations-primary" type="submit" :disabled="isSaving">
+          <button class="automations-primary" type="submit" :disabled="isLoading || isSaving">
             {{ isSaving ? 'Saving...' : draft.mode === 'edit' ? 'Save' : 'Create' }}
           </button>
           <button
@@ -319,6 +320,7 @@
             Delete and remove native folder
           </button>
         </div>
+        </fieldset>
       </form>
     </section>
   </main>
@@ -572,6 +574,13 @@ function shouldShowReadAction(run: AutomationRun): boolean {
 
 .automations-list {
   border-right: 1px solid rgba(148, 163, 184, 0.28);
+}
+
+.automations-editor-fieldset {
+  min-width: 0;
+  margin: 0;
+  border: 0;
+  padding: 0;
 }
 
 .automations-list-header,

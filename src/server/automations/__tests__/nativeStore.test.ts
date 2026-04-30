@@ -60,6 +60,38 @@ describe('native automation store TOML compatibility', () => {
     expect(parseAutomationToml(raw)).toEqual(pausedRecord)
   })
 
+  it('does not treat key-like lines inside multiline TOML strings as top-level fields while updating', () => {
+    const previousRaw = [
+      '# keep comment',
+      'prompt = """',
+      'old prompt body',
+      'id = "inside prompt"',
+      '"""',
+      'id = "old-id"',
+      'kind = "heartbeat"',
+      'name = "Old Name"',
+      'status = "PAUSED"',
+      'rrule = "FREQ=DAILY"',
+      'target_thread_id = "thread-123"',
+      'created_at = 1710000000000',
+      'updated_at = 1710000000000',
+      'unknown_notes = """',
+      'keep unknown body',
+      'prompt = "inside unknown"',
+      '"""',
+      '',
+    ].join('\n')
+
+    const raw = serializeAutomationToml(pausedRecord, previousRaw)
+
+    expect(raw).toContain('# keep comment')
+    expect(raw).toContain('unknown_notes = """\nkeep unknown body\nprompt = "inside unknown"\n"""')
+    expect(raw).toContain('id = "daily-check"')
+    expect(raw).toContain('prompt = "Check the thread"')
+    expect(raw).not.toContain('id = "inside prompt"')
+    expect(parseAutomationToml(raw)).toEqual(pausedRecord)
+  })
+
   it('returns null for invalid or partial records', () => {
     expect(parseAutomationToml('id = "missing-required-fields"\n')).toBeNull()
     expect(parseAutomationToml(`${serializeAutomationToml(pausedRecord)}kind = "timer"\n`)).toBeNull()
@@ -240,7 +272,8 @@ describe('native automation store filesystem behavior', () => {
 describe('legacy thread automation adapter', () => {
   it('normalizes legacy status casing and trims write payload fields', () => {
     expect(normalizeThreadAutomationStatus('PAUSED')).toBe('PAUSED')
-    expect(normalizeThreadAutomationStatus('paused')).toBe('ACTIVE')
+    expect(normalizeThreadAutomationStatus('paused')).toBe('PAUSED')
+    expect(normalizeThreadAutomationStatus(' paused ')).toBe('PAUSED')
 
     expect(parseThreadAutomationWritePayload({
       threadId: ' thread-1 ',
