@@ -676,6 +676,9 @@ describe('createAutomationsMiddleware', () => {
       `${baseUrl}/codex-api/automations/${created.body.data.id}`,
       { method: 'PATCH', headers: csrfHeaders, body: JSON.stringify({ runMode: 'local' }) },
     )
+    const afterInvalidPatches = await requestJson<{ data: { runMode: string | null; targetThreadId: string; cwd: string | null } }>(
+      `${baseUrl}/codex-api/automations/${created.body.data.id}`,
+    )
     const validLocal = await requestJson<{ data: { runMode: string; cwd: string; targetThreadId: string | null } }>(
       `${baseUrl}/codex-api/automations/${created.body.data.id}`,
       { method: 'PATCH', headers: csrfHeaders, body: JSON.stringify({ runMode: 'local', cwd: '/tmp', targetThreadId: null }) },
@@ -693,6 +696,8 @@ describe('createAutomationsMiddleware', () => {
     expect(chatWithoutThread.body.error).toContain('targetThreadId')
     expect(localWithoutCwd.status).toBe(400)
     expect(localWithoutCwd.body.error).toContain('cwd')
+    expect(afterInvalidPatches.status).toBe(200)
+    expect(afterInvalidPatches.body.data).toMatchObject({ runMode: null, targetThreadId: 'thread-patch-target', cwd: null })
     expect(validLocal.status).toBe(200)
     expect(validLocal.body.data).toMatchObject({ runMode: 'local', cwd: '/tmp', targetThreadId: null })
     expect(localWithoutMergedCwd.status).toBe(400)

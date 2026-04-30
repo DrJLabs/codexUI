@@ -146,6 +146,7 @@ export class AutomationsService {
       if (existing) throw new AutomationConflictError('Automation already exists for targetThreadId')
     }
     await this.assertKanbanProjectionTarget(input.kanbanProjection)
+    assertAutomationRunTarget(input.runMode, input.cwd, input.targetThreadId)
 
     const record = await writeThreadHeartbeatAutomation({
       threadId: input.targetThreadId,
@@ -190,7 +191,6 @@ export class AutomationsService {
       targetThreadId: hasOwn(patch, 'targetThreadId') ? patch.targetThreadId ?? null : entry.record.targetThreadId,
       updatedAtMs: now,
     }
-    await writeNativeHeartbeatAutomationBySourceDir(entry.sourceDirName, nextRecord, this.options)
     let nextSidecar = {
       ...sidecarResult.sidecar,
       description: hasOwn(patch, 'description') ? patch.description ?? null : sidecarResult.sidecar.description,
@@ -203,6 +203,7 @@ export class AutomationsService {
       notes: hasOwn(patch, 'notes') ? patch.notes ?? '' : sidecarResult.sidecar.notes,
     }
     assertAutomationRunTarget(nextSidecar.runMode, nextSidecar.cwd, nextRecord.targetThreadId)
+    await writeNativeHeartbeatAutomationBySourceDir(entry.sourceDirName, nextRecord, this.options)
     await writeSidecar(entry, nextSidecar)
     nextSidecar = await this.projectDefinitionSidecar({ ...entry, record: nextRecord }, nextSidecar)
     await writeSidecar(entry, nextSidecar)

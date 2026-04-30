@@ -88,11 +88,12 @@ function parseRrule(rrule: string): ParsedRrule {
     const freqValue = values.get('FREQ')
     if (!freqValue || !SUPPORTED_FREQUENCIES.has(freqValue)) throw new Error(`unsupported FREQ ${freqValue ?? ''}`.trim())
     const intervalValue = values.get('INTERVAL') ?? '1'
-    if (!/^[1-9]\d*$/u.test(intervalValue)) throw new Error('invalid INTERVAL')
+    const interval = Number(intervalValue)
+    if (!/^[1-9]\d*$/u.test(intervalValue) || !Number.isSafeInteger(interval)) throw new Error('invalid INTERVAL')
 
     return {
       freq: freqValue as Frequency,
-      interval: Number(intervalValue),
+      interval,
       byhour: parseNumberList(values.get('BYHOUR'), 0, 23, 'BYHOUR'),
       byminute: parseNumberList(values.get('BYMINUTE'), 0, 59, 'BYMINUTE'),
       byday: parseByday(values.get('BYDAY')),
@@ -115,7 +116,7 @@ function parseNumberList(value: string | undefined, min: number, max: number, fi
 function parseByday(value: string | undefined): Weekday[] | null {
   if (!value) return null
   const parts = value.split(',')
-  if (!parts.every((part): part is Weekday => part in WEEKDAY_INDEX)) throw new Error('invalid BYDAY')
+  if (!parts.every((part): part is Weekday => Object.prototype.hasOwnProperty.call(WEEKDAY_INDEX, part))) throw new Error('invalid BYDAY')
   return [...new Set(parts)]
 }
 

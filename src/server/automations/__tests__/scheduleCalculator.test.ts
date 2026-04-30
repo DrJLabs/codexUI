@@ -111,5 +111,19 @@ describe('evaluateRruleSchedule', () => {
       nextDueAtIso: null,
       nowIso: '2026-04-30T10:00:00.000Z',
     })).toThrow(/Unsupported automation RRULE for scheduler: .*INTERVAL/)
+
+    expect(() => evaluateRruleSchedule({
+      rrule: `FREQ=MINUTELY;INTERVAL=${'9'.repeat(400)}`,
+      anchorIso: '2026-04-30T00:00:00.000Z',
+      nextDueAtIso: null,
+      nowIso: '2026-04-30T10:00:00.000Z',
+    })).toThrow(/Unsupported automation RRULE for scheduler: .*INTERVAL/)
+
+    expect(() => evaluateRruleSchedule({
+      rrule: 'FREQ=WEEKLY;BYDAY=__proto__',
+      anchorIso: '2026-04-30T00:00:00.000Z',
+      nextDueAtIso: null,
+      nowIso: '2026-04-30T10:00:00.000Z',
+    })).toThrow(/Unsupported automation RRULE for scheduler: .*BYDAY/)
   })
 })

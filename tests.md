@@ -5553,6 +5553,34 @@ Review-cycle hardening for generated automation IDs, production artifact indexin
 
 ---
 
+### Automations PR review cycle 6 fixes
+
+#### Feature/Change Name
+Pre-persistence automation target validation and RRULE parser guardrails.
+
+#### Prerequisites/Setup
+1. Use the `feat/automations` worktree.
+2. Reuse an existing compatible dependency install if this worktree does not already have dependencies.
+3. Use disposable automation records only.
+
+#### Steps
+1. Run `pnpm exec vitest run src/server/automations/__tests__/routes.test.ts src/server/automations/__tests__/scheduleCalculator.test.ts`.
+2. Run `pnpm test:unit`.
+3. Run `pnpm run build`.
+4. Run `git diff --check`.
+5. Attempt to patch a chat automation to `targetThreadId: null`, then read the same automation.
+6. Evaluate RRULEs with an oversized `INTERVAL` and invalid `BYDAY=__proto__`.
+
+#### Expected Results
+- Invalid target patches fail before `automation.toml` or sidecar state is persisted.
+- The automation remains readable with its previous valid thread/run-target fields after rejected patches.
+- Oversized RRULE intervals and prototype-key `BYDAY` tokens are rejected instead of entering unsafe scheduler calculations.
+
+#### Rollback/Cleanup
+- Delete disposable automation records created only for this check.
+
+---
+
 ### Automations PR review cycle 5 fixes
 
 #### Feature/Change Name
