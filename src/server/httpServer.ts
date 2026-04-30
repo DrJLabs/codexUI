@@ -12,6 +12,8 @@ import { resolveKanbanConfig } from './kanban/config.js'
 import { createKanbanMiddleware } from './kanban/index.js'
 import { resolveKanbanDataDir } from './kanban/paths.js'
 import { KanbanStorage } from './kanban/storage.js'
+import { KanbanTaskService } from './kanban/taskService.js'
+import { AutomationKanbanProjectionService } from './automations/kanbanProjection.js'
 import { createDirectoryListingHtml, createTextEditorHtml, decodeBrowsePath, getLocalDirectoryListing, isTextEditableFile, normalizeLocalPath } from './localBrowseUi.js'
 import { WebSocketServer, type WebSocket } from 'ws'
 
@@ -86,7 +88,15 @@ export function createServer(options: ServerOptions = {}): ServerInstance {
   const kanbanConfig = resolveKanbanConfig()
   const kanbanDataDir = resolveKanbanDataDir(kanbanConfig.dataDir)
   const kanbanStorage = new KanbanStorage({ dataDir: kanbanDataDir, projectRoot })
-  const kanban = createKanbanMiddleware({ bridge, projectRoot, dataDir: kanbanDataDir, storage: kanbanStorage })
+  const kanbanTaskService = new KanbanTaskService({ storage: kanbanStorage, projectRoot, policy: kanbanConfig.policy })
+  const kanbanProjection = new AutomationKanbanProjectionService({ storage: kanbanStorage, taskService: kanbanTaskService })
+  const kanban = createKanbanMiddleware({
+    bridge,
+    projectRoot,
+    dataDir: kanbanDataDir,
+    storage: kanbanStorage,
+    taskService: kanbanTaskService,
+  })
   const artifacts = createArtifactRouter({ storage: kanbanStorage })
   const automations = createAutomationsMiddleware({
     bridge,
@@ -95,6 +105,7 @@ export function createServer(options: ServerOptions = {}): ServerInstance {
     projectRoot,
     kanbanDataDir,
     kanbanStorage,
+    kanbanProjection,
   })
   const authSession = options.password ? createAuthSession(options.password) : null
 

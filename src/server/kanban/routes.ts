@@ -39,6 +39,7 @@ export type CreateKanbanRouterOptions = {
   eventBus?: KanbanEventBus
   auditLog?: KanbanAuditSink
   bridge?: CodexBridgeRuntime
+  taskService?: KanbanTaskService
 }
 
 type AsyncRouteHandler = (req: Request, res: Response) => Promise<void>
@@ -53,7 +54,7 @@ export function createKanbanRouter(options: CreateKanbanRouterOptions = {}): Rou
   const sessionId = createKanbanId('session')
   const policy = options.policy ?? config.policy
   const storage = options.storage ?? new KanbanStorage({ dataDir, projectRoot })
-  const service = new KanbanTaskService({
+  const service = options.taskService ?? new KanbanTaskService({
     storage,
     projectRoot,
     policy,

@@ -10,6 +10,7 @@ import { createServer as createCodexUiServer } from '../../httpServer'
 import { KanbanStorage } from '../../kanban/storage'
 import { KanbanTaskService } from '../../kanban/taskService'
 import { createAutomationsMiddleware } from '../index'
+import { AutomationKanbanProjectionService } from '../kanbanProjection'
 import { AUTOMATIONS_CSRF_HEADER } from '../csrf'
 import {
   parseAutomationCreateInput,
@@ -72,6 +73,7 @@ async function createHarness(options: {
   projectRoot?: string
   kanbanDataDir?: string
   kanbanStorage?: KanbanStorage
+  kanbanProjection?: AutomationKanbanProjectionService
   kanbanProjectionTaskValidator?: {
     validateTask(taskId: string): Promise<void>
   } | null
@@ -87,6 +89,7 @@ async function createHarness(options: {
     projectRoot: options.projectRoot,
     kanbanDataDir: options.kanbanDataDir,
     kanbanStorage: options.kanbanStorage,
+    kanbanProjection: options.kanbanProjection,
     kanbanProjectionTaskValidator: options.kanbanProjectionTaskValidator,
   }))
   app.use('/codex-api', (_req, res) => {
@@ -798,6 +801,54 @@ describe('createAutomationsMiddleware', () => {
     expect(missing.body.error).toContain('Kanban projection task not found')
     expect(archived.status).toBe(400)
     expect(archived.body.error).toContain('Kanban projection task is archived')
+  })
+
+  it('projects definition-card settings during create and patch with a stable task id', async () => {
+    const dataDir = await mkdtemp(join(tmpdir(), 'codexui-automation-definition-projection-'))
+    codexHomeDirs.push(dataDir)
+    const projectRoot = join(dataDir, 'project')
+    const kanbanStorage = new KanbanStorage({ dataDir, projectRoot })
+    const taskService = new KanbanTaskService({ storage: kanbanStorage, projectRoot, policy: enabledPolicy })
+    const kanbanProjection = new AutomationKanbanProjectionService({ storage: kanbanStorage, taskService })
+    const { baseUrl } = await createHarness({ kanbanStorage, kanbanDataDir: dataDir, projectRoot, kanbanProjection })
+    const csrfHeaders = await readCsrfHeaders(baseUrl)
+
+    const created = await requestJson<{ data: { id: string; kanbanProjection: { mode: string; taskId?: string } } }>(
+      `${baseUrl}/codex-api/automations`,
+      {
+        method: 'POST',
+        headers: csrfHeaders,
+        body: JSON.stringify({
+          kind: 'heartbeat',
+          name: 'Definition Projection',
+          prompt: 'Prompt',
+          schedule: { type: 'rrule', rrule: 'FREQ=DAILY' },
+          targetThreadId: 'thread-definition-projection',
+          kanbanProjection: { mode: 'definition_card' },
+        }),
+      },
+    )
+    const repeatedPatch = await requestJson<{ data: { kanbanProjection: { mode: string; taskId?: string } } }>(
+      `${baseUrl}/codex-api/automations/${created.body.data.id}`,
+      {
+        method: 'PATCH',
+        headers: csrfHeaders,
+        body: JSON.stringify({ kanbanProjection: { mode: 'definition_card' } }),
+      },
+    )
+    const tasks = await taskService.listTasks({ limit: 100, offset: 0 })
+
+    expect(created.status).toBe(201)
+    expect(created.body.data.kanbanProjection).toEqual({ mode: 'definition_card', taskId: expect.any(String) })
+    expect(repeatedPatch.status).toBe(200)
+    expect(repeatedPatch.body.data.kanbanProjection).toEqual(created.body.data.kanbanProjection)
+    expect(tasks.items).toHaveLength(1)
+    expect(tasks.items[0]).toMatchObject({
+      id: created.body.data.kanbanProjection.taskId,
+      title: 'Automation: Definition Projection',
+      runState: 'idle',
+      currentRunId: '',
+    })
   })
 
   it('accepts monthly and yearly RRULEs while clearing scheduler due state as unsupported', async () => {

@@ -14,6 +14,7 @@ import type { CodexBridgeRuntime } from '../codexAppServerBridge'
 import { resolveKanbanConfig } from '../kanban/config'
 import { resolveKanbanDataDir } from '../kanban/paths'
 import { KanbanStorage } from '../kanban/storage'
+import type { AutomationKanbanProjectionService } from './kanbanProjection'
 import { AutomationConflictError, AutomationNotFoundError, AutomationValidationError } from './errors.js'
 import {
   deleteNativeAutomationBySourceDir,
@@ -46,6 +47,7 @@ export type AutomationsServiceOptions = NativeAutomationStoreOptions & {
   projectRoot?: string
   kanbanDataDir?: string
   kanbanStorage?: KanbanStorage
+  kanbanProjection?: AutomationKanbanProjectionService
   kanbanProjectionTaskValidator?: KanbanProjectionTaskValidator | null
 }
 
@@ -65,14 +67,19 @@ export type PersistedAutomationActiveRun = {
 export class AutomationsService {
   private readonly policy: KanbanExecutionPolicy
   private readonly runner: AutomationRunner | null
+  private readonly kanbanProjection: AutomationKanbanProjectionService | null
   private readonly kanbanProjectionTaskValidator: KanbanProjectionTaskValidator | null
 
   constructor(private readonly options: AutomationsServiceOptions = {}) {
     const kanbanConfig = resolveKanbanConfig()
+    this.kanbanProjection = options.kanbanProjection ?? null
+    const kanbanProjection = this.kanbanProjection
     this.policy = options.policy ?? kanbanConfig.policy
     this.kanbanProjectionTaskValidator = options.kanbanProjectionTaskValidator !== undefined
       ? options.kanbanProjectionTaskValidator
-      : createKanbanProjectionTaskValidator({
+      : kanbanProjection
+        ? { validateTask: async (taskId) => { await kanbanProjection.validateTask(taskId) } }
+        : createKanbanProjectionTaskValidator({
           dataDir: options.kanbanDataDir ?? resolveKanbanDataDir(kanbanConfig.dataDir),
           projectRoot: options.projectRoot ?? process.cwd(),
           storage: options.kanbanStorage,
@@ -82,6 +89,7 @@ export class AutomationsService {
           codexHomeDir: options.codexHomeDir,
           bridge: options.bridge,
           policy: this.policy,
+          kanbanProjection: this.kanbanProjection,
         })
       : null
   }
@@ -145,7 +153,9 @@ export class AutomationsService {
     }, this.options)
     const entry = await this.findEntry(record.id)
     if (!entry) throw new AutomationNotFoundError(record.id)
-    const sidecar = sidecarFromCreate(input)
+    let sidecar = sidecarFromCreate(input)
+    await writeSidecar(entry, sidecar)
+    sidecar = await this.projectDefinitionSidecar(entry, sidecar)
     await writeSidecar(entry, sidecar)
     await refreshSchedulerState(entry, sidecar)
     return await this.getDefinition(record.id)
@@ -178,7 +188,7 @@ export class AutomationsService {
       updatedAtMs: now,
     }
     await writeNativeHeartbeatAutomationBySourceDir(entry.sourceDirName, nextRecord, this.options)
-    const nextSidecar = {
+    let nextSidecar = {
       ...sidecarResult.sidecar,
       description: hasOwn(patch, 'description') ? patch.description ?? null : sidecarResult.sidecar.description,
       cwd: hasOwn(patch, 'cwd') ? patch.cwd ?? null : sidecarResult.sidecar.cwd,
@@ -189,6 +199,8 @@ export class AutomationsService {
       kanbanProjection: hasOwn(patch, 'kanbanProjection') ? patch.kanbanProjection ?? { mode: 'off' } : sidecarResult.sidecar.kanbanProjection,
       notes: hasOwn(patch, 'notes') ? patch.notes ?? '' : sidecarResult.sidecar.notes,
     }
+    await writeSidecar(entry, nextSidecar)
+    nextSidecar = await this.projectDefinitionSidecar({ ...entry, record: nextRecord }, nextSidecar)
     await writeSidecar(entry, nextSidecar)
     if (isSchedulerAffectingPatch(patch)) {
       await refreshSchedulerState({ ...entry, record: nextRecord }, nextSidecar)
@@ -226,6 +238,20 @@ export class AutomationsService {
       throw new AutomationValidationError('Kanban projection task validation is unavailable')
     }
     await validator.validateTask(projection.taskId)
+  }
+
+  private async projectDefinitionSidecar(entry: NativeAutomationEntry, sidecar: AutomationSidecar): Promise<AutomationSidecar> {
+    if (!this.kanbanProjection || sidecar.kanbanProjection.mode !== 'definition_card') return sidecar
+    const definition = (await mapDefinition(entry, sidecar)).definition
+    const result = await this.kanbanProjection.projectDefinition({ definition })
+    if (!result.taskId || sidecar.kanbanProjection.taskId === result.taskId) return sidecar
+    return {
+      ...sidecar,
+      kanbanProjection: {
+        mode: 'definition_card',
+        taskId: result.taskId,
+      },
+    }
   }
 
   async listSchedulerEntries(): Promise<AutomationSchedulerEntry[]> {

@@ -23,10 +23,12 @@ import {
   isActiveAutomationRunState,
 } from './runStore'
 import { createAutomationSchedulerStore } from './schedulerStore'
+import type { AutomationKanbanProjectionService } from './kanbanProjection'
 
 export type AutomationRunnerOptions = NativeAutomationStoreOptions & {
   bridge: CodexBridgeRuntime
   policy: KanbanExecutionPolicy
+  kanbanProjection?: AutomationKanbanProjectionService | null
 }
 
 const AUTOMATION_BRIDGE_METHODS = ['thread/start', 'thread/resume', 'thread/read', 'turn/start'] as const
@@ -36,6 +38,7 @@ export class AutomationRunner {
   private readonly bridge: RestrictedCodexBridgeAdapter
   private readonly policy: KanbanExecutionPolicy
   private readonly options: NativeAutomationStoreOptions
+  private readonly kanbanProjection: AutomationKanbanProjectionService | null
   private readonly locks = new Map<string, Promise<unknown>>()
   private readonly completionLocks = new Map<string, Promise<void>>()
   private readonly ownedActiveRunIds = new Set<string>()
@@ -47,6 +50,7 @@ export class AutomationRunner {
     })
     this.policy = options.policy
     this.options = { codexHomeDir: options.codexHomeDir }
+    this.kanbanProjection = options.kanbanProjection ?? null
     this.bridge.subscribeNotifications((notification) => this.handleBridgeNotification(notification))
   }
 
