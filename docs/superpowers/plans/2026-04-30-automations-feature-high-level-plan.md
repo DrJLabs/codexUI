@@ -101,8 +101,8 @@ type AutomationDefinition = {
   kanbanProjection: AutomationKanbanProjection
   createdAtIso: string
   updatedAtIso: string
-  lastRunAtIso: string
-  nextRunAtIso: string
+  lastRunAtIso: string | null
+  nextRunAtIso: string | null
   version: number
 }
 
@@ -123,25 +123,25 @@ type AutomationRun = {
   state: AutomationRunState
   projectRoot: string
   cwd: string
-  worktreePath: string
-  branchName: string
-  threadId: string
-  turnId: string
-  runProfileSnapshot: unknown
+  worktreePath: string | null
+  branchName: string | null
+  threadId: string | null
+  turnId: string | null
+  runProfileSnapshot: unknown | null
   promptSnapshot: string
   scheduleSnapshot: AutomationSchedule
   findings: boolean | null
   inboxTitle: string
   inboxSummary: string
-  readAtIso: string
-  archivedAtIso: string
-  kanbanTaskId: string
-  reviewPacketId: string
+  readAtIso: string | null
+  archivedAtIso: string | null
+  kanbanTaskId: string | null
+  reviewPacketId: string | null
   logPath: string
   eventsPath: string
   createdAtIso: string
-  startedAtIso: string
-  completedAtIso: string
+  startedAtIso: string | null
+  completedAtIso: string | null
 }
 ```
 

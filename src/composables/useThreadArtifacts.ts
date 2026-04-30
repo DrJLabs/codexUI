@@ -1,7 +1,8 @@
 import { computed, type Ref } from 'vue'
+import type { ThreadArtifactTabId } from '../types/threadWorkspace'
 import type { WorkspaceArtifact, WorkspaceArtifactKind } from '../types/workspaceArtifacts'
 
-export type ThreadArtifactTabId = 'plan' | 'run' | 'evidence' | 'review' | 'proposals'
+export type { ThreadArtifactTabId } from '../types/threadWorkspace'
 
 export type ThreadArtifactTab = {
   id: ThreadArtifactTabId

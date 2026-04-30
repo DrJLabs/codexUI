@@ -1,4 +1,4 @@
-export type ThreadArtifactSectionId =
+export type ThreadArtifactTabId =
   | 'plan'
   | 'run'
   | 'evidence'
@@ -24,7 +24,7 @@ export type ThreadWorkspaceDrawerSection = {
 }
 
 export type ThreadArtifactDrawerSection = {
-  id: ThreadArtifactSectionId
+  id: ThreadArtifactTabId
   label: string
   count: number
   enabled: boolean

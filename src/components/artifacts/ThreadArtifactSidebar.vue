@@ -51,7 +51,7 @@
       <ArtifactTabs v-model="activeTab" :tabs="tabs" />
       <section class="thread-artifact-sidebar-body">
         <ArtifactEmptyState
-          v-if="visibleThreadArtifacts.length === 0"
+          v-if="visibleThreadArtifacts.length === 0 && !hasVisibleSupplementalThreadPanel"
           :title="threadEmptyTitle"
           :copy="emptyCopy('thread')"
         />
@@ -196,6 +196,10 @@ const { allArtifacts, tabs, artifactsForTab } = useThreadArtifacts({
 const visibleThreadArtifacts = computed(() => artifactsForTab(activeTab.value))
 const worktreeArtifacts = computed(() => artifactsForKinds(['run_metadata', 'worktree']))
 const threadEmptyTitle = computed(() => `${tabs.value.find((tab) => tab.id === activeTab.value)?.label ?? 'Artifact'} artifacts`)
+const hasVisibleSupplementalThreadPanel = computed(() =>
+  (activeTab.value === 'review' && Boolean(props.reviewPacket)) ||
+  (activeTab.value === 'proposals' && props.proposals.length > 0)
+)
 const deferredPanelReason = computed(() => {
   const section = props.workspaceModel?.sections.find((item) => item.id === activeSectionId.value)
   return section?.reason || panelCopy(activeSectionId.value)
