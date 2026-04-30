@@ -5059,3 +5059,31 @@ Shared review packet freshness fingerprinting and summary UI.
 
 #### Rollback/Cleanup
 - None.
+
+---
+
+### Automations Phase 5D Shared Audit Log Source Schema
+
+#### Feature/Change Name
+Shared execution audit log schema, Kanban source wrapper, legacy hash-chain compatibility, and default redaction.
+
+#### Prerequisites/Setup
+1. Use the `feat/automations` worktree.
+2. Reuse the shared dependency install with `node_modules -> /home/drj/projects/codexUI/node_modules` if this worktree does not already have dependencies.
+3. No dev server is required; this slice is server-only and has no light/dark UI surface.
+
+#### Steps
+1. Run `/home/drj/projects/codexUI/node_modules/.bin/vitest run src/server/execution/__tests__/auditLog.test.ts src/server/kanban/__tests__/auditLog.test.ts src/server/kanban/__tests__/codexKanbanRunner.test.ts`.
+2. Run `pnpm run build`.
+3. Run `git diff --check`.
+
+#### Expected Results
+- Shared audit records use schema `codexui.execution.audit.v1`.
+- New Kanban audit records include `source: "kanban"` while retaining the existing audit file path.
+- A new execution audit record continues the hash chain from an existing legacy `codexui.kanban.audit.v1` record without rewriting the legacy line.
+- Secret-shaped fields such as authorization tokens and API keys are redacted before persistence and before event-hash calculation, even when no explicit redactor is supplied.
+- Kanban audit writes project only known Kanban audit fields and drop accidental extra input fields before hashing/persistence.
+- The targeted audit and runner tests pass, the production build passes, and diff whitespace checks are clean.
+
+#### Rollback/Cleanup
+- None. Tests write only temporary audit files under the OS temp directory.

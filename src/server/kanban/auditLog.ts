@@ -1,10 +1,13 @@
-import { createHash, randomUUID } from 'node:crypto'
-import { appendFile, mkdir, open } from 'node:fs/promises'
-import { dirname, join } from 'node:path'
+import { join } from 'node:path'
+import {
+  ExecutionAuditLog,
+  type ExecutionAuditEventInput,
+  type ExecutionAuditRecord,
+} from '../execution/auditLog'
 import { projectHash } from './paths'
 import { redactKanbanAuditValue } from './redaction'
 
-export type KanbanAuditEventInput = {
+export type KanbanAuditEventInput = ExecutionAuditEventInput & {
   eventType: string
   actor: Record<string, unknown>
   task: Record<string, unknown>
@@ -13,12 +16,8 @@ export type KanbanAuditEventInput = {
   policy: Record<string, unknown>
 }
 
-export type KanbanAuditRecord = KanbanAuditEventInput & {
-  schema: 'codexui.kanban.audit.v1'
-  eventId: string
-  ts: string
-  prevEventHash: string | null
-  eventHash: string
+export type KanbanAuditRecord = ExecutionAuditRecord<KanbanAuditEventInput> & {
+  source: 'kanban'
 }
 
 export type KanbanAuditSink = {
@@ -26,90 +25,19 @@ export type KanbanAuditSink = {
 }
 
 export class KanbanAuditLog implements KanbanAuditSink {
-  private readonly filePath: string
-  private writeQueue: Promise<void> = Promise.resolve()
-  private lastEventHash: string | null | undefined
+  private readonly auditLog: ExecutionAuditLog<KanbanAuditEventInput>
 
   constructor(options: { dataDir: string; projectRoot: string }) {
-    this.filePath = resolveProjectAuditLogPath(options.dataDir, options.projectRoot)
+    this.auditLog = new ExecutionAuditLog<KanbanAuditEventInput>({
+      filePath: resolveProjectAuditLogPath(options.dataDir, options.projectRoot),
+      source: 'kanban',
+      redact: redactKanbanAuditValue,
+      corruptMessage: 'Kanban audit log is corrupt',
+    })
   }
 
   append(input: KanbanAuditEventInput): Promise<KanbanAuditRecord> {
-    const next = this.writeQueue.then(() => this.appendNow(input))
-    this.writeQueue = next.then(() => undefined, () => undefined)
-    return next
-  }
-
-  private async appendNow(input: KanbanAuditEventInput): Promise<KanbanAuditRecord> {
-    const redacted = redactKanbanAuditValue(input)
-    const prevEventHash = await this.readPreviousEventHash()
-    const baseRecord = {
-      schema: 'codexui.kanban.audit.v1' as const,
-      eventId: randomUUID(),
-      ts: new Date().toISOString(),
-      prevEventHash,
-      eventType: redacted.eventType,
-      actor: redacted.actor,
-      task: redacted.task,
-      repo: redacted.repo,
-      codex: redacted.codex,
-      policy: redacted.policy,
-    }
-    const eventHash = createHash('sha256').update(canonicalJson(baseRecord)).digest('hex')
-    const record: KanbanAuditRecord = {
-      ...baseRecord,
-      eventHash,
-    }
-
-    await mkdir(dirname(this.filePath), { recursive: true })
-    await appendFile(this.filePath, `${JSON.stringify(record)}\n`, 'utf8')
-    this.lastEventHash = record.eventHash
-    return record
-  }
-
-  private async readPreviousEventHash(): Promise<string | null> {
-    if (this.lastEventHash !== undefined) return this.lastEventHash
-    const lastLine = await readLastNonEmptyLine(this.filePath)
-    if (!lastLine) return null
-    const lastRecord = JSON.parse(lastLine) as { eventHash?: unknown }
-    if (typeof lastRecord.eventHash !== 'string' || !/^[a-f0-9]{64}$/u.test(lastRecord.eventHash)) {
-      throw new Error('Kanban audit log is corrupt')
-    }
-    this.lastEventHash = lastRecord.eventHash
-    return lastRecord.eventHash
-  }
-}
-
-async function readLastNonEmptyLine(filePath: string): Promise<string | null> {
-  let file: Awaited<ReturnType<typeof open>>
-  try {
-    file = await open(filePath, 'r')
-  } catch (error) {
-    if (error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT') {
-      return null
-    }
-    throw error
-  }
-  try {
-    const { size } = await file.stat()
-    if (size === 0) return null
-    const chunkSize = 4096
-    let position = size
-    let text = ''
-    while (position > 0) {
-      const readSize = Math.min(chunkSize, position)
-      position -= readSize
-      const buffer = Buffer.alloc(readSize)
-      const { bytesRead } = await file.read(buffer, 0, readSize, position)
-      text = buffer.subarray(0, bytesRead).toString('utf8') + text
-      const lines = text.split(/\r?\n/u).filter((line) => line.trim().length > 0)
-      if (lines.length > 0 && (position === 0 || text.includes('\n'))) {
-        return lines.at(-1) ?? null
-      }
-    }
-    return text.trim() || null
-  } finally {
-    await file.close()
+    return this.auditLog.append(projectKanbanAuditInput(input)) as Promise<KanbanAuditRecord>
   }
 }
 
@@ -117,21 +45,13 @@ export function resolveProjectAuditLogPath(dataDir: string, projectRoot: string)
   return join(dataDir, 'audit', `${projectHash(projectRoot)}.jsonl`)
 }
 
-function canonicalJson(value: unknown): string {
-  return JSON.stringify(sortForCanonicalJson(value))
-}
-
-function sortForCanonicalJson(value: unknown): unknown {
-  if (Array.isArray(value)) {
-    return value.map((item) => sortForCanonicalJson(item))
+function projectKanbanAuditInput(input: KanbanAuditEventInput): KanbanAuditEventInput {
+  return {
+    eventType: input.eventType,
+    actor: input.actor,
+    task: input.task,
+    repo: input.repo,
+    codex: input.codex,
+    policy: input.policy,
   }
-  if (!value || typeof value !== 'object') {
-    return value
-  }
-  return Object.fromEntries(
-    Object.entries(value)
-      .filter(([, child]) => child !== undefined)
-      .sort(([left], [right]) => left.localeCompare(right))
-      .map(([key, child]) => [key, sortForCanonicalJson(child)]),
-  )
 }
