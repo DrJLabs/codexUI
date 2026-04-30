@@ -77,6 +77,7 @@ async function createHarness(options: {
   kanbanProjectionTaskValidator?: {
     validateTask(taskId: string): Promise<void>
   } | null
+  artifactIndexing?: boolean
 } = {}) {
   const codexHomeDir = await mkdtemp(join(tmpdir(), 'codexui-automations-api-'))
   codexHomeDirs.push(codexHomeDir)
@@ -91,6 +92,7 @@ async function createHarness(options: {
     kanbanStorage: options.kanbanStorage,
     kanbanProjection: options.kanbanProjection,
     kanbanProjectionTaskValidator: options.kanbanProjectionTaskValidator,
+    artifactIndexing: options.artifactIndexing,
   }))
   app.use('/codex-api', (_req, res) => {
     res.status(599).json({ error: 'generic bridge reached' })
@@ -224,6 +226,35 @@ describe('createAutomationsMiddleware', () => {
     instance.dispose()
   })
 
+  it('reports production feature flags for the shared server wiring', async () => {
+    const instance = createCodexUiServer()
+    const server = createHttpServer(instance.app)
+    servers.push(server)
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+    const address = server.address()
+    if (!address || typeof address === 'string') throw new Error('Expected test server port')
+
+    const state = await requestJson<{
+      data: {
+        featureFlags: {
+          scheduler: boolean
+          manualRun: boolean
+          kanbanProjection: boolean
+          artifactIndexing: boolean
+        }
+      }
+    }>(`http://127.0.0.1:${address.port}/codex-api/automations/state`)
+
+    expect(state.status).toBe(200)
+    expect(state.body.data.featureFlags).toMatchObject({
+      scheduler: true,
+      manualRun: true,
+      kanbanProjection: true,
+      artifactIndexing: true,
+    })
+    instance.dispose()
+  })
+
   it('disposes the production scheduler interval with the bridge', () => {
     vi.useFakeTimers()
     try {
@@ -247,7 +278,7 @@ describe('createAutomationsMiddleware', () => {
 
     const health = await requestJson<{ data: { ok: true } }>(`${baseUrl}/codex-api/automations/health`)
     const templates = await requestJson<{ data: Array<{ kind: string }> }>(`${baseUrl}/codex-api/automations/templates`)
-    const state = await requestJson<{ data: { storageRoot: string; featureFlags: { scheduler: boolean; kanbanProjection: boolean }; sourceCounts: { native: number }; diagnostics: unknown[]; definitions: Array<{ id: string; nextRunAtIso: string | null }> } }>(`${baseUrl}/codex-api/automations/state`)
+    const state = await requestJson<{ data: { storageRoot: string; featureFlags: { scheduler: boolean; kanbanProjection: boolean; artifactIndexing: boolean }; sourceCounts: { native: number }; diagnostics: unknown[]; definitions: Array<{ id: string; nextRunAtIso: string | null }> } }>(`${baseUrl}/codex-api/automations/state`)
     const list = await requestJson<{ data: Array<{ id: string; status: string; legacyStatus: string; targetThreadId: string | null; nextRunAtIso: string | null; storage: { nativeDirName: string } }> }>(`${baseUrl}/codex-api/automations`)
     const get = await requestJson<{ data: { id: string; targetThreadId: string | null; status: string; nextRunAtIso: string | null } }>(`${baseUrl}/codex-api/automations/detached-check`)
 
@@ -258,7 +289,8 @@ describe('createAutomationsMiddleware', () => {
     expect(state.status).toBe(200)
     expect(state.body.data.storageRoot).toBe(join(codexHomeDir, 'automations'))
     expect(state.body.data.featureFlags.scheduler).toBe(false)
-    expect(state.body.data.featureFlags.kanbanProjection).toBe(true)
+    expect(state.body.data.featureFlags.kanbanProjection).toBe(false)
+    expect(state.body.data.featureFlags.artifactIndexing).toBe(false)
     expect(state.body.data.sourceCounts.native).toBe(2)
     expect(state.body.data.diagnostics).toHaveLength(2)
     expect(state.body.data.diagnostics).toEqual(expect.arrayContaining([
@@ -282,6 +314,23 @@ describe('createAutomationsMiddleware', () => {
 
     expect(state.status).toBe(200)
     expect(state.body.data.featureFlags.scheduler).toBe(true)
+  })
+
+  it('reports projection and artifact indexing support only when wired for the service', async () => {
+    const dataDir = await mkdtemp(join(tmpdir(), 'codexui-automations-kanban-'))
+    codexHomeDirs.push(dataDir)
+    const projectRoot = join(dataDir, 'project')
+    await mkdir(projectRoot, { recursive: true })
+    const kanbanStorage = new KanbanStorage({ dataDir, projectRoot })
+    const taskService = new KanbanTaskService({ storage: kanbanStorage, projectRoot, policy: enabledPolicy })
+    const kanbanProjection = new AutomationKanbanProjectionService({ storage: kanbanStorage, taskService })
+    const { baseUrl } = await createHarness({ kanbanProjection, artifactIndexing: true })
+
+    const state = await requestJson<{ data: { featureFlags: { kanbanProjection: boolean; artifactIndexing: boolean } } }>(`${baseUrl}/codex-api/automations/state`)
+
+    expect(state.status).toBe(200)
+    expect(state.body.data.featureFlags.kanbanProjection).toBe(true)
+    expect(state.body.data.featureFlags.artifactIndexing).toBe(true)
   })
 
   it('requires trusted access for CSRF issuance and trusted CSRF for mutations', async () => {

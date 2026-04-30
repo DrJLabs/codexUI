@@ -101,7 +101,7 @@ export class AutomationRunner {
     assertAutomationRunProfileAllowed(runProfileSnapshot, this.policy)
 
     const store = createAutomationRunStore(input.automationDirPath)
-    await this.failOrphanedActiveRuns(store)
+    await this.failOrphanedActiveRuns(store, definition)
     const activeRun = (await store.listRuns()).find((run) => isActiveAutomationRunState(run.state))
     if (activeRun) {
       const activeTrigger = activeRun.trigger === 'schedule' ? 'scheduled' : 'manual'
@@ -471,7 +471,10 @@ export class AutomationRunner {
     }
   }
 
-  private async failOrphanedActiveRuns(store: ReturnType<typeof createAutomationRunStore>): Promise<void> {
+  private async failOrphanedActiveRuns(
+    store: ReturnType<typeof createAutomationRunStore>,
+    definition: AutomationDefinition,
+  ): Promise<void> {
     const activeRuns = (await store.listRuns()).filter((run) => isActiveAutomationRunState(run.state))
     for (const run of activeRuns) {
       if (this.ownedActiveRunIds.has(run.id)) continue
@@ -490,6 +493,7 @@ export class AutomationRunner {
       })
       await store.appendEvent(failed, { type: 'manual_run.recovered_failed', errorMessage: message })
       await store.appendLog(failed, message)
+      await this.projectTerminalRun({ definition, store, run: failed })
     }
   }
 
@@ -573,8 +577,8 @@ function extractAssistantText(response: unknown, turnId: string): string {
     : Array.isArray(record?.turns) ? record.turns : []
   const matchingTurn = turns.find((turn) => {
     const item = asRecord(turn)
-    return readString(item?.id) === turnId || readString(item?.turnId) === turnId
-  }) ?? turns.at(-1)
+    return readString(item?.id) === turnId || readString(item?.turnId) === turnId || readString(item?.turn_id) === turnId
+  })
   const turn = asRecord(matchingTurn)
   const items = Array.isArray(turn?.items) ? turn.items : []
   const texts = items.map((item) => {

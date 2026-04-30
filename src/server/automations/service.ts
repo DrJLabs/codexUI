@@ -49,6 +49,7 @@ export type AutomationsServiceOptions = NativeAutomationStoreOptions & {
   kanbanStorage?: KanbanStorage
   kanbanProjection?: AutomationKanbanProjectionService
   kanbanProjectionTaskValidator?: KanbanProjectionTaskValidator | null
+  artifactIndexing?: boolean
 }
 
 export type AutomationSchedulerEntry = {
@@ -106,8 +107,8 @@ export class AutomationsService {
       featureFlags: {
         scheduler: this.options.enableScheduler === true,
         manualRun: true,
-        kanbanProjection: true,
-        artifactIndexing: false,
+        kanbanProjection: this.kanbanProjection !== null,
+        artifactIndexing: this.options.artifactIndexing === true,
       },
       sourceCounts: {
         native: definitions.filter((definition) => definition.source === 'native').length,
@@ -355,6 +356,8 @@ export class AutomationsService {
       if (entry.record.kind !== 'heartbeat') continue
       const store = createAutomationRunStore(entry.automationDirPath)
       const activeRuns = (await store.listRuns()).filter((run) => isActiveAutomationRunState(run.state))
+      const sidecarResult = activeRuns.length > 0 ? await readSidecar(entry) : null
+      const definition = sidecarResult ? (await mapDefinition(entry, sidecarResult.sidecar)).definition : null
       for (const run of activeRuns) {
         if (run.trigger === 'schedule') {
           await reconcileSchedulerFromScheduledRun(entry, run)
@@ -374,6 +377,7 @@ export class AutomationsService {
         recovered += 1
         await store.appendEvent(failed, { type: 'scheduler.recovered_failed', errorMessage: message })
         await store.appendLog(failed, message)
+        if (definition) await this.projectRecoveredRun({ definition, store, run: failed })
       }
     }
     return { recovered }
@@ -425,6 +429,31 @@ export class AutomationsService {
       }
     }
     return await this.getDefinition(automationId)
+  }
+
+  private async projectRecoveredRun(input: {
+    definition: AutomationDefinition
+    store: ReturnType<typeof createAutomationRunStore>
+    run: AutomationRun
+  }): Promise<void> {
+    if (!this.kanbanProjection || input.run.kanbanTaskId) return
+    try {
+      const result = await this.kanbanProjection.projectRun({
+        definition: input.definition,
+        run: input.run,
+      })
+      if (!result.taskId) return
+      await input.store.updateRun(input.run.id, {
+        kanbanTaskId: result.taskId,
+      })
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Kanban projection failed'
+      await input.store.appendEvent(input.run, {
+        type: 'automation_projection.failed',
+        errorMessage: message,
+      })
+      await input.store.appendLog(input.run, `Kanban projection failed: ${message}`)
+    }
   }
 
   private async findEntry(automationId: string): Promise<NativeAutomationEntry | null> {

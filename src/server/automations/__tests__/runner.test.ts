@@ -514,6 +514,125 @@ describe('AutomationRunner', () => {
     expect(tasks).toEqual([])
   })
 
+  it('classifies only the completed turn when projecting runs', async () => {
+    const { taskService, kanbanProjection } = await createKanbanProjectionHarness()
+    const { codexHomeDir, service, notificationListeners } = await createHarness({
+      kanbanProjection,
+      readThreadResponse: {
+        thread: {
+          turns: [
+            {
+              turn_id: 'turn_1',
+              items: [{ type: 'agentMessage', text: 'No findings from the completed automation turn.' }],
+            },
+            {
+              id: 'unrelated_later_turn',
+              items: [{ type: 'agentMessage', text: 'RESULT: FINDINGS\n- This belongs to a different turn' }],
+            },
+          ],
+        },
+      },
+    })
+    await writeNative(codexHomeDir, 'daily-check-dir', nativeRecord, {
+      runMode: 'chat',
+      kanbanProjection: { mode: 'run_card', createFor: 'findings_only' },
+    })
+    await service.runNow('daily-check')
+
+    await Promise.resolve(notificationListeners[0]!({
+      method: 'turn/completed',
+      params: { threadId: 'thread-1', turnId: 'turn_1' },
+      atIso: new Date().toISOString(),
+    }))
+    const completed = (await service.listRuns('daily-check'))[0]!
+    const tasks = await listKanbanTasks(taskService)
+
+    expect(completed).toMatchObject({
+      state: 'completed_no_findings',
+      findings: false,
+      kanbanTaskId: null,
+    })
+    expect(tasks).toEqual([])
+  })
+
+  it('does not fall back to unrelated turns when the completed turn is missing from thread reads', async () => {
+    const { taskService, kanbanProjection } = await createKanbanProjectionHarness()
+    const { codexHomeDir, service, notificationListeners } = await createHarness({
+      kanbanProjection,
+      readThreadResponse: {
+        thread: {
+          turns: [
+            {
+              id: 'unrelated_later_turn',
+              items: [{ type: 'agentMessage', text: 'RESULT: FINDINGS\n- This belongs to a different turn' }],
+            },
+          ],
+        },
+      },
+    })
+    await writeNative(codexHomeDir, 'daily-check-dir', nativeRecord, {
+      runMode: 'chat',
+      kanbanProjection: { mode: 'run_card', createFor: 'findings_only' },
+    })
+    await service.runNow('daily-check')
+
+    await Promise.resolve(notificationListeners[0]!({
+      method: 'turn/completed',
+      params: { threadId: 'thread-1', turnId: 'turn_1' },
+      atIso: new Date().toISOString(),
+    }))
+    const completed = (await service.listRuns('daily-check'))[0]!
+    const tasks = await listKanbanTasks(taskService)
+
+    expect(completed).toMatchObject({
+      state: 'completed_no_findings',
+      resultSummary: '',
+      kanbanTaskId: null,
+    })
+    expect(tasks).toEqual([])
+  })
+
+  it('does not fall back to unrelated turns when the completed turn has no assistant text', async () => {
+    const { taskService, kanbanProjection } = await createKanbanProjectionHarness()
+    const { codexHomeDir, service, notificationListeners } = await createHarness({
+      kanbanProjection,
+      readThreadResponse: {
+        thread: {
+          turns: [
+            {
+              id: 'turn_1',
+              items: [{ type: 'userMessage', text: 'Original automation prompt' }],
+            },
+            {
+              id: 'unrelated_later_turn',
+              items: [{ type: 'agentMessage', text: 'RESULT: FINDINGS\n- This belongs to a different turn' }],
+            },
+          ],
+        },
+      },
+    })
+    await writeNative(codexHomeDir, 'daily-check-dir', nativeRecord, {
+      runMode: 'chat',
+      kanbanProjection: { mode: 'run_card', createFor: 'findings_only' },
+    })
+    await service.runNow('daily-check')
+
+    await Promise.resolve(notificationListeners[0]!({
+      method: 'turn/completed',
+      params: { threadId: 'thread-1', turnId: 'turn_1' },
+      atIso: new Date().toISOString(),
+    }))
+    const completed = (await service.listRuns('daily-check'))[0]!
+    const tasks = await listKanbanTasks(taskService)
+
+    expect(completed).toMatchObject({
+      state: 'completed_no_findings',
+      resultSummary: '',
+      kanbanTaskId: null,
+    })
+    expect(tasks).toEqual([])
+  })
+
   it('projects failed completion runs for failures_only run cards', async () => {
     const { taskService, kanbanProjection } = await createKanbanProjectionHarness()
     const { codexHomeDir, service, notificationListeners } = await createHarness({
@@ -645,6 +764,39 @@ describe('AutomationRunner', () => {
       inboxTitle: 'Run failed',
       readAtIso: null,
       archivedAtIso: null,
+    })
+  })
+
+  it('projects orphaned failed manual runs for failures_only run cards before starting the next run', async () => {
+    const { taskService, kanbanProjection } = await createKanbanProjectionHarness()
+    const { codexHomeDir, service, bridge } = await createHarness({ kanbanProjection })
+    await writeNative(codexHomeDir, 'daily-check-dir', nativeRecord, {
+      runMode: 'chat',
+      kanbanProjection: { mode: 'run_card', createFor: 'failures_only' },
+    })
+    const orphaned = await service.runNow('daily-check')
+    const restartedService = new AutomationsService({
+      codexHomeDir,
+      bridge,
+      policy: enabledPolicy,
+      kanbanProjection,
+    })
+
+    await restartedService.runNow('daily-check')
+    const runs = await restartedService.listRuns('daily-check')
+    const failed = runs.find((run) => run.id === orphaned.id)!
+    const tasks = await listKanbanTasks(taskService)
+
+    expect(failed).toMatchObject({
+      state: 'failed',
+      errorMessage: 'Automation manual run was left active by a previous server session',
+      kanbanTaskId: expect.any(String),
+    })
+    expect(tasks).toHaveLength(1)
+    expect(tasks[0]).toMatchObject({
+      id: failed.kanbanTaskId,
+      title: 'Automation finding: Daily Check',
+      runState: 'idle',
     })
   })
 
@@ -911,6 +1063,80 @@ describe('AutomationRunner', () => {
       lastDueAtIso: queuedScheduled.dueAtIso,
       nextDueAtIso: queuedScheduled.nextDueAtIso,
       lastScheduledRunId: queuedScheduled.id,
+    })
+  })
+
+  it('projects recovered interrupted runs for failures_only run cards', async () => {
+    const { taskService, kanbanProjection } = await createKanbanProjectionHarness()
+    const { codexHomeDir, service } = await createHarness({ kanbanProjection })
+    const automationDir = await writeNative(codexHomeDir, 'daily-check-dir', nativeRecord, {
+      runMode: 'chat',
+      kanbanProjection: { mode: 'run_card', createFor: 'failures_only' },
+    })
+    const runId = 'manual-running'
+    await createAutomationRunStore(automationDir).createRun({
+      id: runId,
+      automationId: 'daily-check',
+      automationName: 'Daily Check',
+      trigger: 'manual',
+      runMode: 'chat',
+      state: 'running',
+      promptSnapshot: 'Review the thread',
+      scheduleSnapshot: { type: 'rrule', rrule: 'FREQ=DAILY;INTERVAL=1' },
+      dueAtIso: null,
+      nextDueAtIso: null,
+      runProfileId: 'default',
+      runProfileSnapshot: {
+        id: 'default',
+        name: 'Default',
+        description: '',
+        model: '',
+        reasoningEffort: 'medium',
+        sandboxMode: 'workspace-write',
+        approvalPolicy: 'on-request',
+        networkAccess: false,
+        writableRoots: [],
+        createdAtIso: '2026-04-30T08:00:00.000Z',
+        updatedAtIso: '2026-04-30T08:00:00.000Z',
+      },
+      targetThreadId: 'thread-1',
+      cwd: null,
+      worktreePath: null,
+      branchName: null,
+      threadId: 'thread-1',
+      turnId: 'turn-1',
+      resultSummary: null,
+      errorMessage: null,
+      findings: null,
+      inboxTitle: '',
+      inboxSummary: '',
+      readAtIso: null,
+      archivedAtIso: null,
+      kanbanTaskId: null,
+      reviewPacketId: null,
+      proposalIds: [],
+      createdAtIso: '2026-04-30T08:55:00.000Z',
+      startedAtIso: '2026-04-30T08:56:00.000Z',
+      completedAtIso: null,
+      updatedAtIso: '2026-04-30T08:56:00.000Z',
+      ...createAutomationRunPaths(automationDir, runId),
+    })
+
+    expect(await service.recoverInterruptedRuns()).toEqual({ recovered: 1 })
+    expect(await service.recoverInterruptedRuns()).toEqual({ recovered: 0 })
+    const failed = (await service.listRuns('daily-check')).find((run) => run.id === runId)!
+    const tasks = await listKanbanTasks(taskService)
+
+    expect(failed).toMatchObject({
+      state: 'failed',
+      errorMessage: 'Automation run was interrupted by a previous server session',
+      kanbanTaskId: expect.any(String),
+    })
+    expect(tasks).toHaveLength(1)
+    expect(tasks[0]).toMatchObject({
+      id: failed.kanbanTaskId,
+      title: 'Automation finding: Daily Check',
+      runState: 'idle',
     })
   })
 

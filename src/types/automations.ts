@@ -124,7 +124,7 @@ export type AutomationsState = {
     scheduler: boolean
     manualRun: boolean
     kanbanProjection: boolean
-    artifactIndexing: false
+    artifactIndexing: boolean
   }
   sourceCounts: {
     native: number

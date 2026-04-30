@@ -106,6 +106,7 @@ export function createServer(options: ServerOptions = {}): ServerInstance {
     kanbanDataDir,
     kanbanStorage,
     kanbanProjection,
+    artifactIndexing: true,
   })
   const authSession = options.password ? createAuthSession(options.password) : null
 

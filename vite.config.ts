@@ -8,6 +8,8 @@ import { resolveKanbanConfig } from "./src/server/kanban/config";
 import { createKanbanMiddleware } from "./src/server/kanban";
 import { resolveKanbanDataDir } from "./src/server/kanban/paths";
 import { KanbanStorage } from "./src/server/kanban/storage";
+import { KanbanTaskService } from "./src/server/kanban/taskService";
+import { AutomationKanbanProjectionService } from "./src/server/automations/kanbanProjection";
 import { createDirectoryListingHtml, createTextEditorHtml, decodeBrowsePath, getLocalDirectoryListing, isTextEditableFile, normalizeLocalPath } from "./src/server/localBrowseUi";
 import tailwindcss from "@tailwindcss/vite";
 import { spawnSync } from "node:child_process";
@@ -141,11 +143,28 @@ export default defineConfig({
         const kanbanConfig = resolveKanbanConfig();
         const kanbanDataDir = resolveKanbanDataDir(kanbanConfig.dataDir);
         const kanbanStorage = new KanbanStorage({ dataDir: kanbanDataDir, projectRoot: appProjectRoot });
-        const kanban = createKanbanMiddleware({ bridge, projectRoot: appProjectRoot, dataDir: kanbanDataDir });
+        const kanbanTaskService = new KanbanTaskService({ storage: kanbanStorage, projectRoot: appProjectRoot, policy: kanbanConfig.policy });
+        const kanbanProjection = new AutomationKanbanProjectionService({ storage: kanbanStorage, taskService: kanbanTaskService });
+        const kanban = createKanbanMiddleware({
+          bridge,
+          projectRoot: appProjectRoot,
+          dataDir: kanbanDataDir,
+          storage: kanbanStorage,
+          taskService: kanbanTaskService,
+        });
         const kanbanApp = express();
         kanbanApp.use("/codex-api/kanban", kanban);
         kanbanApp.use("/codex-api/artifacts", createArtifactRouter({ storage: kanbanStorage }));
-        kanbanApp.use("/codex-api/automations", createAutomationsMiddleware());
+        kanbanApp.use("/codex-api/automations", createAutomationsMiddleware({
+          bridge,
+          policy: kanbanConfig.policy,
+          enableScheduler: true,
+          projectRoot: appProjectRoot,
+          kanbanDataDir,
+          kanbanStorage,
+          kanbanProjection,
+          artifactIndexing: true,
+        }));
         const httpServer = server.httpServer;
         if (httpServer) {
           httpServer.once("listening", () => {
