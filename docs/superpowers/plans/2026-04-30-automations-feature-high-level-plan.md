@@ -295,6 +295,8 @@ Initial API:
 
 This phase should not execute scheduled work yet. It should expose definitions cleanly.
 
+Phase 3 implementation plan: [`2026-04-30-automations-phase-3-first-class-api.md`](2026-04-30-automations-phase-3-first-class-api.md).
+
 Requirements:
 
 - Mutating routes require trusted access and CSRF, following the Kanban router pattern.

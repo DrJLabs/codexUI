@@ -3,6 +3,7 @@ import vue from "@vitejs/plugin-vue";
 import express from "express";
 import { createCodexBridgeMiddleware } from "./src/server/codexAppServerBridge";
 import { createArtifactRouter } from "./src/server/artifacts/routes";
+import { createAutomationsMiddleware } from "./src/server/automations";
 import { resolveKanbanConfig } from "./src/server/kanban/config";
 import { createKanbanMiddleware } from "./src/server/kanban";
 import { resolveKanbanDataDir } from "./src/server/kanban/paths";
@@ -144,6 +145,7 @@ export default defineConfig({
         const kanbanApp = express();
         kanbanApp.use("/codex-api/kanban", kanban);
         kanbanApp.use("/codex-api/artifacts", createArtifactRouter({ storage: kanbanStorage }));
+        kanbanApp.use("/codex-api/automations", createAutomationsMiddleware());
         const httpServer = server.httpServer;
         if (httpServer) {
           httpServer.once("listening", () => {

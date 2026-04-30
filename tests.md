@@ -197,6 +197,60 @@ This file tracks manual regression and feature verification steps.
 
 ---
 
+### Automations Phase 3 API Spec Review Gaps
+
+#### Feature/Change Name
+Automations Phase 3 API code-quality review regressions.
+
+#### Prerequisites/Setup
+1. Use the `codexUI` worktree.
+2. If this worktree has incomplete dependencies, temporarily point `node_modules` at `/home/drj/projects/codexUI/node_modules` and restore the original dependency tree after testing.
+
+#### Steps
+1. Run `/home/drj/projects/codexUI/node_modules/.bin/vitest run src/server/automations/__tests__/nativeStore.test.ts src/server/automations/__tests__/legacyRoutes.test.ts src/server/automations/__tests__/routes.test.ts`.
+
+#### Expected Results
+- Duplicate `POST /codex-api/automations` requests for an existing heartbeat `targetThreadId` return HTTP 409 and do not overwrite the native automation.
+- Ambiguous `GET`/`PATCH`/`DELETE` ids resolve exact native record ids before matching source directory names.
+- Duplicate `PATCH /codex-api/automations/:automationId` `targetThreadId` requests return HTTP 409 and do not mutate the patched automation.
+- `runMode` persists through `codexui.json` for create and patch, including accepted `null` and `chat` values.
+- Production `GET /codex-api/automations/health` is handled by the first-class automations router before the generic bridge.
+- Existing invalid `codexui.json` sidecar fields fall back to API defaults while valid fields are preserved where possible.
+- Automations state diagnostics include a warning for invalid sidecar content.
+- Expected command result: 3 test files pass, 19 tests pass.
+
+#### Rollback/Cleanup
+- Restore the original `node_modules` directory if a temporary symlink was used.
+
+---
+
+### Feature: Automations Phase 3 first-class API
+
+#### Prerequisites
+- Use `/home/drj/.codex/worktrees/52f8/codexUI` on `feat/automations`.
+- If this worktree has absent or incomplete dependencies, temporarily replace `node_modules` with a symlink to `/home/drj/projects/codexUI/node_modules` and restore/remove the temporary symlink after verification.
+- No UI, scheduler, manual run, Kanban projection, or artifact indexing behavior is included in this phase.
+
+#### Steps
+1. Run `/home/drj/projects/codexUI/node_modules/.bin/vitest run src/server/automations/__tests__/nativeStore.test.ts src/server/automations/__tests__/legacyRoutes.test.ts src/server/automations/__tests__/routes.test.ts`.
+2. Run `pnpm run build`.
+3. Run `node dist-cli/index.js --help`.
+4. Run `git diff --check`.
+5. Optional API smoke: start the app server and request `GET /codex-api/automations/health`, `GET /codex-api/automations/state`, and `GET /codex-api/automations/templates`.
+6. Optional mutation smoke: request `GET /codex-api/automations/csrf` from loopback and use the returned `x-codexui-automations-csrf` header for create/patch/pause/resume/delete requests.
+
+#### Expected Results
+- Native store tests prove first-class listing sees detached heartbeat automations by automation id while the legacy thread map continues to filter detached records.
+- First-class route tests prove data-wrapped health/state/templates/list/get responses, CSRF issuance, trusted-access enforcement, mutation CSRF enforcement, create/patch/pause/resume/delete behavior, and bridge precedence for `/codex-api/automations/health`.
+- Legacy `/codex-api/thread-automation*` tests continue to pass unchanged.
+- Build, CLI CJS smoke, and whitespace checks complete without errors.
+- Light and dark theme checks are not required because Phase 3 has no UI changes.
+
+#### Rollback/Cleanup
+- Remove any temporary `node_modules` symlink and restore the prior worktree dependency directory if it was moved aside for verification.
+
+---
+
 ### Feature: Automations Phase 1 right sidebar IA stabilization
 
 #### Prerequisites

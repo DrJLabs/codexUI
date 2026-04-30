@@ -7,6 +7,7 @@ import express, { type Express } from 'express'
 import { createCodexBridgeMiddleware } from './codexAppServerBridge.js'
 import { createAuthSession } from './authMiddleware.js'
 import { createArtifactRouter } from './artifacts/routes.js'
+import { createAutomationsMiddleware } from './automations/index.js'
 import { resolveKanbanConfig } from './kanban/config.js'
 import { createKanbanMiddleware } from './kanban/index.js'
 import { resolveKanbanDataDir } from './kanban/paths.js'
@@ -87,6 +88,7 @@ export function createServer(options: ServerOptions = {}): ServerInstance {
   const kanbanStorage = new KanbanStorage({ dataDir: kanbanDataDir, projectRoot })
   const kanban = createKanbanMiddleware({ bridge, projectRoot, dataDir: kanbanDataDir })
   const artifacts = createArtifactRouter({ storage: kanbanStorage })
+  const automations = createAutomationsMiddleware()
   const authSession = options.password ? createAuthSession(options.password) : null
 
   // 1. Auth middleware (if password is set)
@@ -94,9 +96,10 @@ export function createServer(options: ServerOptions = {}): ServerInstance {
     app.use(authSession.middleware)
   }
 
-  // 2. Kanban and indexed artifacts own their API paths before the generic bridge.
+  // 2. Kanban, indexed artifacts, and automations own their API paths before the generic bridge.
   app.use('/codex-api/kanban', kanban)
   app.use('/codex-api/artifacts', artifacts)
+  app.use('/codex-api/automations', automations)
 
   // 3. Bridge middleware for /codex-api/*
   app.use(bridge)

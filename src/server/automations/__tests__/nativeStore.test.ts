@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import {
   deleteThreadHeartbeatAutomation,
+  listNativeAutomationEntries,
   listThreadHeartbeatAutomations,
   parseAutomationToml,
   readThreadHeartbeatAutomation,
@@ -200,6 +201,39 @@ describe('native automation store filesystem behavior', () => {
     await expect(deleteThreadHeartbeatAutomation('thread-unsafe-id', { codexHomeDir })).resolves.toBe(true)
     await expect(stat(sourceDir)).rejects.toThrow()
     await expect(readFile(join(sessionsDir, 'keep.txt'), 'utf8')).resolves.toBe('do not delete')
+  })
+
+  it('lists native entries with safe source paths, invalid diagnostics, and detached heartbeat records', async () => {
+    const codexHomeDir = await createCodexHome()
+    const automationRoot = join(codexHomeDir, 'automations')
+    const detachedDir = join(automationRoot, 'detached-dir')
+    await mkdir(detachedDir, { recursive: true })
+    await writeFile(join(detachedDir, 'automation.toml'), serializeAutomationToml({
+      ...pausedRecord,
+      id: 'detached-id',
+      targetThreadId: null,
+    }), 'utf8')
+    const invalidDir = join(automationRoot, 'invalid-dir')
+    await mkdir(invalidDir, { recursive: true })
+    await writeFile(join(invalidDir, 'automation.toml'), 'id = "invalid-id"\nname = "Invalid"\n', 'utf8')
+
+    const entries = await listNativeAutomationEntries({ codexHomeDir })
+
+    expect(entries.records).toHaveLength(1)
+    expect(entries.records[0]).toMatchObject({
+      record: { id: 'detached-id', targetThreadId: null },
+      sourceDirName: 'detached-dir',
+      automationDirPath: detachedDir,
+      automationTomlPath: join(detachedDir, 'automation.toml'),
+    })
+    expect(entries.diagnostics).toEqual([expect.objectContaining({
+      automationId: 'invalid-dir',
+      sourceDirName: 'invalid-dir',
+      severity: 'error',
+    })])
+
+    const legacyList = await listThreadHeartbeatAutomations({ codexHomeDir })
+    expect(legacyList).toEqual({})
   })
 })
 

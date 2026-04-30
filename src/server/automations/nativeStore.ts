@@ -2,6 +2,7 @@ import { randomBytes } from 'node:crypto'
 import { mkdir, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
+import type { AutomationDiagnostic } from '../../types/automations'
 
 export type ThreadAutomationStatus = 'ACTIVE' | 'PAUSED'
 
@@ -27,6 +28,19 @@ type ThreadAutomationStoreEntry = {
   sourceDirName: string
 }
 
+export type NativeAutomationEntry = {
+  record: ThreadAutomationRecord
+  sourceDirName: string
+  automationTomlPath: string
+  automationDirPath: string
+}
+
+export type NativeAutomationEntryList = {
+  records: NativeAutomationEntry[]
+  diagnostics: AutomationDiagnostic[]
+  storageRoot: string
+}
+
 function getCodexHomeDir(options?: NativeAutomationStoreOptions): string {
   const injected = options?.codexHomeDir?.trim()
   if (injected) return injected
@@ -36,6 +50,10 @@ function getCodexHomeDir(options?: NativeAutomationStoreOptions): string {
 
 function getCodexAutomationsDir(options?: NativeAutomationStoreOptions): string {
   return join(getCodexHomeDir(options), 'automations')
+}
+
+export function getNativeAutomationsRoot(options?: NativeAutomationStoreOptions): string {
+  return getCodexAutomationsDir(options)
 }
 
 function readTomlString(value: string): string {
@@ -164,6 +182,45 @@ async function readAutomationRecordFromFile(filePath: string): Promise<ThreadAut
   }
 }
 
+export async function listNativeAutomationEntries(
+  options?: NativeAutomationStoreOptions,
+): Promise<NativeAutomationEntryList> {
+  const automationRoot = getCodexAutomationsDir(options)
+  const records: NativeAutomationEntry[] = []
+  const diagnostics: AutomationDiagnostic[] = []
+  let entries
+  try {
+    entries = await readdir(automationRoot, { withFileTypes: true })
+  } catch {
+    return { records, diagnostics, storageRoot: automationRoot }
+  }
+
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue
+    const automationDirPath = join(automationRoot, entry.name)
+    const automationTomlPath = join(automationDirPath, 'automation.toml')
+    const record = await readAutomationRecordFromFile(automationTomlPath)
+    if (!record) {
+      diagnostics.push({
+        automationId: entry.name,
+        sourceDirName: entry.name,
+        path: automationTomlPath,
+        severity: 'error',
+        message: 'Invalid automation.toml',
+      })
+      continue
+    }
+    records.push({
+      record,
+      sourceDirName: entry.name,
+      automationDirPath,
+      automationTomlPath,
+    })
+  }
+
+  return { records, diagnostics, storageRoot: automationRoot }
+}
+
 async function listThreadHeartbeatAutomationEntries(
   options?: NativeAutomationStoreOptions,
 ): Promise<Record<string, ThreadAutomationStoreEntry>> {
@@ -276,6 +333,34 @@ export async function writeThreadHeartbeatAutomation(
   return record
 }
 
+export async function writeNativeHeartbeatAutomationBySourceDir(
+  sourceDirName: string,
+  record: ThreadAutomationRecord,
+  options?: NativeAutomationStoreOptions,
+): Promise<ThreadAutomationRecord> {
+  if (!isSafeAutomationBasename(sourceDirName)) {
+    throw new Error('sourceDirName must be a safe automation directory name')
+  }
+  const automationRoot = getCodexAutomationsDir(options)
+  const automationDir = join(automationRoot, sourceDirName)
+  const automationTomlPath = join(automationDir, 'automation.toml')
+  let previousRaw: string | undefined
+  try {
+    previousRaw = await readFile(automationTomlPath, 'utf8')
+  } catch {
+    previousRaw = undefined
+  }
+  await mkdir(automationDir, { recursive: true })
+  await writeFile(automationTomlPath, serializeAutomationToml(record, previousRaw), 'utf8')
+  const memoryPath = join(automationDir, 'memory.md')
+  try {
+    await stat(memoryPath)
+  } catch {
+    await writeFile(memoryPath, '', 'utf8')
+  }
+  return record
+}
+
 export async function deleteThreadHeartbeatAutomation(
   threadId: string,
   options?: NativeAutomationStoreOptions,
@@ -283,5 +368,14 @@ export async function deleteThreadHeartbeatAutomation(
   const automation = await readThreadHeartbeatAutomationEntry(threadId.trim(), options)
   if (!automation || !isSafeAutomationBasename(automation.sourceDirName)) return false
   await rm(join(getCodexAutomationsDir(options), automation.sourceDirName), { recursive: true, force: true })
+  return true
+}
+
+export async function deleteNativeAutomationBySourceDir(
+  sourceDirName: string,
+  options?: NativeAutomationStoreOptions,
+): Promise<boolean> {
+  if (!isSafeAutomationBasename(sourceDirName)) return false
+  await rm(join(getCodexAutomationsDir(options), sourceDirName), { recursive: true, force: true })
   return true
 }
