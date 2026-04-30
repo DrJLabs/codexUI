@@ -1,4 +1,5 @@
-import type { CodexRunProfile, KanbanExecutionMode } from './kanban'
+import type { CodexRunProfile } from './execution'
+import type { KanbanExecutionMode } from './kanban'
 
 export type LocalActionKind = 'build' | 'test' | 'dev'
 
