@@ -32,10 +32,11 @@ export function useThreadWorkspace(input: {
     const worktreeCount = threadArtifacts.filter((artifact) => artifact.kind === 'worktree').length
     const proposalCount = input.proposalCount.value
     const hasThread = Boolean(threadId)
+    const activeWorktreeCount = hasThread ? input.activeWorktreeCount.value : 0
 
     const disabledThreadReason = hasThread ? '' : 'Select a thread to inspect thread workspace artifacts.'
     const sections: ThreadWorkspaceDrawerSection[] = [
-      createSection('thread', 'Thread', artifactCount, hasThread, false, disabledThreadReason),
+      createSection('thread', 'Thread', artifactCount + proposalCount, hasThread, false, disabledThreadReason),
       createSection(
         'kanban',
         'Kanban',
@@ -52,7 +53,7 @@ export function useThreadWorkspace(input: {
         true,
         hasThread ? AUTOMATIONS_FEATURE_REASON : disabledThreadReason,
       ),
-      createSection('worktrees', 'Worktrees', runCount + worktreeCount, hasThread, false, hasThread ? '' : disabledThreadReason),
+      createSection('worktrees', 'Worktrees', activeWorktreeCount, hasThread, false, hasThread ? '' : disabledThreadReason),
       createSection('artifacts', 'Artifacts', artifactCount, true, false, ''),
       createSection(
         'actions',
@@ -67,7 +68,7 @@ export function useThreadWorkspace(input: {
 
     const threadArtifactSections: ThreadArtifactDrawerSection[] = [
       createThreadArtifactSection('plan', 'Plan', planCount, hasThread, disabledThreadReason),
-      createThreadArtifactSection('run', 'Run', runCount, hasThread, disabledThreadReason),
+      createThreadArtifactSection('run', 'Run', runCount + worktreeCount, hasThread, disabledThreadReason),
       createThreadArtifactSection('evidence', 'Evidence', evidenceCount, hasThread, disabledThreadReason),
       createThreadArtifactSection('review', 'Review', reviewCount, hasThread, disabledThreadReason),
       createThreadArtifactSection('proposals', 'Proposals', proposalCount, hasThread, disabledThreadReason),

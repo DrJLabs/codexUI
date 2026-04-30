@@ -250,6 +250,8 @@ Expected outcome:
 - Stable homes for Kanban, Automations, Worktrees, Artifacts, Actions, and Permissions.
 - `Automations` can remain empty/deferred until the backend is ready.
 
+Phase 1 implementation plan: [`2026-04-30-automations-phase-1-right-sidebar-ia.md`](2026-04-30-automations-phase-1-right-sidebar-ia.md).
+
 ### Phase 2: Extract Existing Heartbeat Automation Store
 
 Move current heartbeat automation parsing, serialization, listing, reading, writing, and deleting out of `codexAppServerBridge.ts` into `src/server/automations/nativeStore.ts`.

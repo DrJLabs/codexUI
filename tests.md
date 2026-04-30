@@ -176,6 +176,34 @@ This file tracks manual regression and feature verification steps.
 #### Rollback/Cleanup
 - None.
 
+---
+
+### Feature: Automations Phase 1 right sidebar IA stabilization
+
+#### Prerequisites
+- App is running from this repository.
+- At least one chat thread exists.
+- Light and dark themes are available from Settings.
+
+#### Steps
+1. Run `/home/drj/projects/codexUI/node_modules/.bin/vitest run src/composables/useThreadWorkspace.test.ts src/composables/useThreadArtifacts.test.ts`.
+2. Run `pnpm run build`.
+3. Open a thread in light theme and open the right sidebar.
+4. Confirm the first-level menu shows Thread, Kanban, Automations, Worktrees, Artifacts, Actions, and Permissions.
+5. Click Thread and confirm Plan, Run, Evidence, Review, and Proposals appear only inside the Thread panel.
+6. Confirm the Thread row count includes visible thread artifacts plus proposal count, and Worktrees uses the active worktree count.
+7. Click Automations and confirm it opens an in-place deferred panel rather than a nested artifact tab.
+8. Switch to dark theme and repeat steps 3-7.
+
+#### Expected Results
+- Plan, Run, Evidence, Review, and Proposals are nested under Thread only.
+- Automations has a stable first-level home and remains deferred.
+- Only one first-level panel is visible at a time.
+- Light and dark themes remain readable.
+
+#### Rollback/Cleanup
+- Stop the dev server if one was started.
+
 ### Feature: Remove GitHub trending projects from the new-thread screen
 
 #### Prerequisites
