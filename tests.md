@@ -251,6 +251,44 @@ First-class Automations hash route with shared heartbeat editor.
 
 ---
 
+### Automations Phase 10A run-history triage UI
+
+#### Feature/Change Name
+Compact run-history triage actions for automation runs.
+
+#### Prerequisites/Setup
+1. Use `/home/drj/.codex/worktrees/52f8/codexUI`.
+2. Start the app with `pnpm run dev -- --host 0.0.0.0 --port 4173`.
+3. Ensure at least one heartbeat automation has recent runs, including a failed run or a run with findings if possible.
+4. Ensure light and dark themes are available from Settings.
+
+#### Steps
+1. Run `/home/drj/projects/codexUI/node_modules/.bin/vitest run src/composables/useAutomations.test.ts src/api/automationsGateway.test.ts`.
+2. Run `pnpm run build`.
+3. Open `http://127.0.0.1:4173/#/automations` in light theme.
+4. Select an automation with recent run history.
+5. Confirm each run displays compact state, trigger, timestamp, and path details.
+6. Confirm `inboxTitle` appears when present and `inboxSummary` appears when present.
+7. For an unread findings or failed run, click `Read` and confirm the run history refreshes without leaving the selected automation.
+8. For an unarchived run, click `Archive` and confirm the action changes to `Unarchive`.
+9. Click `Unarchive` and confirm the action changes back to `Archive`.
+10. Repeat steps 3-9 in dark theme.
+11. Resize the browser to a narrow mobile width and confirm long inbox copy, paths, and buttons wrap without overlap.
+
+#### Expected Results
+- Run history remains a compact list with no card-in-card layout.
+- `Read` is shown only for unread runs with findings or failed state.
+- Unarchived runs show `Archive`; archived runs show `Unarchive`.
+- Triage actions call the existing run mutation endpoints and refresh selected run history.
+- Light and dark themes keep run titles, summaries, buttons, paths, and status pills readable.
+- Long inbox text and paths wrap inside the run item without horizontal overlap.
+
+#### Rollback/Cleanup
+- Unarchive any run archived only for testing if preserving the previous triage state matters.
+- Stop the dev server if it was started only for this test.
+
+---
+
 ### Automations Phase 3 API Spec Review Gaps
 
 #### Feature/Change Name

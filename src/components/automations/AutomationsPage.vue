@@ -42,7 +42,7 @@
       <aside class="automations-list" aria-label="Heartbeat automations">
         <div class="automations-list-header">
           <h2>Heartbeats</h2>
-          <button type="button" @click="startCreate()">New</button>
+          <button type="button" :disabled="isSaving" @click="startCreate()">New</button>
         </div>
 
         <p v-if="isLoading" class="automations-status">Loading automations...</p>
@@ -69,7 +69,12 @@
                 :data-active="definition.id === selectedAutomationId"
               >
                 <td>
-                  <button type="button" class="automations-row-button" @click="selectAutomation(definition.id)">
+                  <button
+                    type="button"
+                    class="automations-row-button"
+                    :disabled="isSaving"
+                    @click="selectAutomation(definition.id)"
+                  >
                     {{ definition.name }}
                   </button>
                 </td>
@@ -183,7 +188,7 @@
         <section v-if="draft.mode === 'edit'" class="automations-runs" aria-label="Recent automation runs">
           <div class="automations-runs-header">
             <h3>Recent runs</h3>
-            <button type="button" :disabled="isRunHistoryLoading" @click="loadRunHistory()">
+            <button type="button" :disabled="isSaving || isRunHistoryLoading" @click="loadRunHistory()">
               {{ isRunHistoryLoading ? 'Refreshing...' : 'Refresh' }}
             </button>
           </div>
@@ -195,6 +200,36 @@
                 <span class="automations-status-pill" :data-status="run.state">{{ run.state }}</span>
                 <strong>{{ run.trigger }}</strong>
                 <span>{{ formatTimestamp(run.createdAtIso) }}</span>
+              </div>
+              <div v-if="run.inboxTitle || run.inboxSummary" class="automations-run-inbox">
+                <strong v-if="run.inboxTitle">{{ run.inboxTitle }}</strong>
+                <p v-if="run.inboxSummary">{{ run.inboxSummary }}</p>
+              </div>
+              <div class="automations-run-actions" aria-label="Run triage actions">
+                <button
+                  v-if="shouldShowReadAction(run)"
+                  type="button"
+                  :disabled="isSaving"
+                  @click="markRunRead(run.id)"
+                >
+                  Read
+                </button>
+                <button
+                  v-if="run.archivedAtIso === null"
+                  type="button"
+                  :disabled="isSaving"
+                  @click="archiveRun(run.id)"
+                >
+                  Archive
+                </button>
+                <button
+                  v-else
+                  type="button"
+                  :disabled="isSaving"
+                  @click="unarchiveRun(run.id)"
+                >
+                  Unarchive
+                </button>
               </div>
               <dl>
                 <div>
@@ -273,6 +308,7 @@
 import { computed, onMounted, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { useAutomations } from '../../composables/useAutomations'
+import type { AutomationRun } from '../../types/automations'
 
 const route = useRoute()
 const {
@@ -297,6 +333,9 @@ const {
   pauseSelected,
   resumeSelected,
   runSelectedNow,
+  markRunRead,
+  archiveRun,
+  unarchiveRun,
   loadRunHistory,
   deleteSelectedRemoveNative,
   applyThreadPrefill,
@@ -338,6 +377,10 @@ function formatTimestamp(value: string | null): string {
   const timestamp = Date.parse(value)
   if (!Number.isFinite(timestamp)) return value || 'n/a'
   return new Date(timestamp).toLocaleString()
+}
+
+function shouldShowReadAction(run: AutomationRun): boolean {
+  return run.readAtIso === null && (run.findings === true || run.state === 'failed')
 }
 </script>
 
@@ -636,6 +679,40 @@ function formatTimestamp(value: string | null): string {
   text-transform: capitalize;
 }
 
+.automations-run-inbox {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+  margin-top: 8px;
+  color: #334155;
+  font-size: 12px;
+}
+
+.automations-run-inbox strong,
+.automations-run-inbox p {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.automations-run-inbox p {
+  margin: 0;
+  color: #64748b;
+  line-height: 1.4;
+}
+
+.automations-run-actions {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.automations-run-actions button {
+  padding: 5px 8px;
+  font-size: 12px;
+}
+
 .automations-run-item dl {
   display: grid;
   gap: 6px;
@@ -794,11 +871,13 @@ function formatTimestamp(value: string | null): string {
 
 :global(:root.dark) .automations-run-main,
 :global(:root.dark) .automations-run-item dt,
-:global(:root.dark) .automations-run-item dd {
+:global(:root.dark) .automations-run-item dd,
+:global(:root.dark) .automations-run-inbox p {
   color: #94a3b8;
 }
 
-:global(:root.dark) .automations-run-main strong {
+:global(:root.dark) .automations-run-main strong,
+:global(:root.dark) .automations-run-inbox {
   color: #e5e7eb;
 }
 
