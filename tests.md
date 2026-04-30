@@ -289,6 +289,48 @@ Compact run-history triage actions for automation runs.
 
 ---
 
+### Automations Phase 10B schedule status polish
+
+#### Feature/Change Name
+Next-run display, schedule wording, and capability status chips for the Automations route.
+
+#### Prerequisites/Setup
+1. Use `/home/drj/.codex/worktrees/52f8/codexUI`.
+2. Start the app with `pnpm run dev -- --host 0.0.0.0 --port 4173`.
+3. Prepare at least one active automation with a supported schedule, one paused automation, and one automation with no next run or a scheduler-unsupported monthly/yearly schedule if available.
+4. Ensure light and dark themes are available from Settings.
+
+#### Steps
+1. Run `/home/drj/projects/codexUI/node_modules/.bin/vitest run src/composables/useAutomations.test.ts src/api/automationsGateway.test.ts`.
+2. Run `pnpm run build`.
+3. Open `http://127.0.0.1:4173/#/automations` in light theme.
+4. Confirm the summary band shows status chips for Scheduler, Manual run, Artifact indexing, and Kanban projection, with only on/off status and no toggles.
+5. Confirm the list column is `Next run`, not `Updated`.
+6. Confirm an active scheduled automation shows a formatted next-run timestamp.
+7. Confirm a paused automation shows `Paused`.
+8. Confirm an automation with no next run shows `Not scheduled`.
+9. Select an automation and confirm the editor storage/details area includes `Next run` beside automation id, native path, and sidecar path.
+10. Confirm the editor field label says `Schedule rule` and the helper text says `RRULE format, for example FREQ=DAILY;BYHOUR=9;BYMINUTE=0.`
+11. Confirm the thread field label says `Attached thread id`.
+12. Open `#/automations?threadId=<id>` and confirm the create or edit header says `Prefilled from thread <id>`.
+13. If monthly/yearly scheduler diagnostics are present, confirm diagnostics surface the unsupported schedule reason without adding separate scheduler controls.
+14. Repeat steps 4-13 in dark theme.
+15. Resize to a narrow mobile width and tablet width and confirm chips, helper text, diagnostics, paths, and next-run values wrap without overlap.
+
+#### Expected Results
+- Next-run status is visible in both the list and selected automation details.
+- Scheduled active automations show a formatted timestamp; paused automations show `Paused`; unsupported or unscheduled automations show `Not scheduled`.
+- Schedule and thread labels use operator-facing wording.
+- Capability chips reflect `state.featureFlags` only and do not introduce new toggles.
+- Empty, error, and diagnostics copy stays concise and does not say scheduler or artifact indexing is absent when feature flags report those capabilities as present.
+- Light and dark themes keep chips, helper text, table cells, diagnostics, and storage details readable.
+
+#### Rollback/Cleanup
+- Restore any automation statuses or schedules changed only for testing.
+- Stop the dev server if it was started only for this test.
+
+---
+
 ### Automations Phase 3 API Spec Review Gaps
 
 #### Feature/Change Name

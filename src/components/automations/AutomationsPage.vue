@@ -17,12 +17,25 @@
         <span class="automations-summary-label">Native storage root</span>
         <strong :title="state.storageRoot">{{ state.storageRoot || 'Unavailable' }}</strong>
       </div>
+      <div class="automations-summary-item automations-summary-capabilities">
+        <span class="automations-summary-label">Capabilities</span>
+        <div class="automations-capability-chips" aria-label="Automation capability status">
+          <span
+            v-for="capability in capabilityChips"
+            :key="capability.key"
+            class="automations-capability-chip"
+            :data-enabled="capability.enabled"
+          >
+            {{ capability.label }} {{ capability.enabled ? 'on' : 'off' }}
+          </span>
+        </div>
+      </div>
     </section>
 
     <section v-if="diagnostics.length > 0" class="automations-diagnostics" aria-label="Automation diagnostics">
       <div class="automations-diagnostics-copy">
-        <strong>Some automation records were skipped or sanitized.</strong>
-        <span>Review native paths before editing imported records.</span>
+        <strong>Some automation records need attention.</strong>
+        <span>Review diagnostics before editing affected records.</span>
       </div>
       <ul>
         <li v-for="diagnostic in diagnostics" :key="`${diagnostic.path}:${diagnostic.message}`">
@@ -47,7 +60,7 @@
 
         <p v-if="isLoading" class="automations-status">Loading automations...</p>
         <p v-else-if="definitions.length === 0" class="automations-empty">
-          No heartbeat automations yet.
+          No heartbeat automations configured.
         </p>
 
         <div v-else class="automations-table-wrap">
@@ -59,7 +72,7 @@
                 <th>Thread</th>
                 <th>RRULE</th>
                 <th>Source</th>
-                <th>Updated</th>
+                <th>Next run</th>
               </tr>
             </thead>
             <tbody>
@@ -82,7 +95,7 @@
                 <td><code>{{ definition.targetThreadId || 'No thread' }}</code></td>
                 <td><code>{{ definition.schedule.rrule }}</code></td>
                 <td>{{ definition.source }}</td>
-                <td>{{ formatTimestamp(definition.updatedAtIso) }}</td>
+                <td>{{ formatNextRun(definition) }}</td>
               </tr>
             </tbody>
           </table>
@@ -93,8 +106,8 @@
         <div class="automations-editor-header">
           <div>
             <h2>{{ draft.mode === 'edit' ? 'Edit automation' : 'Create automation' }}</h2>
-            <p v-if="draft.mode === 'create' && draft.targetThreadId">
-              Prefilled for thread <code>{{ draft.targetThreadId }}</code>
+            <p v-if="prefilledThreadId">
+              Prefilled from thread <code>{{ prefilledThreadId }}</code>
             </p>
           </div>
           <span v-if="selectedAutomation" class="automations-status-pill" :data-status="selectedAutomation.status">
@@ -111,7 +124,7 @@
           </label>
 
           <label class="automations-field">
-            <span>Target thread id</span>
+            <span>Attached thread id</span>
             <input v-model="draft.targetThreadId" type="text" :required="draft.mode === 'create'" />
           </label>
 
@@ -140,8 +153,11 @@
           </label>
 
           <label class="automations-field">
-            <span>Schedule (RRULE)</span>
+            <span>Schedule rule</span>
             <input v-model="draft.rrule" type="text" required />
+            <small class="automations-field-help">
+              RRULE format, for example FREQ=DAILY;BYHOUR=9;BYMINUTE=0.
+            </small>
           </label>
 
           <label class="automations-field">
@@ -182,6 +198,10 @@
           <div>
             <dt>Sidecar path</dt>
             <dd><code>{{ selectedAutomation?.storage.sidecarPath || 'Created on save' }}</code></dd>
+          </div>
+          <div>
+            <dt>Next run</dt>
+            <dd>{{ selectedAutomation ? formatNextRun(selectedAutomation) : 'Not scheduled' }}</dd>
           </div>
         </dl>
 
@@ -308,7 +328,7 @@
 import { computed, onMounted, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { useAutomations } from '../../composables/useAutomations'
-import type { AutomationRun } from '../../types/automations'
+import type { AutomationDefinition, AutomationRun } from '../../types/automations'
 
 const route = useRoute()
 const {
@@ -345,6 +365,19 @@ const {
 const activeCount = computed(() => definitions.value.filter((definition) => definition.status === 'active').length)
 const pausedCount = computed(() => definitions.value.filter((definition) => definition.status === 'paused').length)
 const requiresCwd = computed(() => draft.value.runMode === 'local' || draft.value.runMode === 'worktree')
+const prefilledThreadId = computed(() => {
+  const value = route.query.threadId
+  const threadId = Array.isArray(value) ? value[0] : value
+  const normalizedThreadId = typeof threadId === 'string' ? threadId.trim() : ''
+  if (!normalizedThreadId || draft.value.targetThreadId !== normalizedThreadId) return ''
+  return normalizedThreadId
+})
+const capabilityChips = computed(() => [
+  { key: 'scheduler', label: 'Scheduler', enabled: state.value.featureFlags.scheduler },
+  { key: 'manualRun', label: 'Manual run', enabled: state.value.featureFlags.manualRun },
+  { key: 'artifactIndexing', label: 'Artifact indexing', enabled: state.value.featureFlags.artifactIndexing },
+  { key: 'kanbanProjection', label: 'Kanban projection', enabled: state.value.featureFlags.kanbanProjection },
+])
 
 watch(
   () => route.query.threadId,
@@ -379,6 +412,12 @@ function formatTimestamp(value: string | null): string {
   return new Date(timestamp).toLocaleString()
 }
 
+function formatNextRun(definition: AutomationDefinition): string {
+  if (definition.status === 'paused') return 'Paused'
+  if (definition.nextRunAtIso) return formatTimestamp(definition.nextRunAtIso)
+  return 'Not scheduled'
+}
+
 function shouldShowReadAction(run: AutomationRun): boolean {
   return run.readAtIso === null && (run.findings === true || run.state === 'failed')
 }
@@ -404,7 +443,7 @@ function shouldShowReadAction(run: AutomationRun): boolean {
 
 .automations-summary {
   display: grid;
-  grid-template-columns: repeat(3, minmax(96px, 160px)) minmax(220px, 1fr);
+  grid-template-columns: repeat(3, minmax(96px, 140px)) minmax(220px, 1fr) minmax(220px, 1fr);
   gap: 1px;
   overflow: hidden;
   border-radius: 8px;
@@ -431,6 +470,38 @@ function shouldShowReadAction(run: AutomationRun): boolean {
 .automations-summary-path strong {
   font-size: 13px;
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', monospace;
+}
+
+.automations-summary-capabilities {
+  min-width: 0;
+}
+
+.automations-capability-chips {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.automations-capability-chip {
+  display: inline-flex;
+  max-width: 100%;
+  align-items: center;
+  border: 1px solid rgba(148, 163, 184, 0.36);
+  border-radius: 999px;
+  padding: 2px 7px;
+  background: rgba(148, 163, 184, 0.12);
+  color: #475569;
+  font-size: 11px;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.automations-capability-chip[data-enabled='true'] {
+  border-color: rgba(22, 163, 74, 0.32);
+  background: rgba(22, 163, 74, 0.12);
+  color: #15803d;
 }
 
 .automations-diagnostics {
@@ -626,6 +697,14 @@ function shouldShowReadAction(run: AutomationRun): boolean {
   font-weight: 700;
 }
 
+.automations-field-help {
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
 .automations-field textarea {
   resize: vertical;
 }
@@ -814,8 +893,21 @@ function shouldShowReadAction(run: AutomationRun): boolean {
 :global(:root.dark) .automations-empty,
 :global(:root.dark) .automations-table th,
 :global(:root.dark) .automations-field,
+:global(:root.dark) .automations-field-help,
 :global(:root.dark) .automations-storage dt {
   color: #94a3b8;
+}
+
+:global(:root.dark) .automations-capability-chip {
+  border-color: rgba(71, 85, 105, 0.82);
+  background: rgba(30, 41, 59, 0.72);
+  color: #cbd5e1;
+}
+
+:global(:root.dark) .automations-capability-chip[data-enabled='true'] {
+  border-color: rgba(74, 222, 128, 0.34);
+  background: rgba(22, 163, 74, 0.16);
+  color: #86efac;
 }
 
 :global(:root.dark) .automations-list {
