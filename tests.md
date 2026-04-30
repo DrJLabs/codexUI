@@ -5392,3 +5392,56 @@ Opt-in automation definition and run projection to inert Kanban follow-up cards.
 - Patch disposable automations back to `kanbanProjection: { "mode": "off" }` or delete them after verification.
 - Archive or delete disposable Kanban tasks created by definition-card and run-card checks.
 - Remove temporary run artifacts only for disposable automations under `${CODEX_HOME:-$HOME/.codex}/automations/<automation-id>/runs/`.
+
+---
+
+### Automations Phase 10 - Final manual UI verification
+
+#### Feature/Change Name
+Automations route parity polish for run triage, schedule status, capability chips, and responsive light/dark layout.
+
+#### Prerequisites/Setup
+1. Use `/home/drj/.codex/worktrees/52f8/codexUI`.
+2. Start the app with `pnpm run dev -- --host 0.0.0.0 --port 4173`.
+3. Prepare at least three disposable heartbeat automations:
+   - an active automation with a supported daily/hourly RRULE and a visible `nextRunAtIso`;
+   - a paused automation;
+   - an automation with no next run, or an unsupported monthly/yearly schedule that produces a diagnostic.
+4. Ensure at least one automation has recent runs including an unread findings or failed run and an archived run, if possible.
+5. Ensure light and dark themes are available from Settings.
+
+#### Steps
+1. Run `/home/drj/projects/codexUI/node_modules/.bin/vitest run src/api/automationsGateway.test.ts src/composables/useAutomations.test.ts src/server/automations/__tests__/routes.test.ts src/server/artifacts/__tests__/routes.test.ts`.
+2. Run `pnpm run build`.
+3. Run `git diff --check`.
+4. Open `http://127.0.0.1:4173/#/automations` in light theme.
+5. Confirm the summary band shows Total, Active, Paused, Native storage root, and capability chips for Scheduler, Manual run, Artifact indexing, and Kanban projection.
+6. Confirm the automation list uses a `Next run` column.
+7. Confirm the active scheduled automation shows a formatted next-run timestamp.
+8. Confirm the paused automation shows `Paused`.
+9. Confirm the unsupported or unscheduled automation shows `Not scheduled`.
+10. Select an automation and confirm the editor details area shows Automation id, Native path, Sidecar path, and Next run.
+11. Confirm the schedule field is labeled `Schedule rule` and shows the RRULE helper copy.
+12. Confirm the thread field is labeled `Attached thread id`.
+13. Open `#/automations?threadId=<id>` and confirm the header shows `Prefilled from thread <id>` only while the visible draft or selected automation is attached to that same thread.
+14. In Recent runs, confirm `inboxTitle` and `inboxSummary` appear when present.
+15. Click `Read` on an unread findings or failed run and confirm the selected automation remains selected after refresh.
+16. Click `Archive` on an unarchived run and confirm it changes to `Unarchive`.
+17. Click `Unarchive` and confirm it changes back to `Archive`.
+18. Repeat steps 4-17 in dark theme.
+19. Resize the browser to 375px wide and confirm summary chips, table cells, helper text, storage paths, run inbox copy, and triage buttons wrap without overlap.
+20. Resize the browser to tablet width, around 768px, and repeat the no-overlap check.
+
+#### Expected Results
+- Light and dark themes keep the Automations list, editor, run history, triage actions, capability chips, diagnostics, and storage details readable.
+- Next-run display distinguishes scheduled active, paused, and unsupported/unscheduled automations.
+- Triage actions refresh run history without changing the selected automation or leaving controls stuck disabled.
+- Schedule and thread wording uses the polished labels.
+- Capability chips are status-only and do not introduce new toggles.
+- Mobile and tablet widths do not show overlapping text, clipped buttons, unreadable surfaces, or horizontal layout breakage.
+
+#### Rollback/Cleanup
+- Restore any temporary automation schedules, statuses, or projection settings changed only for testing.
+- Unarchive any run archived only for verification if preserving prior state matters.
+- Delete disposable automations and projected Kanban tasks created only for this check.
+- Stop the dev server if it was started only for this test.
