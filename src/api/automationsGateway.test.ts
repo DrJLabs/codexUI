@@ -91,6 +91,48 @@ describe('automationsGateway', () => {
     expect(fetchMock).toHaveBeenCalledTimes(4)
   })
 
+  it('posts run triage mutations with Automations CSRF protection', async () => {
+    const mutationRequests: Array<{ url: string; method?: string; csrf?: string }> = []
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === '/codex-api/automations/csrf') return jsonResponse(200, { data: { csrfToken: 'token' } })
+      const headers = init?.headers as Record<string, string> | undefined
+      mutationRequests.push({
+        url,
+        method: init?.method,
+        csrf: headers?.['x-codexui-automations-csrf'],
+      })
+      return jsonResponse(200, { data: automationRunFixture({ id: 'run_1', automationId: 'daily-check' }) })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    const {
+      archiveAutomationRun,
+      markAutomationRunRead,
+      unarchiveAutomationRun,
+    } = await import('./automationsGateway')
+
+    await expect(markAutomationRunRead('daily-check', 'run_1')).resolves.toMatchObject({ id: 'run_1' })
+    await expect(archiveAutomationRun('daily-check', 'run_1')).resolves.toMatchObject({ id: 'run_1' })
+    await expect(unarchiveAutomationRun('daily-check', 'run_1')).resolves.toMatchObject({ id: 'run_1' })
+
+    expect(mutationRequests).toEqual([
+      {
+        url: '/codex-api/automations/daily-check/runs/run_1/read',
+        method: 'POST',
+        csrf: 'token',
+      },
+      {
+        url: '/codex-api/automations/daily-check/runs/run_1/archive',
+        method: 'POST',
+        csrf: 'token',
+      },
+      {
+        url: '/codex-api/automations/daily-check/runs/run_1/unarchive',
+        method: 'POST',
+        csrf: 'token',
+      },
+    ])
+  })
+
   it('throws API error messages from error payloads', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(422, { error: 'Invalid RRULE' })))
     const { loadAutomationsState } = await import('./automationsGateway')

@@ -1,13 +1,16 @@
 import { computed, ref, type Ref } from 'vue'
 import {
+  archiveAutomationRun,
   createAutomation,
   deleteAutomation,
   listAutomationRuns,
   listAutomationTemplates,
   loadAutomationsState,
+  markAutomationRunRead,
   pauseAutomation,
   resumeAutomation,
   runAutomationNow,
+  unarchiveAutomationRun,
   updateAutomation,
   type CreateAutomationInput,
   type PatchAutomationInput,
@@ -40,6 +43,9 @@ export type AutomationsGateway = {
   deleteAutomation: typeof deleteAutomation
   runAutomationNow: typeof runAutomationNow
   listAutomationRuns: typeof listAutomationRuns
+  markAutomationRunRead: typeof markAutomationRunRead
+  archiveAutomationRun: typeof archiveAutomationRun
+  unarchiveAutomationRun: typeof unarchiveAutomationRun
 }
 
 type UseAutomationsOptions = {
@@ -56,6 +62,9 @@ const defaultGateway: AutomationsGateway = {
   deleteAutomation,
   runAutomationNow,
   listAutomationRuns,
+  markAutomationRunRead,
+  archiveAutomationRun,
+  unarchiveAutomationRun,
 }
 
 const emptyState: AutomationsState = {
@@ -269,6 +278,18 @@ export function useAutomations(options: UseAutomationsOptions = {}) {
     }, 'Failed to delete automation')
   }
 
+  async function markRunRead(runId: string): Promise<void> {
+    await mutateSelectedRun(runId, gateway.markAutomationRunRead, 'Failed to mark automation run read')
+  }
+
+  async function archiveRun(runId: string): Promise<void> {
+    await mutateSelectedRun(runId, gateway.archiveAutomationRun, 'Failed to archive automation run')
+  }
+
+  async function unarchiveRun(runId: string): Promise<void> {
+    await mutateSelectedRun(runId, gateway.unarchiveAutomationRun, 'Failed to unarchive automation run')
+  }
+
   function applyThreadPrefill(threadId: string, options: { keepPending?: boolean } = { keepPending: true }): void {
     const normalizedThreadId = threadId.trim()
     if (!normalizedThreadId) return
@@ -325,6 +346,19 @@ export function useAutomations(options: UseAutomationsOptions = {}) {
     }
   }
 
+  async function mutateSelectedRun(
+    runId: string,
+    action: (automationId: string, runId: string) => Promise<AutomationRun>,
+    fallbackMessage: string,
+  ): Promise<void> {
+    const id = selectedAutomationId.value
+    if (!id) return
+    await runMutation(async () => {
+      await action(id, runId)
+      await loadRunHistory(id)
+    }, fallbackMessage)
+  }
+
   return {
     state,
     definitions,
@@ -349,6 +383,9 @@ export function useAutomations(options: UseAutomationsOptions = {}) {
     pauseSelected,
     resumeSelected,
     runSelectedNow,
+    markRunRead,
+    archiveRun,
+    unarchiveRun,
     loadRunHistory,
     deleteSelectedRemoveNative,
     applyThreadPrefill,

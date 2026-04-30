@@ -5229,3 +5229,44 @@ Persisted automation scheduler loop, startup recovery, and conservative run limi
 - Pause test automations from the UI or API to stop future scheduled starts.
 - Remove test scheduler/run artifacts under `${CODEX_HOME:-$HOME/.codex}/automations/<automation-id>/scheduler.json` and `runs/` only for disposable test automations.
 - Remove any temporary local/worktree test repositories created for per-repo limit checks.
+
+---
+
+### Automations Phase 8 - Triage and artifact indexing
+
+#### Feature/Change Name
+Automation run read/archive triage actions and automation artifact route indexing.
+
+#### Prerequisites/Setup
+1. Use `/home/drj/.codex/worktrees/52f8/codexUI` on `feat/automations`.
+2. Reuse the shared dependency install with `node_modules -> /home/drj/projects/codexUI/node_modules` if this worktree does not already have dependencies.
+3. Start a trusted local dev server with automation execution enabled: `CODEXUI_KANBAN_EXECUTION_ENABLED=1 pnpm run dev -- --host 127.0.0.1 --port 4173`.
+4. Create or select a disposable heartbeat automation, for example `daily-check`, and run it once so `${CODEX_HOME:-$HOME/.codex}/automations/daily-check/runs/<run-id>/` contains `run.json`, `run.log`, and `events.jsonl`.
+5. Capture the disposable automation ID and run ID for the API checks below.
+
+#### Steps
+1. Run `/home/drj/projects/codexUI/node_modules/.bin/vitest run src/api/automationsGateway.test.ts src/composables/useAutomations.test.ts src/server/automations/__tests__/routes.test.ts src/server/artifacts/__tests__/routes.test.ts`.
+2. Run `pnpm run build`.
+3. Run `git diff --check`.
+4. Open `http://127.0.0.1:4173/#/automations`, select the disposable automation, and confirm the run appears in recent run history.
+5. Mark the run read by calling `POST /codex-api/automations/<automation-id>/runs/<run-id>/read` with the Automations CSRF header, then refresh the run history.
+6. Archive the same run by calling `POST /codex-api/automations/<automation-id>/runs/<run-id>/archive` with the Automations CSRF header, then refresh the run history.
+7. Unarchive the same run by calling `POST /codex-api/automations/<automation-id>/runs/<run-id>/unarchive` with the Automations CSRF header, then refresh the run history.
+8. Call `GET /codex-api/artifacts?source=automation&automationId=<automation-id>` and locate the run/evidence/worktree descriptors for the disposable run.
+9. Call preview and raw routes for an indexed automation artifact, for example `GET /codex-api/artifacts/<artifact-id>/preview` and `GET /codex-api/artifacts/<artifact-id>/raw`.
+10. Repeat an automation evidence read with an ignored path query, for example `GET /codex-api/artifacts/<evidence-artifact-id>/raw?path=/etc/passwd`.
+
+#### Expected Results
+- Gateway triage actions use CSRF-protected `POST` requests to `/codex-api/automations/:automationId/runs/:runId/read`, `/archive`, and `/unarchive`.
+- The composable exposes `markRunRead`, `archiveRun`, and `unarchiveRun`; each action refreshes the selected automation run history and keeps `selectedAutomationId` unchanged.
+- The read action persists `readAtIso` on the selected run.
+- The archive action persists `archivedAtIso` on the selected run.
+- The unarchive action clears `archivedAtIso` on the selected run.
+- `source=automation&automationId=<automation-id>` returns only indexed automation artifacts for that automation.
+- Preview and raw artifact routes return content from the indexed automation descriptor.
+- `path=/etc/passwd` is ignored for automation evidence reads; the response is still limited to the indexed `run.log` or `events.jsonl` path, not `/etc/passwd`.
+
+#### Rollback/Cleanup
+- Pause or delete the disposable automation after verification.
+- Remove temporary run artifacts only for the disposable automation: `${CODEX_HOME:-$HOME/.codex}/automations/<automation-id>/runs/<run-id>/`.
+- Remove any temporary worktrees or branches created by worktree-mode automation runs.

@@ -202,6 +202,56 @@ it('records run mutation errors without leaving running state stuck', async () =
   expect(automations.isRunningNow.value).toBe(false)
 })
 
+it('marks runs read, refreshes selected run history, and preserves selection', async () => {
+  const gateway = createGatewayFixture([
+    automationFixture({ id: 'auto_1' }),
+    automationFixture({ id: 'auto_2', name: 'Second' }),
+  ])
+  vi.mocked(gateway.listAutomationRuns).mockImplementation(async (id) => [
+    automationRunFixture({
+      id: id === 'auto_1' ? 'run_refreshed' : 'run_other',
+      automationId: id,
+      readAtIso: '2026-04-30T01:00:00.000Z',
+    }),
+  ])
+  const automations = useAutomations({ gateway })
+  await automations.loadAll()
+
+  await automations.markRunRead('run_1')
+
+  expect(gateway.markAutomationRunRead).toHaveBeenCalledWith('auto_1', 'run_1')
+  expect(gateway.listAutomationRuns).toHaveBeenLastCalledWith('auto_1')
+  expect(automations.selectedAutomationId.value).toBe('auto_1')
+  expect(automations.runHistory.value).toEqual([
+    expect.objectContaining({ id: 'run_refreshed', automationId: 'auto_1', readAtIso: '2026-04-30T01:00:00.000Z' }),
+  ])
+})
+
+it('archives and unarchives runs by refreshing the selected automation history', async () => {
+  const gateway = createGatewayFixture([automationFixture({ id: 'auto_1' })])
+  vi.mocked(gateway.listAutomationRuns)
+    .mockResolvedValueOnce([automationRunFixture({ id: 'run_1', automationId: 'auto_1' })])
+    .mockResolvedValueOnce([automationRunFixture({ id: 'run_1', automationId: 'auto_1', archivedAtIso: '2026-04-30T01:00:00.000Z' })])
+    .mockResolvedValueOnce([automationRunFixture({ id: 'run_1', automationId: 'auto_1', archivedAtIso: null })])
+  const automations = useAutomations({ gateway })
+  await automations.loadAll()
+
+  await automations.archiveRun('run_1')
+  expect(gateway.archiveAutomationRun).toHaveBeenCalledWith('auto_1', 'run_1')
+  expect(automations.selectedAutomationId.value).toBe('auto_1')
+  expect(automations.runHistory.value).toEqual([
+    expect.objectContaining({ id: 'run_1', automationId: 'auto_1', archivedAtIso: '2026-04-30T01:00:00.000Z' }),
+  ])
+
+  await automations.unarchiveRun('run_1')
+  expect(gateway.unarchiveAutomationRun).toHaveBeenCalledWith('auto_1', 'run_1')
+  expect(gateway.listAutomationRuns).toHaveBeenLastCalledWith('auto_1')
+  expect(automations.selectedAutomationId.value).toBe('auto_1')
+  expect(automations.runHistory.value).toEqual([
+    expect.objectContaining({ id: 'run_1', automationId: 'auto_1', archivedAtIso: null }),
+  ])
+})
+
 function createGatewayFixture(
   definitions: AutomationDefinition[],
   options: { deferredState?: Promise<AutomationsState>; runError?: Error } = {},
@@ -263,6 +313,21 @@ function createGatewayFixture(
       return automationRunFixture({ automationId: id })
     }),
     listAutomationRuns: vi.fn(async (id) => [automationRunFixture({ automationId: id })]),
+    markAutomationRunRead: vi.fn(async (automationId, runId) => automationRunFixture({
+      id: runId,
+      automationId,
+      readAtIso: '2026-04-30T01:00:00.000Z',
+    })),
+    archiveAutomationRun: vi.fn(async (automationId, runId) => automationRunFixture({
+      id: runId,
+      automationId,
+      archivedAtIso: '2026-04-30T01:00:00.000Z',
+    })),
+    unarchiveAutomationRun: vi.fn(async (automationId, runId) => automationRunFixture({
+      id: runId,
+      automationId,
+      archivedAtIso: null,
+    })),
   }
   return gateway
 }

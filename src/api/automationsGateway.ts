@@ -107,6 +107,36 @@ export async function listAutomationRuns(id: string): Promise<AutomationRun[]> {
   return await requestAutomations<AutomationRun[]>(`/${encodeURIComponent(id)}/runs`)
 }
 
+export async function markAutomationRunRead(automationId: string, runId: string): Promise<AutomationRun> {
+  return await requestProtectedAutomations<AutomationRun>(
+    `/${encodeURIComponent(automationId)}/runs/${encodeURIComponent(runId)}/read`,
+    {
+      method: 'POST',
+      body: JSON.stringify({}),
+    },
+  )
+}
+
+export async function archiveAutomationRun(automationId: string, runId: string): Promise<AutomationRun> {
+  return await requestProtectedAutomations<AutomationRun>(
+    `/${encodeURIComponent(automationId)}/runs/${encodeURIComponent(runId)}/archive`,
+    {
+      method: 'POST',
+      body: JSON.stringify({}),
+    },
+  )
+}
+
+export async function unarchiveAutomationRun(automationId: string, runId: string): Promise<AutomationRun> {
+  return await requestProtectedAutomations<AutomationRun>(
+    `/${encodeURIComponent(automationId)}/runs/${encodeURIComponent(runId)}/unarchive`,
+    {
+      method: 'POST',
+      body: JSON.stringify({}),
+    },
+  )
+}
+
 export async function pauseAutomation(id: string): Promise<AutomationDefinition> {
   return await requestProtectedAutomations<AutomationDefinition>(`/${encodeURIComponent(id)}/pause`, {
     method: 'POST',
