@@ -56,6 +56,7 @@ export class ExecutionRunQueue {
       maxActiveRunsPerRepo: limits.maxActiveRunsPerRepo ?? DEFAULT_EXECUTION_RUN_QUEUE_LIMITS.maxActiveRunsPerRepo,
       maxActiveRunsPerOwner: limits.maxActiveRunsPerOwner ?? DEFAULT_EXECUTION_RUN_QUEUE_LIMITS.maxActiveRunsPerOwner,
     }
+    assertValidLimits(this.limits)
   }
 
   enqueue(item: ExecutionRunQueueItem): ExecutionRunQueueEnqueueResult {
@@ -129,6 +130,19 @@ export class ExecutionRunQueue {
   private assertNoDuplicateQueuedOwner(ownerKey: string): void {
     if (this.queued.some((item) => item.ownerKey === ownerKey)) {
       throw new ExecutionRunQueueDuplicateOwnerError(ownerKey)
+    }
+  }
+}
+
+function assertValidLimits(limits: ExecutionRunQueueLimits): void {
+  const entries: Array<[keyof ExecutionRunQueueLimits, number]> = [
+    ['maxGlobalActiveRuns', limits.maxGlobalActiveRuns],
+    ['maxActiveRunsPerRepo', limits.maxActiveRunsPerRepo],
+    ['maxActiveRunsPerOwner', limits.maxActiveRunsPerOwner],
+  ]
+  for (const [name, value] of entries) {
+    if (!Number.isFinite(value) || !Number.isInteger(value) || value < 1) {
+      throw new RangeError(`${name} must be an integer >= 1`)
     }
   }
 }

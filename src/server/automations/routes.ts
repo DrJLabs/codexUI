@@ -114,7 +114,11 @@ export function createAutomationsRouter(options: CreateAutomationsRouterOptions 
   router.use((error: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
     const status = createStatus(error)
     const message = error instanceof Error ? error.message : 'Unexpected Automations API error'
-    res.status(status).json({ error: status === 500 ? 'Unexpected Automations API error' : message })
+    const payload: { error: string; code?: string } = {
+      error: status === 500 ? 'Unexpected Automations API error' : message,
+    }
+    if (isRouteError(error) && error.code) payload.code = error.code
+    res.status(status).json(payload)
   })
 
   return router
@@ -136,6 +140,10 @@ function isStatusError(error: unknown): error is Error & { statusCode: number } 
   return error instanceof Error && 'statusCode' in error && typeof error.statusCode === 'number'
 }
 
+function isRouteError(error: unknown): error is Error & { statusCode: number; code?: string } {
+  return isStatusError(error)
+}
+
 function assertTrustedAccessRequest(req: Request): AutomationsRemoteAccess {
   const access = classifyAutomationsRemoteAccess(req)
   if (!access.trusted) {
@@ -147,7 +155,7 @@ function assertTrustedAccessRequest(req: Request): AutomationsRemoteAccess {
 function assertTrustedAccessMutation(req: Request, csrf: AutomationsCsrfProtection): AutomationsRemoteAccess {
   const access = assertTrustedAccessRequest(req)
   if (!csrf.verifyRequest(req)) {
-    throw createRouteError(403, 'Invalid Automations CSRF token')
+    throw createRouteError(403, 'Invalid Automations CSRF token', 'AUTOMATIONS_CSRF_INVALID')
   }
   return access
 }
@@ -160,14 +168,15 @@ function assertExecutionAccessMutation(
   const access = classifyAutomationsRemoteAccess(req)
   assertAutomationExecutionAccess(access, policy)
   if (!csrf.verifyRequest(req)) {
-    throw createRouteError(403, 'Invalid Automations CSRF token')
+    throw createRouteError(403, 'Invalid Automations CSRF token', 'AUTOMATIONS_CSRF_INVALID')
   }
   return access
 }
 
-function createRouteError(statusCode: number, message: string): Error & { statusCode: number } {
-  const error = new Error(message) as Error & { statusCode: number }
+function createRouteError(statusCode: number, message: string, code?: string): Error & { statusCode: number; code?: string } {
+  const error = new Error(message) as Error & { statusCode: number; code?: string }
   error.statusCode = statusCode
+  if (code) error.code = code
   return error
 }
 

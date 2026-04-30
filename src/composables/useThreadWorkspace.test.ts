@@ -51,7 +51,7 @@ describe('useThreadWorkspace', () => {
       'proposals',
     ])
     expect(model.value.sections.find((section) => section.id === 'thread')).toMatchObject({
-      count: 4,
+      count: 2,
       enabled: true,
       deferred: false,
     })

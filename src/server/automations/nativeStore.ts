@@ -1,8 +1,8 @@
 import { randomBytes } from 'node:crypto'
 import { mkdir, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises'
-import { homedir } from 'node:os'
 import { join } from 'node:path'
 import type { AutomationDiagnostic } from '../../types/automations'
+import { resolveCodexHomeDir } from './paths'
 
 export type ThreadAutomationStatus = 'ACTIVE' | 'PAUSED'
 
@@ -41,15 +41,8 @@ export type NativeAutomationEntryList = {
   storageRoot: string
 }
 
-function getCodexHomeDir(options?: NativeAutomationStoreOptions): string {
-  const injected = options?.codexHomeDir?.trim()
-  if (injected) return injected
-  const codexHome = process.env.CODEX_HOME?.trim()
-  return codexHome && codexHome.length > 0 ? codexHome : join(homedir(), '.codex')
-}
-
 function getCodexAutomationsDir(options?: NativeAutomationStoreOptions): string {
-  return join(getCodexHomeDir(options), 'automations')
+  return join(resolveCodexHomeDir(options), 'automations')
 }
 
 export function getNativeAutomationsRoot(options?: NativeAutomationStoreOptions): string {
@@ -325,7 +318,8 @@ export async function listNativeAutomationEntries(
   let entries
   try {
     entries = await readdir(automationRoot, { withFileTypes: true })
-  } catch {
+  } catch (error) {
+    if (!isMissingFileError(error)) throw error
     return { records, diagnostics, storageRoot: automationRoot }
   }
 
@@ -363,7 +357,8 @@ async function listThreadHeartbeatAutomationEntries(
   let entries
   try {
     entries = await readdir(automationRoot, { withFileTypes: true })
-  } catch {
+  } catch (error) {
+    if (!isMissingFileError(error)) throw error
     return next
   }
 
@@ -514,4 +509,8 @@ export async function deleteNativeAutomationBySourceDir(
   if (!isSafeAutomationBasename(sourceDirName)) return false
   await rm(join(getCodexAutomationsDir(options), sourceDirName), { recursive: true, force: true })
   return true
+}
+
+function isMissingFileError(error: unknown): boolean {
+  return Boolean(error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT')
 }

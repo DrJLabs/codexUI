@@ -39,6 +39,34 @@ describe('automationsGateway', () => {
     expect(fetchMock).toHaveBeenCalledTimes(4)
   })
 
+  it('refreshes stale Automations CSRF tokens using structured error codes', async () => {
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      const headers = init?.headers as Record<string, string> | undefined
+      if (url === '/codex-api/automations/csrf' && fetchMock.mock.calls.length === 1) return jsonResponse(200, { data: { csrfToken: 'old' } })
+      if (url === '/codex-api/automations/auto_1/pause' && headers?.['x-codexui-automations-csrf'] === 'old') {
+        return jsonResponse(403, { error: 'Forbidden', code: 'AUTOMATIONS_CSRF_INVALID' })
+      }
+      if (url === '/codex-api/automations/csrf') return jsonResponse(200, { data: { csrfToken: 'new' } })
+      if (url === '/codex-api/automations/auto_1/pause' && headers?.['x-codexui-automations-csrf'] === 'new') return jsonResponse(200, { data: automationFixture({ id: 'auto_1', status: 'paused' }) })
+      return jsonResponse(500, { error: 'unexpected request' })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    const { pauseAutomation } = await import('./automationsGateway')
+    await expect(pauseAutomation('auto_1')).resolves.toMatchObject({ id: 'auto_1', status: 'paused' })
+    expect(fetchMock).toHaveBeenCalledTimes(4)
+  })
+
+  it('does not refresh ordinary 403 responses that are not CSRF failures', async () => {
+    const fetchMock = vi.fn(async (url: string) => {
+      if (url === '/codex-api/automations/csrf') return jsonResponse(200, { data: { csrfToken: 'token' } })
+      return jsonResponse(403, { error: 'Automations API requires trusted local or Tailscale access', code: 'AUTOMATIONS_UNTRUSTED_ACCESS' })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    const { pauseAutomation } = await import('./automationsGateway')
+    await expect(pauseAutomation('auto_1')).rejects.toThrow('Automations API requires trusted local or Tailscale access')
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+
   it('sends destructive delete with removeNative=true when requested', async () => {
     const fetchMock = vi.fn(async (url: string) => {
       if (url === '/codex-api/automations/csrf') return jsonResponse(200, { data: { csrfToken: 'token' } })

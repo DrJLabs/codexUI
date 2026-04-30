@@ -150,12 +150,19 @@ export class ManagedWorktreeService {
         locks.push(normalizeManagedWorktreeLock(JSON.parse(await readFile(lockPath, 'utf8')) as LegacyManagedWorktreeLock))
       } catch (error) {
         if (isMissingFileError(error)) continue
-        if (error instanceof SyntaxError || (error instanceof Error && error.message === 'Invalid managed worktree owner')) continue
+        if (error instanceof SyntaxError || isInvalidManagedWorktreeOwnerError(error)) continue
         throw error
       }
     }
     return locks
   }
+}
+
+function isInvalidManagedWorktreeOwnerError(error: unknown): boolean {
+  return error instanceof Error && (
+    error.message === 'Invalid managed worktree owner' ||
+    error.message === 'Missing managed worktree owner'
+  )
 }
 
 function createAutomationBranchName(automationId: string, runId: string, name: string): string {

@@ -70,6 +70,19 @@ describe('WorkspaceWorktreeService', () => {
     ])
   })
 
+  it('skips ownerless non-Kanban locks instead of coercing them to Kanban ownership', async () => {
+    const { dataDir, projectRoot } = await createGitRepo()
+    const manager = new KanbanWorktreeManager({ dataDir, projectRoot })
+    const service = new WorkspaceWorktreeService({ dataDir, projectRoot })
+    const managed = await manager.createManagedWorktree({ taskId: 'automation_legacy', taskTitle: 'Legacy', runId: 'run_legacy' })
+    const lock = JSON.parse(await readFile(managed.lockPath, 'utf8')) as Record<string, unknown>
+    delete lock.owner
+    lock.branchName = 'codexui/automation/automation-legacy-run-legacy'
+    await writeFile(managed.lockPath, `${JSON.stringify(lock, null, 2)}\n`, 'utf8')
+
+    await expect(service.listWorktrees()).resolves.toEqual([])
+  })
+
   it('skips invalid shared lock owners instead of coercing them to Kanban ownership', async () => {
     const { dataDir, projectRoot } = await createGitRepo()
     const manager = new KanbanWorktreeManager({ dataDir, projectRoot })

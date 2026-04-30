@@ -36,7 +36,7 @@ export function useThreadWorkspace(input: {
 
     const disabledThreadReason = hasThread ? '' : 'Select a thread to inspect thread workspace artifacts.'
     const sections: ThreadWorkspaceDrawerSection[] = [
-      createSection('thread', 'Thread', artifactCount + proposalCount, hasThread, false, disabledThreadReason),
+      createSection('thread', 'Thread', artifactCount, hasThread, false, disabledThreadReason),
       createSection(
         'kanban',
         'Kanban',

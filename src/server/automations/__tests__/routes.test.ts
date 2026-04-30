@@ -355,12 +355,13 @@ describe('createAutomationsMiddleware', () => {
       expect(response.body.error).toContain('trusted local or Tailscale')
     }
 
-    const missingCsrf = await requestJson<{ error: string }>(`${baseUrl}/codex-api/automations`, {
+    const missingCsrf = await requestJson<{ error: string; code?: string }>(`${baseUrl}/codex-api/automations`, {
       method: 'POST',
       body: JSON.stringify({ kind: 'heartbeat', name: 'Daily', prompt: 'Prompt', schedule: { type: 'rrule', rrule: 'FREQ=DAILY' }, targetThreadId: 'thread-1' }),
     })
     expect(missingCsrf.status).toBe(403)
     expect(missingCsrf.body.error).toContain('Invalid Automations CSRF token')
+    expect(missingCsrf.body.code).toBe('AUTOMATIONS_CSRF_INVALID')
 
     const csrfHeaders = await readCsrfHeaders(baseUrl)
     const untrustedMutation = await requestJson<{ error: string }>(`${baseUrl}/codex-api/automations`, {
@@ -377,12 +378,13 @@ describe('createAutomationsMiddleware', () => {
     const { baseUrl, codexHomeDir } = await createHarness({ bridge, policy: enabledPolicy })
     await writeNative(codexHomeDir, 'daily-check-dir', nativeRecord)
 
-    const missingCsrf = await requestJson<{ error: string }>(`${baseUrl}/codex-api/automations/daily-check/run`, {
+    const missingCsrf = await requestJson<{ error: string; code?: string }>(`${baseUrl}/codex-api/automations/daily-check/run`, {
       method: 'POST',
       body: JSON.stringify({}),
     })
     expect(missingCsrf.status).toBe(403)
     expect(missingCsrf.body.error).toContain('Invalid Automations CSRF token')
+    expect(missingCsrf.body.code).toBe('AUTOMATIONS_CSRF_INVALID')
 
     const csrfHeaders = await readCsrfHeaders(baseUrl)
     const untrusted = await requestJson<{ error: string }>(`${baseUrl}/codex-api/automations/daily-check/run`, {

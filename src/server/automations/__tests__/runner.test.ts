@@ -871,6 +871,29 @@ describe('AutomationRunner', () => {
     expect(rpcCalls.filter((call) => call.method === 'turn/start')).toHaveLength(1)
   })
 
+  it('serializes concurrent manual starts across automations before checking global capacity', async () => {
+    const { codexHomeDir, service, rpcCalls } = await createHarness({ turnStartDelayMs: 20 })
+    await writeNative(codexHomeDir, 'daily-check-dir', nativeRecord, { runMode: 'chat' })
+    await writeNative(codexHomeDir, 'second-check-dir', {
+      ...nativeRecord,
+      id: 'second-check',
+      name: 'Second Check',
+      targetThreadId: 'thread-2',
+    }, { runMode: 'chat' })
+
+    const results = await Promise.allSettled([
+      service.runNow('daily-check'),
+      service.runNow('second-check'),
+    ])
+
+    expect(results.filter((result) => result.status === 'fulfilled')).toHaveLength(1)
+    expect(results.filter((result) => result.status === 'rejected')).toHaveLength(1)
+    expect(results.find((result) => result.status === 'rejected')).toMatchObject({
+      reason: expect.objectContaining({ message: 'Automation global active run limit reached' }),
+    })
+    expect(rpcCalls.filter((call) => call.method === 'turn/start')).toHaveLength(1)
+  })
+
   it('enforces the per-repo active run limit for manual local runs before bridge calls', async () => {
     const cwd = '/tmp/codexui-automation-local'
     const relaxedGlobalPolicy = { ...enabledPolicy, maxGlobalActiveRuns: 2, maxActiveRunsPerRepo: 1 } as unknown as KanbanExecutionPolicy
@@ -1025,6 +1048,30 @@ describe('AutomationRunner', () => {
     expect(rpcCalls).toEqual([])
   })
 
+  it('marks scheduled runs failed when scheduler reservation persistence fails after run creation', async () => {
+    const { codexHomeDir, service, rpcCalls } = await createHarness()
+    const automationDir = await writeNative(codexHomeDir, 'daily-check-dir', nativeRecord, { runMode: 'chat' })
+    await writeScheduler(automationDir)
+    await rm(join(automationDir, 'scheduler.json'))
+    await mkdir(join(automationDir, 'scheduler.json'))
+
+    await expect(service.runScheduled('daily-check', {
+      dueAtIso: '2026-04-30T09:00:00.000Z',
+      nextDueAtIso: '2026-05-01T09:00:00.000Z',
+    })).rejects.toThrow()
+    const runs = await service.listRuns('daily-check')
+
+    expect(runs).toHaveLength(1)
+    expect(runs[0]).toMatchObject({
+      trigger: 'schedule',
+      state: 'failed',
+      findings: true,
+      inboxTitle: 'Run failed',
+    })
+    await expect(readFile(runs[0]!.eventsPath, 'utf8')).resolves.toContain('scheduled_run.failed')
+    expect(rpcCalls).toEqual([])
+  })
+
   it('rejects scheduled and manual starts while an active scheduled run exists', async () => {
     const { codexHomeDir, service } = await createHarness()
     const automationDir = await writeNative(codexHomeDir, 'daily-check-dir', nativeRecord, { runMode: 'chat' })
@@ -1149,6 +1196,26 @@ describe('AutomationRunner', () => {
       nextDueAtIso: queuedScheduled.nextDueAtIso,
       lastScheduledRunId: queuedScheduled.id,
     })
+  })
+
+  it('does not recover runs owned by the current service while a start is in progress', async () => {
+    let recoverDuringStart: Promise<{ recovered: number }> | null = null
+    const { codexHomeDir, service } = await createHarness({
+      turnStartDelayMs: 10,
+      beforeRpc: (method) => {
+        if (method === 'turn/start' && !recoverDuringStart) {
+          recoverDuringStart = service.recoverInterruptedRuns()
+        }
+      },
+    })
+    await writeNative(codexHomeDir, 'daily-check-dir', nativeRecord, { runMode: 'chat' })
+
+    const run = await service.runNow('daily-check')
+    await expect(recoverDuringStart).resolves.toEqual({ recovered: 0 })
+    const runs = await service.listRuns('daily-check')
+
+    expect(runs).toHaveLength(1)
+    expect(runs[0]).toMatchObject({ id: run.id, state: 'running' })
   })
 
   it('projects recovered interrupted runs for failures_only run cards', async () => {

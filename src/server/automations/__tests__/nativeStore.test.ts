@@ -259,6 +259,14 @@ describe('native automation store filesystem behavior', () => {
     expect(rewritten).toContain('desktop_only = "keep me"')
   })
 
+  it('only treats a missing automations directory as empty storage', async () => {
+    const codexHomeDir = await createCodexHome()
+    await writeFile(join(codexHomeDir, 'automations'), 'not a directory', 'utf8')
+
+    await expect(listNativeAutomationEntries({ codexHomeDir })).rejects.toThrow()
+    await expect(listThreadHeartbeatAutomations({ codexHomeDir })).rejects.toThrow()
+  })
+
   it('updates an existing automation in its source directory when the parsed id differs', async () => {
     const codexHomeDir = await createCodexHome()
     const automationRoot = join(codexHomeDir, 'automations')

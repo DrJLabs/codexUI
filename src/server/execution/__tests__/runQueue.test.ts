@@ -97,4 +97,13 @@ describe('ExecutionRunQueue', () => {
     expect(queue.cancel('run_2')).toEqual([{ runId: 'run_4', ownerKey: 'owner:2', repoRoot: '/repo/c' }])
     expect(queue.getActiveRunIds()).toEqual(['run_3', 'run_4'])
   })
+
+  it('rejects invalid concurrency limits at construction time', () => {
+    expect(() => new ExecutionRunQueue({ maxGlobalActiveRuns: 0 }))
+      .toThrow('maxGlobalActiveRuns must be an integer >= 1')
+    expect(() => new ExecutionRunQueue({ maxActiveRunsPerRepo: -1 }))
+      .toThrow('maxActiveRunsPerRepo must be an integer >= 1')
+    expect(() => new ExecutionRunQueue({ maxActiveRunsPerOwner: 1.5 }))
+      .toThrow('maxActiveRunsPerOwner must be an integer >= 1')
+  })
 })

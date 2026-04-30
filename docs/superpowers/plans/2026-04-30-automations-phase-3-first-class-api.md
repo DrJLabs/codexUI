@@ -244,7 +244,7 @@ Sidecar fields allowed in Phase 3:
 
 - [ ] **Step 3: Final verification**
   - Dependency preflight for this worktree:
-    - If `node_modules` is absent or missing required tools/packages such as Vitest, Vue TSC, TSUP, Vite, or Commander, temporarily link `node_modules` to `/home/drj/projects/codexUI/node_modules`.
+    - If `node_modules` is absent or missing required tools/packages such as Vitest, Vue TSC, TSUP, Vite, or Commander, temporarily link `node_modules` to `${HOST_NODE_MODULES}`.
     - Remove the temporary symlink after verification.
   - Run:
     - `pnpm exec vitest run src/server/automations/__tests__/nativeStore.test.ts src/server/automations/__tests__/legacyRoutes.test.ts src/server/automations/__tests__/routes.test.ts`

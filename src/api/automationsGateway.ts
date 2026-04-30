@@ -23,7 +23,7 @@ type AutomationsApiResponse<T> = {
   data: T
 }
 
-type AutomationsRequestError = Error & { status?: number; error?: string }
+type AutomationsRequestError = Error & { status?: number; error?: string; code?: string }
 
 let csrfToken = ''
 
@@ -165,7 +165,8 @@ export async function deleteAutomation(id: string, options: { removeNative?: boo
 }
 
 function isStaleCsrfError(error: unknown): error is AutomationsRequestError {
-  return error instanceof Error
-    && (error as AutomationsRequestError).status === 403
-    && error.message.toLowerCase().includes('csrf')
+  if (!(error instanceof Error)) return false
+  const requestError = error as AutomationsRequestError
+  return requestError.status === 403
+    && (requestError.code === 'AUTOMATIONS_CSRF_INVALID' || error.message.toLowerCase().includes('csrf'))
 }

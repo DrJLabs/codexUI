@@ -1,6 +1,5 @@
 import { randomUUID } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
-import { homedir } from 'node:os'
 import { isAbsolute, join } from 'node:path'
 import type { AutomationDefinition, AutomationRun, AutomationRunMode } from '../../types/automations'
 import type { CodexRunProfile } from '../../types/execution'
@@ -26,6 +25,7 @@ import {
 import { createAutomationSchedulerStore } from './schedulerStore'
 import type { AutomationKanbanProjectionService } from './kanbanProjection'
 import { parseAutomationSidecarRead, type AutomationSidecarRead } from './schema'
+import { resolveCodexHomeDir } from './paths'
 
 export type AutomationRunnerOptions = NativeAutomationStoreOptions & {
   bridge: CodexBridgeRuntime
@@ -83,6 +83,10 @@ export class AutomationRunner {
         trigger: 'schedule',
       })
     })
+  }
+
+  ownsActiveRun(runId: string): boolean {
+    return this.ownedActiveRunIds.has(runId)
   }
 
   private async startRun(input: {
@@ -148,36 +152,35 @@ export class AutomationRunner {
     }
     await store.createRun(run)
     this.ownedActiveRunIds.add(run.id)
-    if (input.trigger === 'schedule') {
-      await store.appendEvent(run, {
-        type: 'scheduled_run.queued',
-        automationId: definition.id,
-        runMode,
-        dueAtIso: input.dueAtIso,
-        nextDueAtIso: input.nextDueAtIso,
-      })
-      await store.appendLog(run, `Scheduled run queued for ${definition.name}`)
-      await this.advanceSchedulerForQueuedRun({
-        automationDirPath: input.automationDirPath,
-        automationId: definition.id,
-        sourceDirName: input.sourceDirName ?? definition.storage.nativeDirName ?? definition.id,
-        run,
-        dueAtIso: input.dueAtIso,
-        nextDueAtIso: input.nextDueAtIso,
-      })
-      const startedAtIso = new Date().toISOString()
-      run = await store.updateRun(run.id, {
-        state: 'starting',
-        startedAtIso,
-      })
-      await store.appendEvent(run, { type: 'scheduled_run.started', automationId: definition.id, runMode })
-      await store.appendLog(run, `Scheduled run started for ${definition.name}`)
-    } else {
-      await store.appendEvent(run, { type: 'manual_run.started', automationId: definition.id, runMode })
-      await store.appendLog(run, `Manual run started for ${definition.name}`)
-    }
-
     try {
+      if (input.trigger === 'schedule') {
+        await store.appendEvent(run, {
+          type: 'scheduled_run.queued',
+          automationId: definition.id,
+          runMode,
+          dueAtIso: input.dueAtIso,
+          nextDueAtIso: input.nextDueAtIso,
+        })
+        await store.appendLog(run, `Scheduled run queued for ${definition.name}`)
+        await this.advanceSchedulerForQueuedRun({
+          automationDirPath: input.automationDirPath,
+          automationId: definition.id,
+          sourceDirName: input.sourceDirName ?? definition.storage.nativeDirName ?? definition.id,
+          run,
+          dueAtIso: input.dueAtIso,
+          nextDueAtIso: input.nextDueAtIso,
+        })
+        const startedAtIso = new Date().toISOString()
+        run = await store.updateRun(run.id, {
+          state: 'starting',
+          startedAtIso,
+        })
+        await store.appendEvent(run, { type: 'scheduled_run.started', automationId: definition.id, runMode })
+        await store.appendLog(run, `Scheduled run started for ${definition.name}`)
+      } else {
+        await store.appendEvent(run, { type: 'manual_run.started', automationId: definition.id, runMode })
+        await store.appendLog(run, `Manual run started for ${definition.name}`)
+      }
       if (runMode === 'worktree') {
         const worktree = await this.createAutomationWorktree(definition, run, store)
         run = await store.updateRun(run.id, {
@@ -267,7 +270,7 @@ export class AutomationRunner {
   ): Promise<{ worktreePath: string; branchName: string }> {
     if (!definition.cwd) throw new AutomationValidationError('worktree automation runs require an absolute cwd')
     const service = new ManagedWorktreeService({
-      dataDir: resolveAutomationWorktreeDataDir(this.options),
+      dataDir: resolveCodexHomeDir(this.options),
       projectRoot: definition.cwd,
       isOwnerRunActive: async (lock) => {
         if (lock.owner.source !== 'automation' || lock.owner.id !== definition.id) return true
@@ -606,11 +609,4 @@ function resolveRunCwd(definition: AutomationDefinition, run: AutomationRun): st
   if (run.runMode === 'worktree') return run.worktreePath ?? undefined
   if (run.runMode === 'local') return definition.cwd ?? undefined
   return undefined
-}
-
-function resolveAutomationWorktreeDataDir(options: NativeAutomationStoreOptions): string {
-  const injected = options.codexHomeDir?.trim()
-  if (injected) return injected
-  const codexHome = process.env.CODEX_HOME?.trim()
-  return codexHome && codexHome.length > 0 ? codexHome : join(homedir(), '.codex')
 }

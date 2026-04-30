@@ -70,6 +70,8 @@ export class AutomationsService {
   private readonly runner: AutomationRunner | null
   private readonly kanbanProjection: AutomationKanbanProjectionService | null
   private readonly kanbanProjectionTaskValidator: KanbanProjectionTaskValidator | null
+  private recoveryPromise: Promise<{ recovered: number }> | null = null
+  private runStartLock: Promise<void> = Promise.resolve()
 
   constructor(private readonly options: AutomationsServiceOptions = {}) {
     const kanbanConfig = resolveKanbanConfig()
@@ -236,7 +238,7 @@ export class AutomationsService {
     return this.policy
   }
 
-  private async assertManualRunCapacity(definition: AutomationDefinition): Promise<void> {
+  private async assertRunStartCapacity(definition: AutomationDefinition): Promise<void> {
     const activeRuns = await this.listPersistedActiveRuns()
     const maxGlobalActiveRuns = Number(this.policy.maxGlobalActiveRuns)
     const otherActiveRuns = activeRuns.filter((activeRun) => activeRun.automationId !== definition.id)
@@ -338,17 +340,20 @@ export class AutomationsService {
   }
 
   async runNow(automationId: string, options: { runProfiles?: CodexRunProfile[]; runProfileId?: string | null } = {}): Promise<AutomationRun> {
-    const entry = await this.findEntry(automationId)
-    if (!entry) throw new AutomationNotFoundError(automationId)
-    if (!this.runner) throw createServiceError(503, 'Codex bridge is not available for automation manual runs')
-    const sidecarResult = await readSidecar(entry)
-    const definition = (await mapDefinition(entry, sidecarResult.sidecar)).definition
-    await this.assertManualRunCapacity(definition)
-    return await this.runner.runNow({
-      definition,
-      automationDirPath: entry.automationDirPath,
-      runProfiles: options.runProfiles,
-      runProfileId: options.runProfileId,
+    return await this.withRunStartLock(async () => {
+      await this.waitForRecovery()
+      const entry = await this.findEntry(automationId)
+      if (!entry) throw new AutomationNotFoundError(automationId)
+      if (!this.runner) throw createServiceError(503, 'Codex bridge is not available for automation manual runs')
+      const sidecarResult = await readSidecar(entry)
+      const definition = (await mapDefinition(entry, sidecarResult.sidecar)).definition
+      await this.assertRunStartCapacity(definition)
+      return await this.runner.runNow({
+        definition,
+        automationDirPath: entry.automationDirPath,
+        runProfiles: options.runProfiles,
+        runProfileId: options.runProfileId,
+      })
     })
   }
 
@@ -361,22 +366,38 @@ export class AutomationsService {
       runProfileId?: string | null
     },
   ): Promise<AutomationRun> {
-    const entry = await this.findEntry(automationId)
-    if (!entry) throw new AutomationNotFoundError(automationId)
-    if (!this.runner) throw createServiceError(503, 'Codex bridge is not available for automation scheduled runs')
-    const sidecarResult = await readSidecar(entry)
-    return await this.runner.runScheduled({
-      definition: (await mapDefinition(entry, sidecarResult.sidecar)).definition,
-      automationDirPath: entry.automationDirPath,
-      sourceDirName: entry.sourceDirName,
-      dueAtIso: input.dueAtIso,
-      nextDueAtIso: input.nextDueAtIso,
-      runProfiles: input.runProfiles,
-      runProfileId: input.runProfileId,
+    return await this.withRunStartLock(async () => {
+      await this.waitForRecovery()
+      const entry = await this.findEntry(automationId)
+      if (!entry) throw new AutomationNotFoundError(automationId)
+      if (!this.runner) throw createServiceError(503, 'Codex bridge is not available for automation scheduled runs')
+      const sidecarResult = await readSidecar(entry)
+      const definition = (await mapDefinition(entry, sidecarResult.sidecar)).definition
+      await this.assertRunStartCapacity(definition)
+      return await this.runner.runScheduled({
+        definition,
+        automationDirPath: entry.automationDirPath,
+        sourceDirName: entry.sourceDirName,
+        dueAtIso: input.dueAtIso,
+        nextDueAtIso: input.nextDueAtIso,
+        runProfiles: input.runProfiles,
+        runProfileId: input.runProfileId,
+      })
     })
   }
 
   async recoverInterruptedRuns(): Promise<{ recovered: number }> {
+    if (this.recoveryPromise) return await this.recoveryPromise
+    const recoveryPromise = this.recoverInterruptedRunsNow()
+    this.recoveryPromise = recoveryPromise
+    try {
+      return await recoveryPromise
+    } finally {
+      if (this.recoveryPromise === recoveryPromise) this.recoveryPromise = null
+    }
+  }
+
+  private async recoverInterruptedRunsNow(): Promise<{ recovered: number }> {
     const entries = await listNativeAutomationEntries(this.options)
     let recovered = 0
     for (const entry of entries.records) {
@@ -386,6 +407,7 @@ export class AutomationsService {
       const sidecarResult = activeRuns.length > 0 ? await readSidecar(entry) : null
       const definition = sidecarResult ? (await mapDefinition(entry, sidecarResult.sidecar)).definition : null
       for (const run of activeRuns) {
+        if (this.runner?.ownsActiveRun(run.id)) continue
         if (run.trigger === 'schedule') {
           await reconcileSchedulerFromScheduledRun(entry, run)
         }
@@ -408,6 +430,28 @@ export class AutomationsService {
       }
     }
     return { recovered }
+  }
+
+  private async waitForRecovery(): Promise<void> {
+    const recoveryPromise = this.recoveryPromise
+    if (recoveryPromise) await recoveryPromise
+  }
+
+  private async withRunStartLock<T>(fn: () => Promise<T>): Promise<T> {
+    const previous = this.runStartLock
+    let release!: () => void
+    const current = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const chained = previous.then(() => current, () => current)
+    this.runStartLock = chained
+    await previous.catch(() => {})
+    try {
+      return await fn()
+    } finally {
+      release()
+      if (this.runStartLock === chained) this.runStartLock = Promise.resolve()
+    }
   }
 
   async listRuns(automationId: string): Promise<AutomationRun[]> {

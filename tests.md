@@ -2,6 +2,8 @@
 
 This file tracks manual regression and feature verification steps.
 
+Automation review sections use `${WORKTREE_ROOT}` for the current checkout and `${HOST_NODE_MODULES}` for any compatible shared dependency directory used only when the worktree lacks its own install.
+
 ## Template
 
 ### Feature: <name>
@@ -47,7 +49,7 @@ This file tracks manual regression and feature verification steps.
 
 #### Prerequisites
 - Use the `feat/automations` worktree.
-- If this worktree lacks dependencies, or `node_modules` exists but does not include Vitest/build tooling, temporarily link `node_modules` to `/home/drj/projects/codexUI/node_modules` and remove the link after verification.
+- If this worktree lacks dependencies, or `node_modules` exists but does not include Vitest/build tooling, temporarily link `node_modules` to `${HOST_NODE_MODULES}` and remove the link after verification.
 
 #### Steps
 1. Run `pnpm exec vitest run src/server/automations/__tests__/nativeStore.test.ts src/server/automations/__tests__/legacyRoutes.test.ts src/server/codexAppServerBridge.inlinePayload.test.ts`.
@@ -203,14 +205,14 @@ This file tracks manual regression and feature verification steps.
 First-class Automations hash route with shared heartbeat editor.
 
 #### Prerequisites/Setup
-1. Use `/home/drj/.codex/worktrees/52f8/codexUI`.
-2. If this worktree has incomplete dependencies, temporarily point `node_modules` at `/home/drj/projects/codexUI/node_modules` for verification, then restore the original local dependency tree.
+1. Use `${WORKTREE_ROOT}`.
+2. If this worktree has incomplete dependencies, temporarily point `node_modules` at `${HOST_NODE_MODULES}` for verification, then restore the original local dependency tree.
 3. Start the app with `pnpm run dev -- --host 0.0.0.0 --port 4173` for manual browser checks.
 
 #### Steps
 1. Run `pnpm exec vitest run src/api/automationsGateway.test.ts src/composables/useAutomations.test.ts src/router/index.test.ts`.
 2. Run `pnpm run build`.
-3. In light theme, open `http://127.0.0.1:4173/#/automations`.
+3. In light theme, open `http://127.0.0.1:<vite-port>/#/automations`.
 4. Confirm the existing primary sidebar Automations row is active.
 5. Confirm existing heartbeat definitions list with name, status, target thread id, RRULE, source, and updated timestamp.
 6. Confirm diagnostics and native/sidecar storage paths wrap without horizontal overflow.
@@ -231,8 +233,8 @@ First-class Automations hash route with shared heartbeat editor.
 
 #### Observed Results
 - 2026-04-30: Focused Vitest passed with 3 files and 16 tests.
-- 2026-04-30: `pnpm run build` passed after temporarily symlinking this worktree to `/home/drj/projects/codexUI/node_modules`.
-- 2026-04-30: Headless Chrome verification against `http://127.0.0.1:5174/#/automations` with temporary `CODEX_HOME=/tmp/codexui-phase4-ui-kCktPV` passed:
+- 2026-04-30: `pnpm run build` passed after temporarily symlinking this worktree to `${HOST_NODE_MODULES}`.
+- 2026-04-30: Headless Chrome verification against `the active Vite URL, for example http://127.0.0.1:<vite-port>/#/automations` with temporary `CODEX_HOME=/tmp/codexui-phase4-ui-kCktPV` passed:
   - light theme rendered without `:root.dark`, with readable light panel colors and no horizontal overflow
   - existing heartbeat listed and selected from `?threadId=thread_phase4`
   - create, pause, resume, and native-folder-removing delete flow completed against temporary automation storage
@@ -257,7 +259,7 @@ First-class Automations hash route with shared heartbeat editor.
 Compact run-history triage actions for automation runs.
 
 #### Prerequisites/Setup
-1. Use `/home/drj/.codex/worktrees/52f8/codexUI`.
+1. Use `${WORKTREE_ROOT}`.
 2. Start the app with `pnpm run dev -- --host 0.0.0.0 --port 4173`.
 3. Ensure at least one heartbeat automation has recent runs, including a failed run or a run with findings if possible.
 4. Ensure light and dark themes are available from Settings.
@@ -265,7 +267,7 @@ Compact run-history triage actions for automation runs.
 #### Steps
 1. Run `pnpm exec vitest run src/composables/useAutomations.test.ts src/api/automationsGateway.test.ts`.
 2. Run `pnpm run build`.
-3. Open `http://127.0.0.1:4173/#/automations` in light theme.
+3. Open `http://127.0.0.1:<vite-port>/#/automations` in light theme.
 4. Select an automation with recent run history.
 5. Confirm each run displays compact state, trigger, timestamp, and path details.
 6. Confirm `inboxTitle` appears when present and `inboxSummary` appears when present.
@@ -295,7 +297,7 @@ Compact run-history triage actions for automation runs.
 Next-run display, schedule wording, and capability status chips for the Automations route.
 
 #### Prerequisites/Setup
-1. Use `/home/drj/.codex/worktrees/52f8/codexUI`.
+1. Use `${WORKTREE_ROOT}`.
 2. Start the app with `pnpm run dev -- --host 0.0.0.0 --port 4173`.
 3. Prepare at least one active automation with a supported schedule, one paused automation, and one automation with no next run or a scheduler-unsupported monthly/yearly schedule if available.
 4. Ensure light and dark themes are available from Settings.
@@ -303,7 +305,7 @@ Next-run display, schedule wording, and capability status chips for the Automati
 #### Steps
 1. Run `pnpm exec vitest run src/composables/useAutomations.test.ts src/api/automationsGateway.test.ts`.
 2. Run `pnpm run build`.
-3. Open `http://127.0.0.1:4173/#/automations` in light theme.
+3. Open `http://127.0.0.1:<vite-port>/#/automations` in light theme.
 4. Confirm the summary band shows status chips for Scheduler, Manual run, Artifact indexing, and Kanban projection, with only on/off status and no toggles.
 5. Confirm the list column is `Next run`, not `Updated`.
 6. Confirm an active scheduled automation shows a formatted next-run timestamp.
@@ -338,7 +340,7 @@ Automations Phase 3 API code-quality review regressions.
 
 #### Prerequisites/Setup
 1. Use the `codexUI` worktree.
-2. If this worktree has incomplete dependencies, temporarily point `node_modules` at `/home/drj/projects/codexUI/node_modules` and restore the original dependency tree after testing.
+2. If this worktree has incomplete dependencies, temporarily point `node_modules` at `${HOST_NODE_MODULES}` and restore the original dependency tree after testing.
 
 #### Steps
 1. Run `pnpm exec vitest run src/server/automations/__tests__/nativeStore.test.ts src/server/automations/__tests__/legacyRoutes.test.ts src/server/automations/__tests__/routes.test.ts`.
@@ -361,8 +363,8 @@ Automations Phase 3 API code-quality review regressions.
 ### Feature: Automations Phase 3 first-class API
 
 #### Prerequisites
-- Use `/home/drj/.codex/worktrees/52f8/codexUI` on `feat/automations`.
-- If this worktree has absent or incomplete dependencies, temporarily replace `node_modules` with a symlink to `/home/drj/projects/codexUI/node_modules` and restore/remove the temporary symlink after verification.
+- Use `${WORKTREE_ROOT}` on `feat/automations`.
+- If this worktree has absent or incomplete dependencies, temporarily replace `node_modules` with a symlink to `${HOST_NODE_MODULES}` and restore/remove the temporary symlink after verification.
 - No UI, scheduler, manual run, Kanban projection, or artifact indexing behavior is included in this phase.
 
 #### Steps
@@ -398,7 +400,7 @@ Automations Phase 3 API code-quality review regressions.
 3. Open a thread in light theme and open the right sidebar.
 4. Confirm the first-level menu shows Thread, Kanban, Automations, Worktrees, Artifacts, Actions, and Permissions.
 5. Click Thread and confirm Plan, Run, Evidence, Review, and Proposals appear only inside the Thread panel.
-6. Confirm the Thread row count includes visible thread artifacts plus proposal count, and Worktrees uses the active worktree count.
+6. Confirm the Thread row count matches visible thread artifacts without double-counting proposals, and Worktrees uses the active worktree count.
 7. Click Automations and confirm it opens an in-place deferred panel rather than a nested artifact tab.
 8. Switch to dark theme and repeat steps 3-7.
 
@@ -4762,7 +4764,7 @@ Thread workspace model and workspace-scoped right drawer sections.
 
 #### Prerequisites/Setup
 1. Use the `feature/thread-workspace-right-drawer-ia-dev` worktree.
-2. Reuse the shared dependency install with `node_modules -> /home/drj/projects/codexUI/node_modules` if this worktree does not already have dependencies.
+2. Reuse the shared dependency install with `node_modules -> ${HOST_NODE_MODULES}` if this worktree does not already have dependencies.
 3. Start the dev server with `pnpm run dev -- --host 0.0.0.0 --port 5173`.
 4. Open a normal chat thread with the right artifact drawer available.
 5. Use browser viewports of 1440x900 for desktop, 768x1024 for tablet, and 375x812 for mobile checks.
@@ -4949,7 +4951,7 @@ Safe indexed artifact preview routes and preview panel shell.
 
 #### Prerequisites/Setup
 1. Use the `feature/desktop-parity-artifact-previews-dev` worktree.
-2. Reuse the shared dependency install with `node_modules -> /home/drj/projects/codexUI/node_modules` if this worktree does not already have dependencies.
+2. Reuse the shared dependency install with `node_modules -> ${HOST_NODE_MODULES}` if this worktree does not already have dependencies.
 
 #### Steps
 1. Run `pnpm vitest run src/server/artifacts/__tests__/security.test.ts src/server/artifacts/__tests__/routes.test.ts`.
@@ -4975,7 +4977,7 @@ Shared managed-worktree status service and artifact UI panels.
 
 #### Prerequisites/Setup
 1. Use the `feature/desktop-parity-worktrees-dev` worktree.
-2. Reuse the shared dependency install with `node_modules -> /home/drj/projects/codexUI/node_modules` if this worktree does not already have dependencies.
+2. Reuse the shared dependency install with `node_modules -> ${HOST_NODE_MODULES}` if this worktree does not already have dependencies.
 
 #### Steps
 1. Run `pnpm vitest run src/server/workspaces/__tests__/worktreeService.test.ts src/server/kanban/__tests__/worktreeManager.test.ts src/server/kanban/__tests__/recoveryService.test.ts`.
@@ -5000,7 +5002,7 @@ Local project action registry, policy checks, and action evidence UI shell.
 
 #### Prerequisites/Setup
 1. Use the `feature/desktop-parity-local-actions-dev` worktree.
-2. Reuse the shared dependency install with `node_modules -> /home/drj/projects/codexUI/node_modules` if this worktree does not already have dependencies.
+2. Reuse the shared dependency install with `node_modules -> ${HOST_NODE_MODULES}` if this worktree does not already have dependencies.
 
 #### Steps
 1. Run `pnpm vitest run src/server/actions/__tests__/actionRegistry.test.ts`.
@@ -5027,7 +5029,7 @@ Shared inert proposal summary panel for Kanban and artifact contexts.
 
 #### Prerequisites/Setup
 1. Use the `feature/desktop-parity-proposals-dev` worktree.
-2. Reuse the shared dependency install with `node_modules -> /home/drj/projects/codexUI/node_modules` if this worktree does not already have dependencies.
+2. Reuse the shared dependency install with `node_modules -> ${HOST_NODE_MODULES}` if this worktree does not already have dependencies.
 3. For browser verification, start the dev server with `pnpm run dev -- --host 0.0.0.0 --port 4177`. In this run Vite used `http://127.0.0.1:5177`.
 
 #### Steps
@@ -5088,7 +5090,7 @@ Shared review packet freshness fingerprinting and summary UI.
 
 #### Prerequisites/Setup
 1. Use the `feature/desktop-parity-review-packets-dev` worktree.
-2. Reuse the shared dependency install with `node_modules -> /home/drj/projects/codexUI/node_modules` if this worktree does not already have dependencies.
+2. Reuse the shared dependency install with `node_modules -> ${HOST_NODE_MODULES}` if this worktree does not already have dependencies.
 3. For browser verification, start the dev server with `pnpm run dev -- --host 0.0.0.0 --port 4176`. In this run Vite used `http://127.0.0.1:5176`.
 
 #### Steps
@@ -5149,7 +5151,7 @@ Shared execution audit log schema, Kanban source wrapper, legacy hash-chain comp
 
 #### Prerequisites/Setup
 1. Use the `feat/automations` worktree.
-2. Reuse the shared dependency install with `node_modules -> /home/drj/projects/codexUI/node_modules` if this worktree does not already have dependencies.
+2. Reuse the shared dependency install with `node_modules -> ${HOST_NODE_MODULES}` if this worktree does not already have dependencies.
 3. No dev server is required; this slice is server-only and has no light/dark UI surface.
 
 #### Steps
@@ -5177,7 +5179,7 @@ Managed worktree lock owner metadata, legacy Kanban lock normalization, and shar
 
 #### Prerequisites/Setup
 1. Use the `feat/automations` worktree.
-2. Reuse the shared dependency install with `node_modules -> /home/drj/projects/codexUI/node_modules` if this worktree does not already have dependencies.
+2. Reuse the shared dependency install with `node_modules -> ${HOST_NODE_MODULES}` if this worktree does not already have dependencies.
 3. No dev server is required; this slice is server-only and has no light/dark UI surface.
 
 #### Steps
@@ -5207,7 +5209,7 @@ Persisted manual automation run API for chat and local modes.
 
 #### Prerequisites/Setup
 1. Use the `feat/automations` worktree.
-2. Reuse the shared dependency install with `node_modules -> /home/drj/projects/codexUI/node_modules` if this worktree does not already have dependencies.
+2. Reuse the shared dependency install with `node_modules -> ${HOST_NODE_MODULES}` if this worktree does not already have dependencies.
 3. No dev server or browser theme verification is required for Slice 6A; this slice is server-only and does not change UI.
 
 #### Steps
@@ -5235,8 +5237,8 @@ Persisted manual automation run API for chat and local modes.
 Manual automation runs in chat, local cwd, and managed worktree modes with route-level run controls and recent-run history.
 
 #### Prerequisites/Setup
-1. Use the `feat/automations` worktree at `/home/drj/.codex/worktrees/52f8/codexUI`.
-2. Reuse the shared dependency install with `node_modules -> /home/drj/projects/codexUI/node_modules` if this worktree does not already have dependencies.
+1. Use the `feat/automations` worktree at `${WORKTREE_ROOT}`.
+2. Reuse the shared dependency install with `node_modules -> ${HOST_NODE_MODULES}` if this worktree does not already have dependencies.
 3. For manual UI verification, start the dev server with automation execution enabled from trusted local access: `CODEXUI_KANBAN_EXECUTION_ENABLED=1 pnpm run dev -- --host 127.0.0.1 --port 4173`.
 4. Use a saved heartbeat automation and, for managed worktree mode, configure `cwd` as an absolute path to a committed Git repository.
 5. Light and dark themes are available from Settings.
@@ -5246,7 +5248,7 @@ Manual automation runs in chat, local cwd, and managed worktree modes with route
 2. Run `pnpm run build`.
 3. Run `git diff --check`.
 4. Run the final Phase 6 gate: `pnpm exec vitest run src/server/automations/__tests__/runner.test.ts src/server/automations/__tests__/routes.test.ts src/server/automations/__tests__/legacyRoutes.test.ts src/server/workspaces/__tests__/managedWorktreeService.test.ts src/server/workspaces/__tests__/worktreeService.test.ts src/api/automationsGateway.test.ts src/composables/useAutomations.test.ts`.
-5. Open `http://127.0.0.1:4173/#/automations` in light theme.
+5. Open `http://127.0.0.1:<vite-port>/#/automations` in light theme.
 6. Select or create a saved automation, choose each run mode option (`Chat`, `Local cwd`, `Managed worktree`), and confirm the cwd field is required for local/worktree modes.
 7. Click `Run now` on a saved automation and confirm the compact recent-run list updates with state, trigger, thread, turn, cwd/worktree, log path, started timestamp, and completed timestamp.
 8. For managed worktree mode, confirm a lock file named `codexui-kanban-worktree.json` is written under the managed worktree metadata root and includes `owner: { source: "automation", id: <automation-id> }`.
@@ -5279,8 +5281,8 @@ Manual automation runs in chat, local cwd, and managed worktree modes with route
 Persisted automation scheduler loop, startup recovery, and conservative run limits.
 
 #### Prerequisites/Setup
-1. Use `/home/drj/.codex/worktrees/52f8/codexUI`.
-2. Reuse the shared dependency install with `node_modules -> /home/drj/projects/codexUI/node_modules` if this worktree does not already have dependencies.
+1. Use `${WORKTREE_ROOT}`.
+2. Reuse the shared dependency install with `node_modules -> ${HOST_NODE_MODULES}` if this worktree does not already have dependencies.
 3. Start a bridge-enabled server with automation execution enabled, then create or select an active heartbeat automation with a supported RRULE schedule.
 4. For local/worktree limit checks, configure two test automations with the same absolute `cwd`.
 5. Light and dark themes are available from Settings.
@@ -5318,8 +5320,8 @@ Persisted automation scheduler loop, startup recovery, and conservative run limi
 Automation run read/archive triage actions and automation artifact route indexing.
 
 #### Prerequisites/Setup
-1. Use `/home/drj/.codex/worktrees/52f8/codexUI` on `feat/automations`.
-2. Reuse the shared dependency install with `node_modules -> /home/drj/projects/codexUI/node_modules` if this worktree does not already have dependencies.
+1. Use `${WORKTREE_ROOT}` on `feat/automations`.
+2. Reuse the shared dependency install with `node_modules -> ${HOST_NODE_MODULES}` if this worktree does not already have dependencies.
 3. Start a trusted local dev server with automation execution enabled: `CODEXUI_KANBAN_EXECUTION_ENABLED=1 pnpm run dev -- --host 127.0.0.1 --port 4173`.
 4. Create or select a disposable heartbeat automation, for example `daily-check`, and run it once so `${CODEX_HOME:-$HOME/.codex}/automations/daily-check/runs/<run-id>/` contains `run.json`, `run.log`, and `events.jsonl`.
 5. Capture the disposable automation ID and run ID for the API checks below.
@@ -5328,7 +5330,7 @@ Automation run read/archive triage actions and automation artifact route indexin
 1. Run `pnpm exec vitest run src/api/automationsGateway.test.ts src/composables/useAutomations.test.ts src/server/automations/__tests__/routes.test.ts src/server/artifacts/__tests__/routes.test.ts`.
 2. Run `pnpm run build`.
 3. Run `git diff --check`.
-4. Open `http://127.0.0.1:4173/#/automations`, select the disposable automation, and confirm the run appears in recent run history.
+4. Open `http://127.0.0.1:<vite-port>/#/automations`, select the disposable automation, and confirm the run appears in recent run history.
 5. Mark the run read by calling `POST /codex-api/automations/<automation-id>/runs/<run-id>/read` with the Automations CSRF header, then refresh the run history.
 6. Archive the same run by calling `POST /codex-api/automations/<automation-id>/runs/<run-id>/archive` with the Automations CSRF header, then refresh the run history.
 7. Unarchive the same run by calling `POST /codex-api/automations/<automation-id>/runs/<run-id>/unarchive` with the Automations CSRF header, then refresh the run history.
@@ -5359,8 +5361,8 @@ Automation run read/archive triage actions and automation artifact route indexin
 Opt-in automation definition and run projection to inert Kanban follow-up cards.
 
 #### Prerequisites/Setup
-1. Use `/home/drj/.codex/worktrees/52f8/codexUI`.
-2. Reuse the shared dependency install with `node_modules -> /home/drj/projects/codexUI/node_modules` if this worktree does not already have dependencies.
+1. Use `${WORKTREE_ROOT}`.
+2. Reuse the shared dependency install with `node_modules -> ${HOST_NODE_MODULES}` if this worktree does not already have dependencies.
 3. Start a trusted local dev server with automation execution enabled: `CODEXUI_KANBAN_EXECUTION_ENABLED=1 pnpm run dev -- --host 127.0.0.1 --port 4173`.
 4. Create or select a disposable heartbeat automation with a valid `targetThreadId`.
 5. Keep a disposable Kanban board/project root for confirming created cards can be removed after the check.
@@ -5401,7 +5403,7 @@ Opt-in automation definition and run projection to inert Kanban follow-up cards.
 Automations route parity polish for run triage, schedule status, capability chips, and responsive light/dark layout.
 
 #### Prerequisites/Setup
-1. Use `/home/drj/.codex/worktrees/52f8/codexUI`.
+1. Use `${WORKTREE_ROOT}`.
 2. Start the app with `pnpm run dev -- --host 0.0.0.0 --port 4173`.
 3. Prepare at least three disposable heartbeat automations:
    - an active automation with a supported daily/hourly RRULE and a visible `nextRunAtIso`;
@@ -5414,7 +5416,7 @@ Automations route parity polish for run triage, schedule status, capability chip
 1. Run `pnpm exec vitest run src/api/automationsGateway.test.ts src/composables/useAutomations.test.ts src/server/automations/__tests__/routes.test.ts src/server/artifacts/__tests__/routes.test.ts`.
 2. Run `pnpm run build`.
 3. Run `git diff --check`.
-4. Open `http://127.0.0.1:4173/#/automations` in light theme.
+4. Open `http://127.0.0.1:<vite-port>/#/automations` in light theme.
 5. Confirm the summary band shows Total, Active, Paused, Native storage root, and capability chips for Scheduler, Manual run, Artifact indexing, and Kanban projection.
 6. Confirm the automation list uses a `Next run` column.
 7. Confirm the active scheduled automation shows a formatted next-run timestamp.
@@ -5454,7 +5456,7 @@ Automations route parity polish for run triage, schedule status, capability chip
 Automations review fixes for per-entry scheduler failure isolation and direct local/worktree automation creation without an attached thread.
 
 #### Prerequisites/Setup
-1. Use `/home/drj/.codex/worktrees/52f8/codexUI`.
+1. Use `${WORKTREE_ROOT}`.
 2. Start the app with `pnpm run dev -- --host 0.0.0.0 --port 4173` for manual UI checks.
 3. Use disposable automations and disposable project directories only.
 4. Ensure light and dark themes are available from Settings.
@@ -5464,7 +5466,7 @@ Automations review fixes for per-entry scheduler failure isolation and direct lo
 2. Run `pnpm test:unit`.
 3. Run `pnpm run build`.
 4. Run `git diff --check`.
-5. In light theme, open `http://127.0.0.1:4173/#/automations`.
+5. In light theme, open `http://127.0.0.1:<vite-port>/#/automations`.
 6. Create a Local cwd automation with a valid absolute cwd, prompt, and schedule, leaving Attached thread id blank.
 7. Create a Managed worktree automation with a valid absolute cwd, prompt, and schedule, leaving Attached thread id blank.
 8. Confirm both saved definitions show `No thread`, preserve their run mode and cwd, and remain selectable.
@@ -5491,7 +5493,7 @@ Automations review fixes for per-entry scheduler failure isolation and direct lo
 Review-cycle hardening for automation scheduler recovery, TOML persistence, artifact indexing scope, execution queue errors, run history listing, worktree locks, audit logs, and dev-server cleanup.
 
 #### Prerequisites/Setup
-1. Use `/home/drj/.codex/worktrees/52f8/codexUI`.
+1. Use `${WORKTREE_ROOT}`.
 2. Start the app with `pnpm run dev -- --host 0.0.0.0 --port 4173` for manual UI checks.
 3. Use disposable automation records, Kanban tasks, and managed worktrees only.
 4. Ensure light and dark themes are available from Settings.
@@ -5501,7 +5503,7 @@ Review-cycle hardening for automation scheduler recovery, TOML persistence, arti
 2. Run `pnpm test:unit`.
 3. Run `pnpm run build`.
 4. Run `git diff --check`.
-5. In light theme, open `http://127.0.0.1:4173/#/automations` while the initial list is loading and confirm the editor controls are disabled until load settles.
+5. In light theme, open `http://127.0.0.1:<vite-port>/#/automations` while the initial list is loading and confirm the editor controls are disabled until load settles.
 6. Confirm existing automations, recent runs, and storage details remain readable after load.
 7. Repeat steps 5-6 in dark theme.
 
@@ -5665,3 +5667,45 @@ Heartbeat-only automation API safety, PATCH run-target invariants, TOML parser h
 
 #### Rollback/Cleanup
 - Delete disposable automation records and run folders created only for this check.
+
+---
+
+### Automations PR review cycle 6 fixes
+
+#### Feature/Change Name
+Review-cycle hardening for automation run-start concurrency, startup recovery ownership, CSRF error codes, worktree lock owner validation, storage errors, and right-sidebar artifact counts.
+
+#### Prerequisites/Setup
+1. Use `${WORKTREE_ROOT}` on `feat/automations`.
+2. Reuse an existing compatible dependency install if this worktree does not already have dependencies.
+3. Use disposable automation records, run folders, and managed worktree locks only.
+
+#### Steps
+1. Run `pnpm exec vitest run src/server/execution/__tests__/runQueue.test.ts src/composables/useThreadWorkspace.test.ts src/api/automationsGateway.test.ts src/server/automations/__tests__/nativeStore.test.ts src/server/automations/__tests__/routes.test.ts src/server/automations/__tests__/runner.test.ts src/server/workspaces/__tests__/worktreeService.test.ts src/server/kanban/__tests__/worktreeManager.test.ts src/server/workspaces/__tests__/managedWorktreeService.test.ts`.
+2. Run `pnpm test:unit`.
+3. Run `pnpm run build`.
+4. Run `git diff --check`.
+5. Start two manual runs for different automations concurrently while the global active-run limit is `1`.
+6. Start an automation run and invoke startup recovery while the same service still owns that active run.
+7. Create an ownerless managed-worktree lock with an automation branch name and list workspace worktrees.
+8. Attempt to read automation storage when `$CODEX_HOME/automations` exists as a file rather than a directory.
+9. Open a thread with proposal artifacts and confirm the top-level Thread badge matches artifact count without adding proposal count again.
+
+#### Expected Results
+- Concurrent cross-automation starts serialize so only one run starts when global capacity is `1`.
+- Startup recovery skips runs owned by the current service instance.
+- Scheduler-start persistence failures after run creation mark the run failed and do not start bridge work.
+- Invalid queue limits throw at construction time.
+- Ownerless non-Kanban worktree locks are skipped instead of being coerced to Kanban.
+- Non-`ENOENT` automation storage read failures surface instead of being reported as empty storage.
+- Structured CSRF error codes drive stale-token refresh without retrying unrelated 403 responses.
+- Thread badge counts no longer double-count proposal artifacts.
+
+#### Observed Results
+- 2026-04-30: Focused Vitest passed with 9 files and 114 tests.
+- 2026-04-30: `pnpm test:unit` passed with 48 files and 403 tests.
+- 2026-04-30: `pnpm run build` passed.
+- 2026-04-30: `git diff --check` passed.
+
+#### Rollback/Cleanup
+- Delete disposable automation records, run folders, and managed worktree lock folders created only for this check.
