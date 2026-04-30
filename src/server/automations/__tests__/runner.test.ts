@@ -6,9 +6,13 @@ import { promisify } from 'node:util'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { AutomationRun } from '../../../types/automations'
 import { FULL_ACCESS_CODEX_RUN_PROFILE_ID, type CodexRunProfile } from '../../../types/execution'
-import type { KanbanExecutionPolicy } from '../../../types/kanban'
+import type { KanbanExecutionPolicy, KanbanTask } from '../../../types/kanban'
 import type { CodexBridgeNotification, CodexBridgeRuntime } from '../../codexAppServerBridge'
+import { KanbanStorage } from '../../kanban/storage'
+import { KanbanTaskService } from '../../kanban/taskService'
 import { MANAGED_WORKTREE_LOCK_FILENAME } from '../../workspaces/worktreeLocks'
+import type { AutomationKanbanProjectionService } from '../kanbanProjection'
+import { AutomationKanbanProjectionService as RealAutomationKanbanProjectionService } from '../kanbanProjection'
 import { serializeAutomationToml, type ThreadAutomationRecord } from '../nativeStore'
 import { createAutomationRunPaths, createAutomationRunStore } from '../runStore'
 import type { AutomationSchedulerState } from '../schedulerStore'
@@ -63,6 +67,7 @@ async function createHarness(options: {
   readThreadResponse?: unknown
   readThreadError?: Error
   beforeRpc?: (method: string) => Promise<void> | void
+  kanbanProjection?: AutomationKanbanProjectionService
 } = {}) {
   const codexHomeDir = await mkdtemp(join(tmpdir(), 'codexui-automation-runner-'))
   codexHomeDirs.push(codexHomeDir)
@@ -112,8 +117,20 @@ async function createHarness(options: {
     codexHomeDir,
     bridge,
     policy: options.policy ?? enabledPolicy,
+    kanbanProjection: options.kanbanProjection,
   })
   return { codexHomeDir, service, bridge, rpcCalls, notificationListeners }
+}
+
+async function createKanbanProjectionHarness() {
+  const dataDir = await mkdtemp(join(tmpdir(), 'codexui-automation-runner-kanban-'))
+  codexHomeDirs.push(dataDir)
+  const projectRoot = join(dataDir, 'project')
+  await mkdir(projectRoot, { recursive: true })
+  const storage = new KanbanStorage({ dataDir, projectRoot })
+  const taskService = new KanbanTaskService({ storage, projectRoot, policy: enabledPolicy })
+  const kanbanProjection = new RealAutomationKanbanProjectionService({ storage, taskService })
+  return { storage, taskService, kanbanProjection }
 }
 
 async function writeNative(codexHomeDir: string, dirName: string, record: ThreadAutomationRecord, sidecar: Record<string, unknown> = {}) {
@@ -155,6 +172,10 @@ async function createGitRepo(): Promise<string> {
 async function runGit(cwd: string, args: string[]): Promise<string> {
   const { stdout } = await execFileAsync('git', args, { cwd })
   return stdout
+}
+
+async function listKanbanTasks(taskService: KanbanTaskService): Promise<KanbanTask[]> {
+  return (await taskService.listTasks({ limit: 100, offset: 0 })).items
 }
 
 describe('AutomationRunner', () => {
@@ -377,6 +398,203 @@ describe('AutomationRunner', () => {
       archivedAtIso: null,
     })
     await expect(readFile(completed.logPath, 'utf8')).resolves.toContain('Manual run completed with findings')
+  })
+
+  it('projects completed findings runs to one idle Kanban task and stores the task id', async () => {
+    const { taskService, kanbanProjection } = await createKanbanProjectionHarness()
+    const { codexHomeDir, service, notificationListeners } = await createHarness({
+      kanbanProjection,
+      readThreadResponse: {
+        thread: {
+          turns: [
+            {
+              id: 'turn_1',
+              items: [{ type: 'agentMessage', text: 'RESULT: FINDINGS\n- Disk is full' }],
+            },
+          ],
+        },
+      },
+    })
+    await writeNative(codexHomeDir, 'daily-check-dir', nativeRecord, {
+      runMode: 'chat',
+      kanbanProjection: { mode: 'run_card', createFor: 'findings_only' },
+    })
+    const first = await service.runNow('daily-check')
+
+    await Promise.resolve(notificationListeners[0]!({
+      method: 'turn/completed',
+      params: { threadId: 'thread-1', turnId: 'turn_1' },
+      atIso: new Date().toISOString(),
+    }))
+    const completed = (await service.listRuns('daily-check'))[0]!
+    const tasks = await listKanbanTasks(taskService)
+
+    expect(completed).toMatchObject({
+      id: first.id,
+      state: 'completed_with_findings',
+      kanbanTaskId: expect.any(String),
+    })
+    expect(tasks).toHaveLength(1)
+    expect(tasks[0]).toMatchObject({
+      id: completed.kanbanTaskId,
+      title: 'Automation finding: Daily Check',
+      status: 'backlog',
+      runState: 'idle',
+      currentRunId: '',
+      runIds: [],
+    })
+    expect(tasks[0].labels.map((label) => label.name)).toContain(`automation:daily-check:run:${first.id}`)
+  })
+
+  it('keeps repeated completed notifications idempotent for run Kanban projection', async () => {
+    const { taskService, kanbanProjection } = await createKanbanProjectionHarness()
+    const { codexHomeDir, service, notificationListeners } = await createHarness({
+      kanbanProjection,
+      readThreadResponse: {
+        thread: {
+          turns: [
+            {
+              id: 'turn_1',
+              items: [{ type: 'agentMessage', text: 'RESULT: FINDINGS\n- Disk is full' }],
+            },
+          ],
+        },
+      },
+    })
+    await writeNative(codexHomeDir, 'daily-check-dir', nativeRecord, {
+      runMode: 'chat',
+      kanbanProjection: { mode: 'run_card', createFor: 'findings_only' },
+    })
+    const first = await service.runNow('daily-check')
+
+    await Promise.resolve(notificationListeners[0]!({
+      method: 'turn/completed',
+      params: { threadId: 'thread-1', turnId: 'turn_1' },
+      atIso: new Date().toISOString(),
+    }))
+    const once = (await service.listRuns('daily-check'))[0]!
+    await Promise.resolve(notificationListeners[0]!({
+      method: 'turn/completed',
+      params: { threadId: 'thread-1', turnId: 'turn_1' },
+      atIso: new Date().toISOString(),
+    }))
+    const twice = (await service.listRuns('daily-check'))[0]!
+    const tasks = await listKanbanTasks(taskService)
+
+    expect(twice).toMatchObject({
+      id: first.id,
+      state: 'completed_with_findings',
+      kanbanTaskId: once.kanbanTaskId,
+    })
+    expect(tasks).toHaveLength(1)
+    expect(tasks[0].id).toBe(once.kanbanTaskId)
+  })
+
+  it('does not project completed_no_findings runs for findings_only run cards', async () => {
+    const { taskService, kanbanProjection } = await createKanbanProjectionHarness()
+    const { codexHomeDir, service, notificationListeners } = await createHarness({ kanbanProjection })
+    await writeNative(codexHomeDir, 'daily-check-dir', nativeRecord, {
+      runMode: 'chat',
+      kanbanProjection: { mode: 'run_card', createFor: 'findings_only' },
+    })
+    await service.runNow('daily-check')
+
+    await Promise.resolve(notificationListeners[0]!({
+      method: 'turn/completed',
+      params: { threadId: 'thread-1', turnId: 'turn_1' },
+      atIso: new Date().toISOString(),
+    }))
+    const completed = (await service.listRuns('daily-check'))[0]!
+    const tasks = await listKanbanTasks(taskService)
+
+    expect(completed).toMatchObject({
+      state: 'completed_no_findings',
+      kanbanTaskId: null,
+    })
+    expect(tasks).toEqual([])
+  })
+
+  it('projects failed completion runs for failures_only run cards', async () => {
+    const { taskService, kanbanProjection } = await createKanbanProjectionHarness()
+    const { codexHomeDir, service, notificationListeners } = await createHarness({
+      kanbanProjection,
+      readThreadError: new Error('thread read unavailable'),
+    })
+    await writeNative(codexHomeDir, 'daily-check-dir', nativeRecord, {
+      runMode: 'chat',
+      kanbanProjection: { mode: 'run_card', createFor: 'failures_only' },
+    })
+    const first = await service.runNow('daily-check')
+
+    await Promise.resolve(notificationListeners[0]!({
+      method: 'turn/completed',
+      params: { threadId: 'thread-1', turnId: 'turn_1' },
+      atIso: new Date().toISOString(),
+    }))
+    const failed = (await service.listRuns('daily-check'))[0]!
+    const tasks = await listKanbanTasks(taskService)
+
+    expect(failed).toMatchObject({
+      id: first.id,
+      state: 'failed',
+      errorMessage: 'thread read unavailable',
+      kanbanTaskId: expect.any(String),
+    })
+    expect(tasks).toHaveLength(1)
+    expect(tasks[0]).toMatchObject({
+      id: failed.kanbanTaskId,
+      title: 'Automation finding: Daily Check',
+      status: 'backlog',
+      runState: 'idle',
+      currentRunId: '',
+      runIds: [],
+    })
+    expect(tasks[0].description).toContain('Run state: failed')
+  })
+
+  it('keeps terminal run state when Kanban projection fails and records projection diagnostics', async () => {
+    const projectionError = new Error('kanban write failed')
+    const kanbanProjection = {
+      projectDefinition: vi.fn(async () => ({ taskId: null })),
+      projectRun: vi.fn(async () => {
+        throw projectionError
+      }),
+      validateTask: vi.fn(async () => {}),
+    } as unknown as AutomationKanbanProjectionService
+    const { codexHomeDir, service, notificationListeners } = await createHarness({
+      kanbanProjection,
+      readThreadResponse: {
+        thread: {
+          turns: [
+            {
+              id: 'turn_1',
+              items: [{ type: 'agentMessage', text: 'RESULT: FINDINGS\n- Disk is full' }],
+            },
+          ],
+        },
+      },
+    })
+    await writeNative(codexHomeDir, 'daily-check-dir', nativeRecord, {
+      runMode: 'chat',
+      kanbanProjection: { mode: 'run_card', createFor: 'findings_only' },
+    })
+    await service.runNow('daily-check')
+
+    await Promise.resolve(notificationListeners[0]!({
+      method: 'turn/completed',
+      params: { threadId: 'thread-1', turnId: 'turn_1' },
+      atIso: new Date().toISOString(),
+    }))
+    const completed = (await service.listRuns('daily-check'))[0]!
+
+    expect(completed).toMatchObject({
+      state: 'completed_with_findings',
+      kanbanTaskId: null,
+      errorMessage: null,
+    })
+    await expect(readFile(completed.eventsPath, 'utf8')).resolves.toContain('automation_projection.failed')
+    await expect(readFile(completed.eventsPath, 'utf8')).resolves.toContain('kanban write failed')
+    await expect(readFile(completed.logPath, 'utf8')).resolves.toContain('Kanban projection failed: kanban write failed')
   })
 
   it('marks completion read failures as failed so later manual runs are not wedged', async () => {

@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto'
+import { readFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { isAbsolute, join } from 'node:path'
 import type { AutomationDefinition, AutomationRun, AutomationRunMode } from '../../types/automations'
@@ -16,7 +17,7 @@ import {
   resolveAutomationRunProfile,
   type AutomationRunProfileInput,
 } from './policy'
-import { listNativeAutomationEntries, type NativeAutomationStoreOptions } from './nativeStore'
+import { listNativeAutomationEntries, type NativeAutomationEntry, type NativeAutomationStoreOptions } from './nativeStore'
 import {
   createAutomationRunPaths,
   createAutomationRunStore,
@@ -24,6 +25,7 @@ import {
 } from './runStore'
 import { createAutomationSchedulerStore } from './schedulerStore'
 import type { AutomationKanbanProjectionService } from './kanbanProjection'
+import { parseAutomationSidecarRead, type AutomationSidecarRead } from './schema'
 
 export type AutomationRunnerOptions = NativeAutomationStoreOptions & {
   bridge: CodexBridgeRuntime
@@ -215,6 +217,7 @@ export class AutomationRunner {
       this.ownedActiveRunIds.delete(run.id)
       await store.appendEvent(failedRun, { type: `${eventPrefix}.failed`, errorMessage: message })
       await store.appendLog(failedRun, `Run failed: ${message}`)
+      await this.projectTerminalRun({ definition, store, run: failedRun })
       throw error
     }
   }
@@ -358,6 +361,8 @@ export class AutomationRunner {
       const eventPrefix = match.run.trigger === 'schedule' ? 'scheduled_run' : 'manual_run'
       await match.store.appendEvent(failed, { type: `${eventPrefix}.failed`, threadId, turnId, errorMessage: message })
       await match.store.appendLog(failed, `Run failed during completion: ${message}`)
+      const definition = await this.createProjectionDefinition(match.entry, failed)
+      await this.projectTerminalRun({ definition, store: match.store, run: failed })
       return
     }
     const resultSummary = extractAssistantText(response, turnId)
@@ -378,9 +383,12 @@ export class AutomationRunner {
     const eventPrefix = match.run.trigger === 'schedule' ? 'scheduled_run' : 'manual_run'
     await match.store.appendEvent(completed, { type: `${eventPrefix}.completed`, threadId, turnId })
     await match.store.appendLog(completed, `${match.run.trigger === 'schedule' ? 'Scheduled' : 'Manual'} run completed ${classification.findings ? 'with findings' : 'with no findings'}`)
+    const definition = await this.createProjectionDefinition(match.entry, completed)
+    await this.projectTerminalRun({ definition, store: match.store, run: completed })
   }
 
   private async findActiveRunForTurn(threadId: string, turnId: string): Promise<{
+    entry: NativeAutomationEntry
     run: AutomationRun
     store: ReturnType<typeof createAutomationRunStore>
   } | null> {
@@ -392,9 +400,75 @@ export class AutomationRunner {
         candidate.turnId === turnId &&
         isActiveAutomationRunState(candidate.state)
       ))
-      if (run) return { run, store }
+      if (run) return { entry, run, store }
     }
     return null
+  }
+
+  private async projectTerminalRun(input: {
+    definition: AutomationDefinition
+    store: ReturnType<typeof createAutomationRunStore>
+    run: AutomationRun
+  }): Promise<AutomationRun> {
+    if (!this.kanbanProjection || input.run.kanbanTaskId) return input.run
+    try {
+      const result = await this.kanbanProjection.projectRun({
+        definition: input.definition,
+        run: input.run,
+      })
+      if (!result.taskId) return input.run
+      return await input.store.updateRun(input.run.id, {
+        kanbanTaskId: result.taskId,
+      })
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Kanban projection failed'
+      await input.store.appendEvent(input.run, {
+        type: 'automation_projection.failed',
+        errorMessage: message,
+      })
+      await input.store.appendLog(input.run, `Kanban projection failed: ${message}`)
+      return input.run
+    }
+  }
+
+  private async createProjectionDefinition(entry: NativeAutomationEntry, run: AutomationRun): Promise<AutomationDefinition> {
+    const sidecar = await readProjectionSidecar(entry)
+    const createdAtIso = dateIso(entry.record.createdAtMs)
+    const updatedAtIso = dateIso(entry.record.updatedAtMs)
+    return {
+      id: entry.record.id,
+      kind: 'heartbeat',
+      source: 'native',
+      nativeId: entry.record.id,
+      name: entry.record.name,
+      description: sidecar.description,
+      prompt: entry.record.prompt,
+      status: entry.record.status === 'PAUSED' ? 'paused' : 'active',
+      legacyStatus: entry.record.status,
+      schedule: { type: 'rrule', rrule: entry.record.rrule },
+      targetThreadId: entry.record.targetThreadId,
+      projectRoot: null,
+      cwd: sidecar.cwd,
+      runMode: sidecar.runMode,
+      runProfileId: sidecar.runProfileId,
+      model: sidecar.model,
+      reasoningEffort: sidecar.reasoningEffort,
+      autoArchiveNoFindings: false,
+      notifyOnFindings: false,
+      kanbanProjection: sidecar.kanbanProjection,
+      notes: sidecar.notes,
+      storage: {
+        nativeDirName: entry.sourceDirName,
+        nativePath: entry.automationTomlPath,
+        sidecarPath: join(entry.automationDirPath, 'codexui.json'),
+      },
+      createdAtIso,
+      updatedAtIso,
+      lastRunAtIso: run.startedAtIso ?? run.createdAtIso,
+      nextRunAtIso: null,
+      recentRuns: [run],
+      version: 1,
+    }
   }
 
   private async failOrphanedActiveRuns(store: ReturnType<typeof createAutomationRunStore>): Promise<void> {
@@ -449,6 +523,28 @@ function extractThreadId(params: unknown): string {
   }
   const turn = asRecord(record.turn)
   return turn ? readString(turn.threadId) || readString(turn.thread_id) : ''
+}
+
+async function readProjectionSidecar(entry: NativeAutomationEntry): Promise<AutomationSidecarRead> {
+  try {
+    const parsed = JSON.parse(await readFile(join(entry.automationDirPath, 'codexui.json'), 'utf8')) as unknown
+    return parseAutomationSidecarRead(parsed).sidecar
+  } catch {
+    return {
+      description: null,
+      cwd: null,
+      runMode: null,
+      runProfileId: null,
+      model: null,
+      reasoningEffort: null,
+      kanbanProjection: { mode: 'off' },
+      notes: '',
+    }
+  }
+}
+
+function dateIso(value: number | null): string {
+  return new Date(value && Number.isFinite(value) ? value : 0).toISOString()
 }
 
 function extractStartedThreadId(params: unknown): string {

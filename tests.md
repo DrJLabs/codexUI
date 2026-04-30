@@ -5270,3 +5270,45 @@ Automation run read/archive triage actions and automation artifact route indexin
 - Pause or delete the disposable automation after verification.
 - Remove temporary run artifacts only for the disposable automation: `${CODEX_HOME:-$HOME/.codex}/automations/<automation-id>/runs/<run-id>/`.
 - Remove any temporary worktrees or branches created by worktree-mode automation runs.
+
+---
+
+### Automations Phase 9 - Kanban projection
+
+#### Feature/Change Name
+Opt-in automation definition and run projection to inert Kanban follow-up cards.
+
+#### Prerequisites/Setup
+1. Use `/home/drj/.codex/worktrees/52f8/codexUI`.
+2. Reuse the shared dependency install with `node_modules -> /home/drj/projects/codexUI/node_modules` if this worktree does not already have dependencies.
+3. Start a trusted local dev server with automation execution enabled: `CODEXUI_KANBAN_EXECUTION_ENABLED=1 pnpm run dev -- --host 127.0.0.1 --port 4173`.
+4. Create or select a disposable heartbeat automation with a valid `targetThreadId`.
+5. Keep a disposable Kanban board/project root for confirming created cards can be removed after the check.
+
+#### Steps
+1. Run `/home/drj/projects/codexUI/node_modules/.bin/vitest run src/server/automations/__tests__/kanbanProjection.test.ts src/server/automations/__tests__/runner.test.ts src/server/automations/__tests__/routes.test.ts`.
+2. Run `pnpm run build`.
+3. Run `git diff --check`.
+4. Create or patch the disposable automation with `kanbanProjection: { "mode": "definition_card" }`.
+5. Read the automation state and confirm the returned definition includes a stable `kanbanProjection.taskId`.
+6. Patch the same automation again with the same `definition_card` projection and confirm the same task ID is returned.
+7. Patch the automation with `kanbanProjection: { "mode": "run_card", "createFor": "findings_only" }`, run it, and complete the turn with a findings result such as `RESULT: FINDINGS`.
+8. Read the completed run and confirm it has `kanbanTaskId`; inspect the Kanban task with that ID.
+9. Repeat the same completed-turn notification or inspect after refresh and confirm only one Kanban task exists for that run label.
+10. Run or simulate a no-findings completion with `findings_only` still enabled and confirm no `kanbanTaskId` is written.
+11. Patch the automation with `kanbanProjection: { "mode": "run_card", "createFor": "failures_only" }`, trigger a failed run, and inspect the completed run and Kanban task.
+12. For an error-path check, temporarily make Kanban projection unavailable or invalid, complete a terminal run, then inspect `events.jsonl` and `run.log`.
+
+#### Expected Results
+- Definition-card projection creates one idle Kanban task and preserves the same task ID across repeated patches.
+- Findings-only run-card projection creates one idle Kanban task only for `completed_with_findings` runs and persists that task ID on `run.kanbanTaskId`.
+- Repeated completion handling is idempotent; the same run keeps the same task ID and does not create duplicate active tasks.
+- Findings-only projection does not create a task for `completed_no_findings`.
+- Failures-only projection creates one idle Kanban task for failed terminal runs.
+- Projected Kanban tasks remain inert: `runState` is `idle`, `currentRunId` is empty, and `runIds` is empty.
+- Projection failures do not change the terminal run state; they append `automation_projection.failed` to `events.jsonl` and `Kanban projection failed: <message>` to `run.log`.
+
+#### Rollback/Cleanup
+- Patch disposable automations back to `kanbanProjection: { "mode": "off" }` or delete them after verification.
+- Archive or delete disposable Kanban tasks created by definition-card and run-card checks.
+- Remove temporary run artifacts only for disposable automations under `${CODEX_HOME:-$HOME/.codex}/automations/<automation-id>/runs/`.
