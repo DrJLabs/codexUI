@@ -102,7 +102,7 @@ export class AutomationRunner {
 
     const store = createAutomationRunStore(input.automationDirPath)
     await this.failOrphanedActiveRuns(store, definition)
-    const activeRun = (await store.listRuns()).find((run) => isActiveAutomationRunState(run.state))
+    const activeRun = (await store.listActiveRuns())[0]
     if (activeRun) {
       const activeTrigger = activeRun.trigger === 'schedule' ? 'scheduled' : 'manual'
       throw new AutomationConflictError(`Automation ${definition.id} already has an active ${activeTrigger} run`)
@@ -395,7 +395,7 @@ export class AutomationRunner {
     const entries = await listNativeAutomationEntries(this.options)
     for (const entry of entries.records) {
       const store = createAutomationRunStore(entry.automationDirPath)
-      const run = (await store.listRuns()).find((candidate) => (
+      const run = (await store.listActiveRuns()).find((candidate) => (
         candidate.threadId === threadId &&
         candidate.turnId === turnId &&
         isActiveAutomationRunState(candidate.state)
@@ -475,7 +475,7 @@ export class AutomationRunner {
     store: ReturnType<typeof createAutomationRunStore>,
     definition: AutomationDefinition,
   ): Promise<void> {
-    const activeRuns = (await store.listRuns()).filter((run) => isActiveAutomationRunState(run.state))
+    const activeRuns = await store.listActiveRuns()
     for (const run of activeRuns) {
       if (this.ownedActiveRunIds.has(run.id)) continue
       if (run.trigger === 'schedule') continue

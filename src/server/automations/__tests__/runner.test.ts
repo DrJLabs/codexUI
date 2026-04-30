@@ -891,6 +891,15 @@ describe('AutomationRunner', () => {
     expect(rpcCalls.filter((call) => call.method === 'thread/start')).toHaveLength(1)
   })
 
+  it('ignores cron automation records for manual runs', async () => {
+    const { codexHomeDir, service, rpcCalls } = await createHarness()
+    await writeNative(codexHomeDir, 'cron-check-dir', { ...nativeRecord, id: 'cron-check', kind: 'cron' }, { runMode: 'chat' })
+
+    await expect(service.runNow('cron-check')).rejects.toThrow('Automation not found')
+
+    expect(rpcCalls).toEqual([])
+  })
+
   it('rejects disabled execution and blocked run profile policies before persistence or bridge calls', async () => {
     const disabled = await createHarness({ policy: { ...enabledPolicy, executionMode: 'disabled', executionEnabled: false } })
     await writeNative(disabled.codexHomeDir, 'daily-check-dir', nativeRecord, { runMode: 'chat' })

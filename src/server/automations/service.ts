@@ -5,6 +5,7 @@ import type {
   AutomationDefinition,
   AutomationDiagnostic,
   AutomationRun,
+  AutomationRunMode,
   AutomationsState,
   AutomationTemplate,
 } from '../../types/automations'
@@ -201,6 +202,7 @@ export class AutomationsService {
       kanbanProjection: hasOwn(patch, 'kanbanProjection') ? patch.kanbanProjection ?? { mode: 'off' } : sidecarResult.sidecar.kanbanProjection,
       notes: hasOwn(patch, 'notes') ? patch.notes ?? '' : sidecarResult.sidecar.notes,
     }
+    assertAutomationRunTarget(nextSidecar.runMode, nextSidecar.cwd, nextRecord.targetThreadId)
     await writeSidecar(entry, nextSidecar)
     nextSidecar = await this.projectDefinitionSidecar({ ...entry, record: nextRecord }, nextSidecar)
     await writeSidecar(entry, nextSidecar)
@@ -327,7 +329,7 @@ export class AutomationsService {
     const activeRuns: PersistedAutomationActiveRun[] = []
     for (const entry of entries.records) {
       if (entry.record.kind !== 'heartbeat') continue
-      for (const run of await createAutomationRunStore(entry.automationDirPath).listRuns({ limit: 20 })) {
+      for (const run of await createAutomationRunStore(entry.automationDirPath).listActiveRuns()) {
         if (isActiveAutomationRunState(run.state)) activeRuns.push({ automationId: entry.record.id, run })
       }
     }
@@ -379,7 +381,7 @@ export class AutomationsService {
     for (const entry of entries.records) {
       if (entry.record.kind !== 'heartbeat') continue
       const store = createAutomationRunStore(entry.automationDirPath)
-      const activeRuns = (await store.listRuns()).filter((run) => isActiveAutomationRunState(run.state))
+      const activeRuns = await store.listActiveRuns()
       const sidecarResult = activeRuns.length > 0 ? await readSidecar(entry) : null
       const definition = sidecarResult ? (await mapDefinition(entry, sidecarResult.sidecar)).definition : null
       for (const run of activeRuns) {
@@ -488,8 +490,9 @@ export class AutomationsService {
 
   private async findEntry(automationId: string): Promise<NativeAutomationEntry | null> {
     const entries = await listNativeAutomationEntries(this.options)
-    return entries.records.find((entry) => entry.record.id === automationId)
-      ?? entries.records.find((entry) => entry.sourceDirName === automationId)
+    const heartbeatEntries = entries.records.filter((entry) => entry.record.kind === 'heartbeat')
+    return heartbeatEntries.find((entry) => entry.record.id === automationId)
+      ?? heartbeatEntries.find((entry) => entry.sourceDirName === automationId)
       ?? null
   }
 
@@ -697,6 +700,16 @@ function automationRepoLimitKey(definition: AutomationDefinition): string | null
   const runMode = definition.runMode ?? 'chat'
   if (runMode !== 'local' && runMode !== 'worktree') return null
   return definition.cwd
+}
+
+function assertAutomationRunTarget(runMode: AutomationRunMode | null, cwd: string | null, targetThreadId: string | null): void {
+  const effectiveRunMode = runMode ?? 'chat'
+  if ((effectiveRunMode === 'local' || effectiveRunMode === 'worktree') && !cwd) {
+    throw createServiceError(400, 'cwd is required for local and worktree automations')
+  }
+  if (effectiveRunMode === 'chat' && !targetThreadId) {
+    throw createServiceError(400, 'targetThreadId is required for chat automations')
+  }
 }
 
 function dateIso(value: number | null): string {

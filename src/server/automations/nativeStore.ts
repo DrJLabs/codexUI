@@ -58,14 +58,41 @@ export function getNativeAutomationsRoot(options?: NativeAutomationStoreOptions)
 
 function readTomlString(value: string): string {
   const trimmed = value.trim()
+  const multilineDelimiter = trimmed.startsWith('"""') ? '"""' : trimmed.startsWith("'''") ? "'''" : null
+  if (multilineDelimiter && trimmed.endsWith(multilineDelimiter) && trimmed.length >= multilineDelimiter.length * 2) {
+    let content = trimmed.slice(multilineDelimiter.length, -multilineDelimiter.length)
+    if (content.startsWith('\n')) content = content.slice(1)
+    if (content.endsWith('\n')) content = content.slice(0, -1)
+    return multilineDelimiter === '"""' ? unescapeTomlBasicString(content) : content
+  }
   if ((trimmed.startsWith('"') && trimmed.endsWith('"')) || (trimmed.startsWith('\'') && trimmed.endsWith('\''))) {
     try {
       return JSON.parse(trimmed)
     } catch {
-      return trimmed.slice(1, -1)
+      const content = trimmed.slice(1, -1)
+      return trimmed.startsWith('"') ? unescapeTomlBasicString(content) : content
     }
   }
   return trimmed
+}
+
+function unescapeTomlBasicString(value: string): string {
+  return value.replace(/\\(?:u([0-9a-fA-F]{4})|U([0-9a-fA-F]{8})|([btnfr"\\]))/gu, (match, shortHex: string | undefined, longHex: string | undefined, escaped: string | undefined) => {
+    if (shortHex || longHex) {
+      const codePoint = Number.parseInt(shortHex ?? longHex ?? '', 16)
+      return Number.isFinite(codePoint) ? String.fromCodePoint(codePoint) : match
+    }
+    switch (escaped) {
+      case 'b': return '\b'
+      case 't': return '\t'
+      case 'n': return '\n'
+      case 'f': return '\f'
+      case 'r': return '\r'
+      case '"': return '"'
+      case '\\': return '\\'
+      default: return match
+    }
+  })
 }
 
 function serializeTomlString(value: string): string {
@@ -93,7 +120,56 @@ function readTopLevelTomlAssignment(line: string): { key: string, value: string 
   if (separatorIndex < 0) return null
   const key = trimmed.slice(0, separatorIndex).trim()
   if (!key) return null
-  return { key, value: trimmed.slice(separatorIndex + 1).trim() }
+  return { key, value: stripTomlLineComment(trimmed.slice(separatorIndex + 1)) }
+}
+
+function stripTomlLineComment(value: string): string {
+  let quote: '"' | "'" | null = null
+  let multilineDelimiter: '"""' | "'''" | null = null
+  let escaped = false
+  for (let index = 0; index < value.length; index += 1) {
+    if (multilineDelimiter) {
+      if (value.startsWith(multilineDelimiter, index)) {
+        index += multilineDelimiter.length - 1
+        multilineDelimiter = null
+      }
+      continue
+    }
+    const char = value[index]
+    if (quote === '"') {
+      if (escaped) {
+        escaped = false
+      } else if (char === '\\') {
+        escaped = true
+      } else if (char === '"') {
+        quote = null
+      }
+      continue
+    }
+    if (quote === "'") {
+      if (char === "'") quote = null
+      continue
+    }
+    if (value.startsWith('"""', index) || value.startsWith("'''", index)) {
+      multilineDelimiter = value.startsWith('"""', index) ? '"""' : "'''"
+      index += multilineDelimiter.length - 1
+      continue
+    }
+    if (char === '"' || char === "'") {
+      quote = char
+      continue
+    }
+    if (char === '#') return value.slice(0, index).trim()
+  }
+  return value.trim()
+}
+
+function stripCommentAfterMultilineClose(line: string, delimiter: '"""' | "'''"): string {
+  const closingIndex = line.indexOf(delimiter)
+  if (closingIndex < 0) return line
+  const closingEnd = closingIndex + delimiter.length
+  const suffix = stripTomlLineComment(line.slice(closingEnd))
+  return `${line.slice(0, closingEnd)}${suffix ? ` ${suffix}` : ''}`
 }
 
 function getOpenMultilineTomlStringDelimiter(value: string): '"""' | "'''" | null {
@@ -104,17 +180,33 @@ function getOpenMultilineTomlStringDelimiter(value: string): '"""' | "'''" | nul
 
 export function parseAutomationToml(raw: string): ThreadAutomationRecord | null {
   const values: Record<string, string> = {}
+  let multilineStringKey: string | null = null
   let multilineStringDelimiter: '"""' | "'''" | null = null
+  let multilineStringLines: string[] = []
   for (const line of raw.split(/\r?\n/u)) {
     if (multilineStringDelimiter) {
-      if (line.includes(multilineStringDelimiter)) multilineStringDelimiter = null
+      const nextLine = line.includes(multilineStringDelimiter)
+        ? stripCommentAfterMultilineClose(line, multilineStringDelimiter)
+        : line
+      multilineStringLines.push(nextLine)
+      if (line.includes(multilineStringDelimiter)) {
+        if (multilineStringKey) values[multilineStringKey] = multilineStringLines.join('\n')
+        multilineStringKey = null
+        multilineStringDelimiter = null
+        multilineStringLines = []
+      }
       continue
     }
 
     const assignment = readTopLevelTomlAssignment(line)
     if (!assignment) continue
-    values[assignment.key] = assignment.value
     multilineStringDelimiter = getOpenMultilineTomlStringDelimiter(assignment.value)
+    if (multilineStringDelimiter) {
+      multilineStringKey = assignment.key
+      multilineStringLines = [assignment.value]
+      continue
+    }
+    values[assignment.key] = assignment.value
   }
 
   const id = readTomlString(values.id ?? '')

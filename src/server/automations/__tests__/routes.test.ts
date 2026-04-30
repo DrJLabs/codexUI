@@ -181,6 +181,9 @@ describe('automation request schema', () => {
     expect(() => parseAutomationPatchInput({ cwd: 'relative/path' })).toThrow(/cwd/)
     expect(() => parseAutomationPatchInput({ model: '' })).toThrow(/model/)
     expect(() => parseAutomationPatchInput({ runMode: 'shell' })).toThrow(/runMode/)
+    expect(() => parseAutomationPatchInput({ runMode: 'local', cwd: null })).toThrow(/cwd/)
+    expect(() => parseAutomationPatchInput({ runMode: 'worktree', cwd: null })).toThrow(/cwd/)
+    expect(() => parseAutomationPatchInput({ runMode: 'chat', targetThreadId: null })).toThrow(/targetThreadId/)
     expect(() => parseAutomationPatchInput({ notes: 'x'.repeat(4001) })).toThrow(/notes/)
     expect(() => parseAutomationRouteParams({ automationId: '' })).toThrow(/automationId/)
     expect(parseAutomationDeleteOptions({ removeNative: 'true' }, {})).toEqual({ removeNative: true })
@@ -548,7 +551,7 @@ describe('createAutomationsMiddleware', () => {
     await expect(readFile(created.body.data.storage.sidecarPath, 'utf8')).resolves.toContain('"runMode": null')
     await expect(readFile(created.body.data.storage.sidecarPath, 'utf8')).resolves.toContain('"notes": "operator note"')
 
-    const patched = await requestJson<{ data: { id: string; targetThreadId: null; status: string; cwd: string; runMode: 'chat'; notes: string; nextRunAtIso: string | null; storage: { sidecarPath: string } } }>(
+    const patched = await requestJson<{ data: { id: string; targetThreadId: null; status: string; cwd: string; runMode: 'local'; notes: string; nextRunAtIso: string | null; storage: { sidecarPath: string } } }>(
       `${baseUrl}/codex-api/automations/${created.body.data.id}`,
       {
         method: 'PATCH',
@@ -559,18 +562,18 @@ describe('createAutomationsMiddleware', () => {
           prompt: 'Updated prompt',
           schedule: { type: 'rrule', rrule: 'FREQ=HOURLY;INTERVAL=2' },
           cwd: '/var/tmp',
-          runMode: 'chat',
+          runMode: 'local',
           notes: 'updated note',
         }),
       },
     )
     expect(patched.status).toBe(200)
-    expect(patched.body.data).toMatchObject({ targetThreadId: null, cwd: '/var/tmp', runMode: 'chat', notes: 'updated note' })
+    expect(patched.body.data).toMatchObject({ targetThreadId: null, cwd: '/var/tmp', runMode: 'local', notes: 'updated note' })
     expect(patched.body.data.nextRunAtIso).toEqual(expect.any(String))
     const patchedScheduler = JSON.parse(await readFile(schedulerPath, 'utf8')) as Record<string, unknown>
     expect(patchedScheduler.scheduleHash).not.toBe(createdScheduler.scheduleHash)
     expect(patchedScheduler.nextDueAtIso).toBe(patched.body.data.nextRunAtIso)
-    await expect(readFile(patched.body.data.storage.sidecarPath, 'utf8')).resolves.toContain('"runMode": "chat"')
+    await expect(readFile(patched.body.data.storage.sidecarPath, 'utf8')).resolves.toContain('"runMode": "local"')
 
     const getDetached = await requestJson<{ data: { id: string; targetThreadId: null; nextRunAtIso: string | null } }>(`${baseUrl}/codex-api/automations/${created.body.data.id}`)
     expect(getDetached.status).toBe(200)
@@ -632,6 +635,89 @@ describe('createAutomationsMiddleware', () => {
     const bridgeCheck = await requestJson<{ data: { ok: true } }>(`${baseUrl}/codex-api/automations/health`)
     expect(bridgeCheck.status).toBe(200)
     expect(bridgeCheck.body.data.ok).toBe(true)
+  })
+
+  it('rejects patch transitions that would leave invalid run targets', async () => {
+    const { baseUrl } = await createHarness()
+    const csrfHeaders = await readCsrfHeaders(baseUrl)
+
+    const created = await requestJson<{ data: { id: string } }>(
+      `${baseUrl}/codex-api/automations`,
+      {
+        method: 'POST',
+        headers: csrfHeaders,
+        body: JSON.stringify({
+          kind: 'heartbeat',
+          name: 'Patch Target API',
+          prompt: 'Prompt',
+          schedule: { type: 'rrule', rrule: 'FREQ=DAILY' },
+          targetThreadId: 'thread-patch-target',
+        }),
+      },
+    )
+    expect(created.status).toBe(201)
+
+    const chatWithoutThread = await requestJson<{ error: string }>(
+      `${baseUrl}/codex-api/automations/${created.body.data.id}`,
+      { method: 'PATCH', headers: csrfHeaders, body: JSON.stringify({ targetThreadId: null }) },
+    )
+    const localWithoutCwd = await requestJson<{ error: string }>(
+      `${baseUrl}/codex-api/automations/${created.body.data.id}`,
+      { method: 'PATCH', headers: csrfHeaders, body: JSON.stringify({ runMode: 'local' }) },
+    )
+    const validLocal = await requestJson<{ data: { runMode: string; cwd: string; targetThreadId: string | null } }>(
+      `${baseUrl}/codex-api/automations/${created.body.data.id}`,
+      { method: 'PATCH', headers: csrfHeaders, body: JSON.stringify({ runMode: 'local', cwd: '/tmp', targetThreadId: null }) },
+    )
+    const localWithoutMergedCwd = await requestJson<{ error: string }>(
+      `${baseUrl}/codex-api/automations/${created.body.data.id}`,
+      { method: 'PATCH', headers: csrfHeaders, body: JSON.stringify({ cwd: null }) },
+    )
+    const validChat = await requestJson<{ data: { runMode: string; targetThreadId: string } }>(
+      `${baseUrl}/codex-api/automations/${created.body.data.id}`,
+      { method: 'PATCH', headers: csrfHeaders, body: JSON.stringify({ runMode: 'chat', targetThreadId: 'thread-patch-target-return' }) },
+    )
+
+    expect(chatWithoutThread.status).toBe(400)
+    expect(chatWithoutThread.body.error).toContain('targetThreadId')
+    expect(localWithoutCwd.status).toBe(400)
+    expect(localWithoutCwd.body.error).toContain('cwd')
+    expect(validLocal.status).toBe(200)
+    expect(validLocal.body.data).toMatchObject({ runMode: 'local', cwd: '/tmp', targetThreadId: null })
+    expect(localWithoutMergedCwd.status).toBe(400)
+    expect(localWithoutMergedCwd.body.error).toContain('cwd')
+    expect(validChat.status).toBe(200)
+    expect(validChat.body.data).toMatchObject({ runMode: 'chat', targetThreadId: 'thread-patch-target-return' })
+  })
+
+  it('does not expose native cron automations through heartbeat API lookups', async () => {
+    const { baseUrl, codexHomeDir } = await createHarness()
+    const csrfHeaders = await readCsrfHeaders(baseUrl)
+    const cronDir = await writeNative(codexHomeDir, 'cron-source-dir', {
+      ...nativeRecord,
+      id: 'cron-check',
+      kind: 'cron',
+      targetThreadId: 'thread-cron',
+    })
+
+    const list = await requestJson<{ data: Array<{ id: string }> }>(`${baseUrl}/codex-api/automations`)
+    const getById = await requestJson<{ error: string }>(`${baseUrl}/codex-api/automations/cron-check`)
+    const getByDir = await requestJson<{ error: string }>(`${baseUrl}/codex-api/automations/cron-source-dir`)
+    const patchById = await requestJson<{ error: string }>(
+      `${baseUrl}/codex-api/automations/cron-check`,
+      { method: 'PATCH', headers: csrfHeaders, body: JSON.stringify({ name: 'Mutated Cron' }) },
+    )
+    const deleteByDir = await requestJson<{ error: string }>(
+      `${baseUrl}/codex-api/automations/cron-source-dir?removeNative=true`,
+      { method: 'DELETE', headers: csrfHeaders },
+    )
+
+    expect(list.body.data.map((definition) => definition.id)).not.toContain('cron-check')
+    expect(getById.status).toBe(404)
+    expect(getByDir.status).toBe(404)
+    expect(patchById.status).toBe(404)
+    expect(deleteByDir.status).toBe(404)
+    await expect(stat(join(cronDir, 'automation.toml'))).resolves.toBeTruthy()
   })
 
   it('creates local and worktree automations without an attached thread id', async () => {

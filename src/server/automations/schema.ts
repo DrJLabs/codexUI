@@ -268,6 +268,7 @@ export function parseAutomationPatchInput(value: unknown): AutomationPatchInput 
   if (hasOwn(value, 'targetThreadId')) patch.targetThreadId = readNullableString(value.targetThreadId, 'targetThreadId')
   if (hasOwn(value, 'cwd')) patch.cwd = readCwd(value.cwd)
   if (hasOwn(value, 'runMode')) patch.runMode = readRunMode(value.runMode)
+  validateSelfContainedPatchTarget(value, patch)
   const runProfileId = readOptionalNullableString(value, 'runProfileId')
   if (runProfileId !== undefined) patch.runProfileId = runProfileId
   const model = readOptionalNullableString(value, 'model')
@@ -279,6 +280,16 @@ export function parseAutomationPatchInput(value: unknown): AutomationPatchInput 
   const notes = readOptionalNotes(value)
   if (notes !== undefined) patch.notes = notes
   return patch
+}
+
+function validateSelfContainedPatchTarget(value: Record<string, unknown>, patch: AutomationPatchInput): void {
+  if (!hasOwn(value, 'runMode')) return
+  if ((patch.runMode === 'local' || patch.runMode === 'worktree') && hasOwn(value, 'cwd') && !patch.cwd) {
+    throw new AutomationValidationError('cwd is required for local and worktree automations')
+  }
+  if ((patch.runMode === null || patch.runMode === 'chat') && hasOwn(value, 'targetThreadId') && !patch.targetThreadId) {
+    throw new AutomationValidationError('targetThreadId is required for chat automations')
+  }
 }
 
 export function parseAutomationDeleteOptions(query: unknown, body: unknown): AutomationDeleteOptions {

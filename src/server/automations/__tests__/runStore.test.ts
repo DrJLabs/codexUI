@@ -112,6 +112,30 @@ describe('createAutomationRunStore', () => {
     await expect(store.hasRun('automation_run_exists')).resolves.toBe(true)
     await expect(store.hasRun('automation_run_missing')).resolves.toBe(false)
   })
+
+  it('lists active runs even when they are outside the recent-run window', async () => {
+    const automationDir = await mkdtemp(join(tmpdir(), 'codexui-automation-run-store-'))
+    tempDirs.push(automationDir)
+    const store = createAutomationRunStore(automationDir)
+    await store.createRun(automationRunFixture({
+      id: 'automation_run_1000_active',
+      state: 'running',
+      createdAtIso: '2026-04-30T08:00:00.000Z',
+    }))
+    for (let index = 0; index < 25; index += 1) {
+      await store.createRun(automationRunFixture({
+        id: `automation_run_${String(2000 + index).padStart(4, '0')}_completed`,
+        state: 'completed_no_findings',
+        createdAtIso: `2026-04-30T09:${String(index).padStart(2, '0')}:00.000Z`,
+      }))
+    }
+
+    const recentRuns = await store.listRuns({ limit: 5 })
+    const activeRuns = await store.listActiveRuns()
+
+    expect(recentRuns.map((run) => run.id)).not.toContain('automation_run_1000_active')
+    expect(activeRuns.map((run) => run.id)).toEqual(['automation_run_1000_active'])
+  })
 })
 
 function automationRunFixture(overrides: Partial<AutomationRun> = {}): AutomationRun {

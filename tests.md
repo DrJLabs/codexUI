@@ -5578,3 +5578,34 @@ Run-store limited listing resilience when malformed newer run directories are pr
 
 #### Rollback/Cleanup
 - Delete disposable run folders created only for this check.
+
+---
+
+### Automations PR review cycle 4 fixes
+
+#### Feature/Change Name
+Heartbeat-only automation API safety, PATCH run-target invariants, TOML parser hardening, and correctness-preserving active-run lookup.
+
+#### Prerequisites/Setup
+1. Use the `feat/automations` worktree.
+2. Reuse an existing compatible dependency install if this worktree does not already have dependencies.
+3. Use disposable automation records, cron records, and run folders only.
+
+#### Steps
+1. Run `pnpm exec vitest run src/server/automations/__tests__/nativeStore.test.ts src/server/automations/__tests__/routes.test.ts src/server/automations/__tests__/runner.test.ts src/server/automations/__tests__/runStore.test.ts`.
+2. Run `pnpm test:unit`.
+3. Run `pnpm run build`.
+4. Run `git diff --check`.
+5. Create a disposable `automation.toml` with multiline basic/literal strings, key-like body lines, and trailing comments on scalar fields.
+6. Create a disposable native `kind = "cron"` automation and confirm heartbeat API `GET`, `PATCH`, and `DELETE ?removeNative=true` return 404 without deleting the cron file.
+7. Patch a chat automation to remove `targetThreadId`, patch a chat automation to `runMode: local` without `cwd`, then perform valid chat/local transitions.
+8. Create an older active run and many newer completed runs, then call `listActiveRuns()`.
+
+#### Expected Results
+- TOML parsing preserves multiline known fields and strips trailing comments only outside quoted values.
+- Heartbeat API lookup and mutation paths ignore non-heartbeat native records.
+- PATCH cannot persist chat automations without a thread or local/worktree automations without an absolute cwd.
+- Active-run lookup finds active runs even when they are older than recent completed history.
+
+#### Rollback/Cleanup
+- Delete disposable automation records and run folders created only for this check.
