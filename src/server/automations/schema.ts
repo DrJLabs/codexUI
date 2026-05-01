@@ -329,7 +329,7 @@ function validateRrule(rrule: string): void {
 
   const freq = values.get('FREQ')
   if (!freq) throw new AutomationValidationError('Invalid RRULE missing FREQ')
-  if (!['MINUTELY', 'HOURLY', 'DAILY', 'WEEKLY', 'MONTHLY', 'YEARLY'].includes(freq)) {
+  if (!['MINUTELY', 'HOURLY', 'DAILY', 'WEEKLY'].includes(freq)) {
     throw new AutomationValidationError('Invalid RRULE FREQ')
   }
   for (const key of values.keys()) {

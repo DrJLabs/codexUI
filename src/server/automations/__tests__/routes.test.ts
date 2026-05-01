@@ -179,6 +179,8 @@ describe('automation request schema', () => {
     expect(() => parseAutomationCreateInput({ kind: 'heartbeat', name: '', prompt: 'p', schedule: { type: 'rrule', rrule: 'FREQ=DAILY' }, targetThreadId: 'thread' })).toThrow(/name/)
     expect(() => parseAutomationCreateInput({ kind: 'heartbeat', name: 'n', prompt: '', schedule: { type: 'rrule', rrule: 'FREQ=DAILY' }, targetThreadId: 'thread' })).toThrow(/prompt/)
     expect(() => parseAutomationCreateInput({ kind: 'heartbeat', name: 'n', prompt: 'p', schedule: { type: 'rrule', rrule: 'FREQ=DAILY;FREQ=HOURLY' }, targetThreadId: 'thread' })).toThrow(/RRULE/)
+    expect(() => parseAutomationCreateInput({ kind: 'heartbeat', name: 'n', prompt: 'p', schedule: { type: 'rrule', rrule: 'FREQ=MONTHLY' }, targetThreadId: 'thread' })).toThrow(/RRULE/)
+    expect(() => parseAutomationPatchInput({ schedule: { type: 'rrule', rrule: 'FREQ=YEARLY' } })).toThrow(/RRULE/)
     expect(() => parseAutomationCreateInput({ kind: 'heartbeat', name: 'n', prompt: 'p', schedule: { type: 'rrule', rrule: 'FREQ=DAILY' }, targetThreadId: '' })).toThrow(/targetThreadId/)
     expect(() => parseAutomationPatchInput({ cwd: 'relative/path' })).toThrow(/cwd/)
     expect(() => parseAutomationPatchInput({ model: '' })).toThrow(/model/)
@@ -1118,11 +1120,11 @@ describe('createAutomationsMiddleware', () => {
     })
   })
 
-  it('accepts monthly and yearly RRULEs while clearing scheduler due state as unsupported', async () => {
-    const { baseUrl, codexHomeDir } = await createHarness()
+  it('rejects monthly and yearly RRULEs at API write time', async () => {
+    const { baseUrl } = await createHarness()
     const csrfHeaders = await readCsrfHeaders(baseUrl)
 
-    const created = await requestJson<{ data: { id: string; nextRunAtIso: string | null; storage: { nativeDirName: string } } }>(
+    const monthly = await requestJson<{ error: string }>(
       `${baseUrl}/codex-api/automations`,
       {
         method: 'POST',
@@ -1136,16 +1138,26 @@ describe('createAutomationsMiddleware', () => {
         }),
       },
     )
-    expect(created.status).toBe(201)
-    expect(created.body.data.nextRunAtIso).toBeNull()
-    const schedulerPath = join(codexHomeDir, 'automations', created.body.data.storage.nativeDirName, 'scheduler.json')
-    const monthlyScheduler = JSON.parse(await readFile(schedulerPath, 'utf8')) as Record<string, unknown>
-    expect(monthlyScheduler).toMatchObject({
-      nextDueAtIso: null,
-      unsupportedReason: expect.stringContaining('MONTHLY'),
-    })
+    expect(monthly.status).toBe(400)
+    expect(monthly.body.error).toContain('RRULE')
 
-    const patched = await requestJson<{ data: { nextRunAtIso: string | null } }>(
+    const created = await requestJson<{ data: { id: string } }>(
+      `${baseUrl}/codex-api/automations`,
+      {
+        method: 'POST',
+        headers: csrfHeaders,
+        body: JSON.stringify({
+          kind: 'heartbeat',
+          name: 'Daily API',
+          prompt: 'Prompt',
+          schedule: { type: 'rrule', rrule: 'FREQ=DAILY' },
+          targetThreadId: 'thread-daily',
+        }),
+      },
+    )
+    expect(created.status).toBe(201)
+
+    const yearly = await requestJson<{ error: string }>(
       `${baseUrl}/codex-api/automations/${created.body.data.id}`,
       {
         method: 'PATCH',
@@ -1153,13 +1165,8 @@ describe('createAutomationsMiddleware', () => {
         body: JSON.stringify({ schedule: { type: 'rrule', rrule: 'FREQ=YEARLY;BYHOUR=9;BYMINUTE=0' } }),
       },
     )
-    expect(patched.status).toBe(200)
-    expect(patched.body.data.nextRunAtIso).toBeNull()
-    const yearlyScheduler = JSON.parse(await readFile(schedulerPath, 'utf8')) as Record<string, unknown>
-    expect(yearlyScheduler).toMatchObject({
-      nextDueAtIso: null,
-      unsupportedReason: expect.stringContaining('YEARLY'),
-    })
+    expect(yearly.status).toBe(400)
+    expect(yearly.body.error).toContain('RRULE')
   })
 
   it('resolves exact native record ids before source directory names for get, patch, and delete', async () => {
