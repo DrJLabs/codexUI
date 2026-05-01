@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { KanbanWorktreeManager } from '../../kanban/worktreeManager'
 import { WorkspaceWorktreeService } from '../worktreeService'
 
@@ -81,6 +81,25 @@ describe('WorkspaceWorktreeService', () => {
     await writeFile(managed.lockPath, `${JSON.stringify(lock, null, 2)}\n`, 'utf8')
 
     await expect(service.listWorktrees()).resolves.toEqual([])
+  })
+
+  it('warns when skipping malformed shared worktree lock files', async () => {
+    const { dataDir, projectRoot } = await createGitRepo()
+    const manager = new KanbanWorktreeManager({ dataDir, projectRoot })
+    const service = new WorkspaceWorktreeService({ dataDir, projectRoot })
+    const managed = await manager.createManagedWorktree({ taskId: 'task_legacy', taskTitle: 'Legacy', runId: 'run_legacy' })
+    await writeFile(managed.lockPath, '{not json', 'utf8')
+    const consoleWarn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+
+    try {
+      await expect(service.listWorktrees()).resolves.toEqual([])
+      expect(consoleWarn).toHaveBeenCalledWith(
+        expect.stringContaining('Skipping malformed workspace worktree lock'),
+        expect.objectContaining({ name: 'SyntaxError' }),
+      )
+    } finally {
+      consoleWarn.mockRestore()
+    }
   })
 
   it('skips invalid shared lock owners instead of coercing them to Kanban ownership', async () => {

@@ -150,7 +150,11 @@ export class ManagedWorktreeService {
         locks.push(normalizeManagedWorktreeLock(JSON.parse(await readFile(lockPath, 'utf8')) as LegacyManagedWorktreeLock))
       } catch (error) {
         if (isMissingFileError(error)) continue
-        if (error instanceof SyntaxError || isInvalidManagedWorktreeOwnerError(error)) continue
+        if (error instanceof SyntaxError) {
+          console.warn(`Skipping malformed managed worktree lock at ${lockPath}:`, error)
+          continue
+        }
+        if (isInvalidManagedWorktreeOwnerError(error)) continue
         throw error
       }
     }

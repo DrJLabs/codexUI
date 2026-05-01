@@ -5912,3 +5912,32 @@ Review-cycle performance hardening for turn-completion lookup and scheduler defi
 
 #### Rollback/Cleanup
 - Delete disposable automation directories and run records created only for this check.
+
+---
+
+### Automations PR review cycle 14 fixes
+
+#### Feature/Change Name
+Review-cycle diagnostics for malformed managed worktree lock files.
+
+#### Prerequisites/Setup
+1. Use `${WORKTREE_ROOT}` on `feat/automations`.
+2. Reuse an existing compatible dependency install if this worktree does not already have dependencies.
+3. Use disposable Git repositories, Kanban data directories, and managed worktree lock files only.
+
+#### Steps
+1. Run `pnpm exec vitest run src/server/kanban/__tests__/worktreeManager.test.ts src/server/workspaces/__tests__/worktreeService.test.ts src/server/workspaces/__tests__/managedWorktreeService.test.ts`.
+2. Run `pnpm test:unit`.
+3. Run `pnpm run build`.
+4. Run `git diff --check`.
+5. Create a managed worktree lock file containing malformed JSON, then invoke Kanban worktree creation.
+6. Create a malformed shared workspace worktree lock, then invoke workspace worktree listing.
+7. Create a malformed automation-managed worktree lock, then invoke automation managed-worktree creation.
+
+#### Expected Results
+- Malformed lock JSON remains skipped so existing recovery paths continue, but each skipped malformed lock emits a warning containing the lock path.
+- Missing lock files and intentionally invalid owner metadata continue to be skipped without noisy warnings.
+- Kanban, workspace, and automation managed-worktree readers all use the same observable malformed-lock behavior.
+
+#### Rollback/Cleanup
+- Delete disposable repositories, worktrees, and data directories created only for this check.

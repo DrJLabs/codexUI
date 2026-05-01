@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { KanbanWorktreeManager, resolveManagedWorktreeRoot } from '../worktreeManager'
 
 const execFileAsync = promisify(execFile)
@@ -87,12 +87,21 @@ describe('KanbanWorktreeManager', () => {
     const manager = new KanbanWorktreeManager({ dataDir, projectRoot })
     const first = await manager.createManagedWorktree({ taskId: 'task_123', taskTitle: 'One', runId: 'run_1' })
     await writeFile(first.lockPath, '{not json', 'utf8')
+    const consoleWarn = vi.spyOn(console, 'warn').mockImplementation(() => {})
 
-    await expect(manager.createManagedWorktree({
-      taskId: 'task_123',
-      taskTitle: 'Two',
-      runId: 'run_2',
-    })).resolves.toMatchObject({ runId: 'run_2' })
+    try {
+      await expect(manager.createManagedWorktree({
+        taskId: 'task_123',
+        taskTitle: 'Two',
+        runId: 'run_2',
+      })).resolves.toMatchObject({ runId: 'run_2' })
+      expect(consoleWarn).toHaveBeenCalledWith(
+        expect.stringContaining('Skipping malformed Kanban worktree lock'),
+        expect.objectContaining({ name: 'SyntaxError' }),
+      )
+    } finally {
+      consoleWarn.mockRestore()
+    }
   })
 
   it('includes the run id in branch names so later runs do not collide with old branches', async () => {

@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { MANAGED_WORKTREE_LOCK_FILENAME, resolveManagedWorktreeRoot } from '../worktreeLocks'
 import { ManagedWorktreeService } from '../managedWorktreeService'
 
@@ -96,6 +96,34 @@ describe('ManagedWorktreeService', () => {
 
     await expect(readFile(join(first.worktreePath, 'dirty.txt'), 'utf8')).resolves.toBe('dirty')
     await expect(readFile(first.lockPath, 'utf8')).resolves.toContain('"status": "active"')
+  })
+
+  it('warns when skipping malformed managed worktree lock files', async () => {
+    const { dataDir, projectRoot } = await createGitRepo()
+    const service = new ManagedWorktreeService({ dataDir, projectRoot })
+    const first = await service.createManagedWorktree({
+      owner: { source: 'automation', id: 'daily-check' },
+      taskId: 'daily-check',
+      runId: 'automation-run-1',
+      name: 'Daily Check',
+    })
+    await writeFile(first.lockPath, '{not json', 'utf8')
+    const consoleWarn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+
+    try {
+      await expect(service.createManagedWorktree({
+        owner: { source: 'automation', id: 'daily-check' },
+        taskId: 'daily-check',
+        runId: 'automation-run-2',
+        name: 'Second Check',
+      })).resolves.toMatchObject({ runId: 'automation-run-2' })
+      expect(consoleWarn).toHaveBeenCalledWith(
+        expect.stringContaining('Skipping malformed managed worktree lock'),
+        expect.objectContaining({ name: 'SyntaxError' }),
+      )
+    } finally {
+      consoleWarn.mockRestore()
+    }
   })
 
   it('removes the created worktree and branch when lock writing fails', async () => {
