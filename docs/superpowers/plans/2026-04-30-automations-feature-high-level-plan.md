@@ -8,6 +8,8 @@ This plan is intentionally high level. It captures architecture, sequencing, and
 
 Detailed Phase 7 scheduler and recovery work is tracked in [Automations Phase 7 Scheduler And Recovery Implementation Plan](./2026-04-30-automations-phase-7-scheduler-and-recovery.md).
 
+Desktop automation TOML compatibility is tracked in [Desktop Automation Schema Parity Implementation Plan](./2026-05-01-desktop-automation-schema-parity.md).
+
 ## Current Repo Truth
 
 CodexUI already has a small automation lane:
