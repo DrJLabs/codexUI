@@ -6057,3 +6057,31 @@ Review-cycle active-run index empty-state performance fix.
 
 #### Rollback/Cleanup
 - Delete disposable automation run storage created only for this check.
+
+---
+
+### Automations PR review cycle 20 fixes
+
+#### Feature/Change Name
+Review-cycle scheduler feature flag consistency for caller-owned services.
+
+#### Prerequisites/Setup
+1. Use `${WORKTREE_ROOT}` on `feat/automations`.
+2. Reuse an existing compatible dependency install if this worktree does not already have dependencies.
+3. Use disposable automations middleware instances and fake timers only.
+
+#### Steps
+1. Run `pnpm exec vitest run src/server/automations/__tests__/routes.test.ts`.
+2. Run `pnpm test:unit`.
+3. Run `pnpm run build`.
+4. Run `git diff --check`.
+5. Create a caller-owned `AutomationsService` with a bridge and execution enabled, then mount middleware with `enableScheduler: true` but no separate bridge option.
+6. Create a caller-owned `AutomationsService` without a bridge, then mount middleware with `enableScheduler: true` and inspect `/codex-api/automations/state`.
+
+#### Expected Results
+- Runnable caller-owned services start and stop the scheduler interval even when the middleware bridge option is omitted.
+- Services without a runner report `featureFlags.scheduler: false` and `featureFlags.manualRun: false`.
+- Middleware teardown still does not dispose caller-owned service bridge subscriptions.
+
+#### Rollback/Cleanup
+- Dispose middleware and caller-owned services created only for this check.

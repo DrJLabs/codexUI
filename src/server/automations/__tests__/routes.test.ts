@@ -69,6 +69,7 @@ afterEach(async () => {
 
 async function createHarness(options: {
   bridge?: CodexBridgeRuntime
+  service?: AutomationsService
   policy?: KanbanExecutionPolicy
   enableScheduler?: boolean
   projectRoot?: string
@@ -85,6 +86,7 @@ async function createHarness(options: {
   const app = express()
   app.use('/codex-api/automations', createAutomationsMiddleware({
     codexHomeDir,
+    service: options.service,
     bridge: options.bridge,
     policy: options.policy,
     enableScheduler: options.enableScheduler,
@@ -327,6 +329,33 @@ describe('createAutomationsMiddleware', () => {
     service.dispose()
   })
 
+  it('starts scheduler for caller-owned runnable services without a separate bridge option', () => {
+    vi.useFakeTimers()
+    const { bridge, unsubscribe } = createBridge()
+    const service = new AutomationsService({
+      bridge,
+      policy: enabledPolicy,
+      enableScheduler: true,
+    })
+    try {
+      const middleware = createAutomationsMiddleware({
+        service,
+        policy: enabledPolicy,
+        enableScheduler: true,
+      })
+
+      expect(vi.getTimerCount()).toBeGreaterThan(0)
+
+      middleware.dispose?.()
+
+      expect(vi.getTimerCount()).toBe(0)
+      expect(unsubscribe).not.toHaveBeenCalled()
+    } finally {
+      service.dispose()
+      vi.useRealTimers()
+    }
+  })
+
   it('serves health, templates, state, list, and get with data-wrapped first-class definitions', async () => {
     const { baseUrl, codexHomeDir } = await createHarness()
     await writeNative(codexHomeDir, 'daily-check-dir', nativeRecord)
@@ -389,6 +418,25 @@ describe('createAutomationsMiddleware', () => {
     expect(state.status).toBe(200)
     expect(state.body.data.featureFlags.scheduler).toBe(false)
     expect(state.body.data.featureFlags.manualRun).toBe(false)
+  })
+
+  it('reports scheduler support as unavailable for services without a runner', async () => {
+    const service = new AutomationsService({
+      policy: enabledPolicy,
+      enableScheduler: true,
+    })
+    const { baseUrl } = await createHarness({
+      service,
+      policy: enabledPolicy,
+      enableScheduler: true,
+    })
+
+    const state = await requestJson<{ data: { featureFlags: { scheduler: boolean; manualRun: boolean } } }>(`${baseUrl}/codex-api/automations/state`)
+
+    expect(state.status).toBe(200)
+    expect(state.body.data.featureFlags.scheduler).toBe(false)
+    expect(state.body.data.featureFlags.manualRun).toBe(false)
+    service.dispose()
   })
 
   it('reports projection and artifact indexing support only when wired for the service', async () => {

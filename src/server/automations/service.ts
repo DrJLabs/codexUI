@@ -110,6 +110,10 @@ export class AutomationsService {
     return isAutomationExecutionPolicyEnabled(this.policy)
   }
 
+  isRunExecutionAvailable(): boolean {
+    return this.runner !== null && this.isExecutionEnabled()
+  }
+
   async listDefinitions(): Promise<AutomationDefinition[]> {
     const { definitions } = await this.listDefinitionsWithDiagnostics()
     return definitions
@@ -120,8 +124,8 @@ export class AutomationsService {
     return {
       storageRoot,
       featureFlags: {
-        scheduler: this.options.enableScheduler === true && this.isExecutionEnabled(),
-        manualRun: this.runner !== null && this.isExecutionEnabled(),
+        scheduler: this.options.enableScheduler === true && this.isRunExecutionAvailable(),
+        manualRun: this.isRunExecutionAvailable(),
         kanbanProjection: this.kanbanProjection !== null,
         artifactIndexing: this.options.artifactIndexing === true,
       },
