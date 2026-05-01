@@ -1,4 +1,8 @@
 import type { CodexBridgeRuntime } from '../codexAppServerBridge'
+import {
+  createRestrictedCodexBridgeAdapter,
+  type RestrictedCodexBridgeAdapter,
+} from '../execution/codexBridgeAdapter'
 
 export const KANBAN_CODEX_BRIDGE_ALLOWED_METHODS = [
   'thread/start',
@@ -12,23 +16,11 @@ export const KANBAN_CODEX_BRIDGE_ALLOWED_METHODS = [
 
 export type KanbanCodexBridgeMethod = typeof KANBAN_CODEX_BRIDGE_ALLOWED_METHODS[number]
 
-const ALLOWED_METHODS = new Set<string>(KANBAN_CODEX_BRIDGE_ALLOWED_METHODS)
-
-export type KanbanCodexBridgeAdapter = {
-  rpc<T = unknown>(method: string, params?: unknown): Promise<T>
-  subscribeNotifications: CodexBridgeRuntime['subscribeNotifications']
-}
+export type KanbanCodexBridgeAdapter = RestrictedCodexBridgeAdapter
 
 export function createKanbanCodexBridgeAdapter(runtime: CodexBridgeRuntime): KanbanCodexBridgeAdapter {
-  return {
-    async rpc<T = unknown>(method: string, params?: unknown): Promise<T> {
-      if (!ALLOWED_METHODS.has(method)) {
-        throw new Error(`Kanban Codex bridge method is not allowed: ${method}`)
-      }
-      return await runtime.rpc<T>(method, params)
-    },
-    subscribeNotifications(listener) {
-      return runtime.subscribeNotifications(listener)
-    },
-  }
+  return createRestrictedCodexBridgeAdapter(runtime, {
+    label: 'Kanban Codex bridge',
+    allowedMethods: KANBAN_CODEX_BRIDGE_ALLOWED_METHODS,
+  })
 }

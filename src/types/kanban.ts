@@ -1,3 +1,5 @@
+import type { CodexRunProfile } from './execution'
+
 export const KANBAN_STATUSES = [
   { id: 'backlog', title: 'Backlog' },
   { id: 'ready', title: 'Ready' },
@@ -10,19 +12,19 @@ export const KANBAN_STATUSES = [
 
 export type KanbanStatus = typeof KANBAN_STATUSES[number]['id']
 
-export const FULL_ACCESS_KANBAN_RUN_PROFILE_ID = 'full-access-operator'
+export { FULL_ACCESS_CODEX_RUN_PROFILE_ID as FULL_ACCESS_KANBAN_RUN_PROFILE_ID } from './execution'
+export type {
+  CodexRunProfile,
+  CodexRunProfileApprovalPolicy as KanbanRunProfileApprovalPolicy,
+  CodexRunProfileReasoningEffort as KanbanRunProfileReasoningEffort,
+  CodexRunProfileSandboxMode as KanbanRunProfileSandboxMode,
+} from './execution'
 
 export type KanbanPriority = 'critical' | 'high' | 'normal' | 'low'
 
 export type KanbanActor = 'operator' | 'codex:auto' | `codex:thread:${string}`
 
 export type KanbanThinkingLevel = 'off' | 'low' | 'medium' | 'high'
-
-export type KanbanRunProfileReasoningEffort = 'low' | 'medium' | 'high' | 'xhigh' | ''
-
-export type KanbanRunProfileSandboxMode = 'read-only' | 'workspace-write' | 'danger-full-access'
-
-export type KanbanRunProfileApprovalPolicy = 'untrusted' | 'on-request' | 'never'
 
 export type KanbanDueDateIso = '' | `${number}${number}${number}${number}-${number}${number}-${number}${number}`
 
@@ -46,20 +48,6 @@ export type KanbanRequestCapabilities = {
   trustedForSecrets: boolean
   trustedForCleanup: boolean
   trustedForMerge: false
-}
-
-export type CodexRunProfile = {
-  id: string
-  name: string
-  description: string
-  model: string
-  reasoningEffort: KanbanRunProfileReasoningEffort
-  sandboxMode: KanbanRunProfileSandboxMode
-  approvalPolicy: KanbanRunProfileApprovalPolicy
-  networkAccess: boolean
-  writableRoots: string[]
-  createdAtIso: string
-  updatedAtIso: string
 }
 
 export type KanbanTaskFeedback = {

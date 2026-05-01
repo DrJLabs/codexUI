@@ -6,7 +6,7 @@ export type WorkspaceArtifactKind =
   | 'proposal'
   | 'worktree'
 
-export type WorkspaceArtifactSource = 'thread' | 'kanban'
+export type WorkspaceArtifactSource = 'thread' | 'kanban' | 'automation'
 
 type WorkspaceArtifactBase = {
   id: string
@@ -14,6 +14,7 @@ type WorkspaceArtifactBase = {
   source: WorkspaceArtifactSource
   title: string
   taskId?: string
+  automationId?: string
   threadId?: string
   runId?: string
   createdAtIso?: string
@@ -30,6 +31,7 @@ export type WorkspaceArtifact =
     kind: 'run_metadata'
     runId: string
     taskId?: string
+    automationId?: string
     threadId?: string
     state?: string
   })
@@ -37,6 +39,7 @@ export type WorkspaceArtifact =
     kind: 'evidence'
     runId?: string
     taskId?: string
+    automationId?: string
     threadId?: string
     logPath?: string
     eventsPath?: string
@@ -45,6 +48,7 @@ export type WorkspaceArtifact =
     kind: 'review_packet'
     packetId: string
     taskId?: string
+    automationId?: string
     runId?: string
     threadId?: string
   })
@@ -52,6 +56,7 @@ export type WorkspaceArtifact =
     kind: 'proposal'
     proposalId: string
     taskId?: string
+    automationId?: string
     runId?: string
     threadId?: string
     status?: string
@@ -61,6 +66,7 @@ export type WorkspaceArtifact =
     worktreePath: string
     runId?: string
     taskId?: string
+    automationId?: string
     threadId?: string
     branchName?: string
   })
@@ -69,6 +75,7 @@ export type WorkspaceArtifactQuery = {
   source?: WorkspaceArtifactSource
   kind?: WorkspaceArtifactKind
   taskId?: string
+  automationId?: string
   runId?: string
   threadId?: string
 }

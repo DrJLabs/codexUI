@@ -4,11 +4,19 @@ import { mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import { basename, join, resolve } from 'node:path'
 import { promisify } from 'node:util'
 import type { WorkspaceWorktree } from '../../types/worktree'
+import {
+  MANAGED_WORKTREE_LOCK_FILENAME,
+  normalizeManagedWorktreeLock,
+  resolveManagedWorktreeRoot,
+  type LegacyManagedWorktreeLock,
+  type ManagedWorktreeLock,
+} from '../workspaces/worktreeLocks'
 import { WorkspaceWorktreeService } from '../workspaces/worktreeService'
-import { projectHash } from './paths'
 
 const execFileAsync = promisify(execFile)
-const LOCK_FILENAME = 'codexui-kanban-worktree.json'
+
+export { resolveManagedWorktreeRoot } from '../workspaces/worktreeLocks'
+export type { ManagedWorktreeLock } from '../workspaces/worktreeLocks'
 
 export type CreateManagedWorktreeInput = {
   taskId: string
@@ -24,14 +32,6 @@ export type ManagedWorktree = {
   baseRef: string
   worktreePath: string
   lockPath: string
-}
-
-export type ManagedWorktreeLock = ManagedWorktree & {
-  projectRoot: string
-  pid: number
-  createdAtIso: string
-  heartbeatAtIso: string
-  status: 'active' | 'removed'
 }
 
 export class KanbanWorktreeManager {
@@ -54,7 +54,7 @@ export class KanbanWorktreeManager {
     const repoName = basename(gitRoot)
     const worktreeParent = join(resolveManagedWorktreeRoot(this.dataDir, gitRoot), sanitizePathSegment(input.runId))
     const worktreePath = join(worktreeParent, repoName)
-    const lockPath = join(worktreeParent, LOCK_FILENAME)
+    const lockPath = join(worktreeParent, MANAGED_WORKTREE_LOCK_FILENAME)
 
     await mkdir(worktreeParent, { recursive: true })
     let worktreeCreated = false
@@ -64,6 +64,7 @@ export class KanbanWorktreeManager {
     try {
       await writeFile(lockPath, `${JSON.stringify({
         taskId: input.taskId,
+        owner: { source: 'kanban', id: input.taskId },
         runId: input.runId,
         branchName,
         baseRef,
@@ -133,7 +134,7 @@ export class KanbanWorktreeManager {
 
   private async assertNoActiveWorktreeForTask(taskId: string): Promise<void> {
     const locks = await this.readLocks()
-    if (locks.some((lock) => lock.status === 'active' && lock.taskId === taskId)) {
+    if (locks.some((lock) => lock.status === 'active' && lock.owner.source === 'kanban' && lock.owner.id === taskId)) {
       throw new Error(`Active Kanban worktree already exists for task ${taskId}`)
     }
   }
@@ -156,11 +157,16 @@ export class KanbanWorktreeManager {
     }
     const locks: ManagedWorktreeLock[] = []
     for (const entry of entries) {
-      const lockPath = join(root, entry, LOCK_FILENAME)
+      const lockPath = join(root, entry, MANAGED_WORKTREE_LOCK_FILENAME)
       try {
-        locks.push(JSON.parse(await readFile(lockPath, 'utf8')) as ManagedWorktreeLock)
+        locks.push(normalizeManagedWorktreeLock(JSON.parse(await readFile(lockPath, 'utf8')) as LegacyManagedWorktreeLock))
       } catch (error) {
         if (error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT') continue
+        if (error instanceof SyntaxError) {
+          console.warn(`Skipping malformed Kanban worktree lock at ${lockPath}:`, error)
+          continue
+        }
+        if (isInvalidManagedWorktreeOwnerError(error)) continue
         throw error
       }
     }
@@ -168,8 +174,11 @@ export class KanbanWorktreeManager {
   }
 }
 
-export function resolveManagedWorktreeRoot(dataDir: string, projectRoot: string): string {
-  return join(resolve(dataDir), 'worktrees', projectHash(projectRoot))
+function isInvalidManagedWorktreeOwnerError(error: unknown): boolean {
+  return error instanceof Error && (
+    error.message === 'Invalid managed worktree owner' ||
+    error.message === 'Missing managed worktree owner'
+  )
 }
 
 function createTaskBranchName(taskId: string, taskTitle: string, runId?: string): string {

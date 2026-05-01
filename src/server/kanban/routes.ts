@@ -34,15 +34,20 @@ import { recoverStaleKanbanRuns } from './startupRecovery'
 export type CreateKanbanRouterOptions = {
   dataDir?: string
   projectRoot?: string
+  storage?: KanbanStorage
   policy?: KanbanExecutionPolicy
   eventBus?: KanbanEventBus
   auditLog?: KanbanAuditSink
   bridge?: CodexBridgeRuntime
+  taskService?: KanbanTaskService
 }
 
 type AsyncRouteHandler = (req: Request, res: Response) => Promise<void>
 
 export function createKanbanRouter(options: CreateKanbanRouterOptions = {}): Router {
+  if (options.taskService && !options.storage) {
+    throw new Error('Kanban taskService injection requires matching storage')
+  }
   const config = resolveKanbanConfig()
   const projectRoot = normalizeProjectRoot(options.projectRoot ?? process.cwd())
   const dataDir = resolveKanbanDataDir(options.dataDir ?? config.dataDir)
@@ -51,8 +56,8 @@ export function createKanbanRouter(options: CreateKanbanRouterOptions = {}): Rou
   const csrf = new KanbanCsrfProtection()
   const sessionId = createKanbanId('session')
   const policy = options.policy ?? config.policy
-  const storage = new KanbanStorage({ dataDir, projectRoot })
-  const service = new KanbanTaskService({
+  const storage = options.storage ?? new KanbanStorage({ dataDir, projectRoot })
+  const service = options.taskService ?? new KanbanTaskService({
     storage,
     projectRoot,
     policy,

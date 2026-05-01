@@ -1,9 +1,9 @@
 import { execFile } from 'node:child_process'
-import { mkdir, mkdtemp, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { KanbanWorktreeManager } from '../../kanban/worktreeManager'
 import { WorkspaceWorktreeService } from '../worktreeService'
 
@@ -36,6 +36,7 @@ describe('WorkspaceWorktreeService', () => {
     expect(worktrees).toEqual([
       expect.objectContaining({
         taskId: 'task_1',
+        owner: { source: 'kanban', id: 'task_1' },
         runId: 'run_1',
         branchName: managed.branchName,
         worktreePath: managed.worktreePath,
@@ -47,6 +48,72 @@ describe('WorkspaceWorktreeService', () => {
       }),
     ])
     await expect(manager.listManagedWorktrees()).resolves.toEqual(worktrees)
+  })
+
+  it('normalizes legacy locks without owner metadata while keeping taskId', async () => {
+    const { dataDir, projectRoot } = await createGitRepo()
+    const manager = new KanbanWorktreeManager({ dataDir, projectRoot })
+    const service = new WorkspaceWorktreeService({ dataDir, projectRoot })
+    const managed = await manager.createManagedWorktree({ taskId: 'task_legacy', taskTitle: 'Legacy', runId: 'run_legacy' })
+    const lock = JSON.parse(await readFile(managed.lockPath, 'utf8')) as Record<string, unknown>
+    delete lock.owner
+    await writeFile(managed.lockPath, `${JSON.stringify(lock, null, 2)}\n`, 'utf8')
+
+    const worktrees = await service.listWorktrees()
+
+    expect(worktrees).toEqual([
+      expect.objectContaining({
+        taskId: 'task_legacy',
+        owner: { source: 'kanban', id: 'task_legacy' },
+        runId: 'run_legacy',
+      }),
+    ])
+  })
+
+  it('skips ownerless non-Kanban locks instead of coercing them to Kanban ownership', async () => {
+    const { dataDir, projectRoot } = await createGitRepo()
+    const manager = new KanbanWorktreeManager({ dataDir, projectRoot })
+    const service = new WorkspaceWorktreeService({ dataDir, projectRoot })
+    const managed = await manager.createManagedWorktree({ taskId: 'automation_legacy', taskTitle: 'Legacy', runId: 'run_legacy' })
+    const lock = JSON.parse(await readFile(managed.lockPath, 'utf8')) as Record<string, unknown>
+    delete lock.owner
+    lock.branchName = 'codexui/automation/automation-legacy-run-legacy'
+    await writeFile(managed.lockPath, `${JSON.stringify(lock, null, 2)}\n`, 'utf8')
+
+    await expect(service.listWorktrees()).resolves.toEqual([])
+  })
+
+  it('warns when skipping malformed shared worktree lock files', async () => {
+    const { dataDir, projectRoot } = await createGitRepo()
+    const manager = new KanbanWorktreeManager({ dataDir, projectRoot })
+    const service = new WorkspaceWorktreeService({ dataDir, projectRoot })
+    const managed = await manager.createManagedWorktree({ taskId: 'task_legacy', taskTitle: 'Legacy', runId: 'run_legacy' })
+    await writeFile(managed.lockPath, '{not json', 'utf8')
+    const consoleWarn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+
+    try {
+      await expect(service.listWorktrees()).resolves.toEqual([])
+      expect(consoleWarn).toHaveBeenCalledWith(
+        expect.stringContaining('Skipping malformed workspace worktree lock'),
+        expect.objectContaining({ name: 'SyntaxError' }),
+      )
+    } finally {
+      consoleWarn.mockRestore()
+    }
+  })
+
+  it('skips invalid shared lock owners instead of coercing them to Kanban ownership', async () => {
+    const { dataDir, projectRoot } = await createGitRepo()
+    const manager = new KanbanWorktreeManager({ dataDir, projectRoot })
+    const service = new WorkspaceWorktreeService({ dataDir, projectRoot })
+    const managed = await manager.createManagedWorktree({ taskId: 'task_legacy', taskTitle: 'Legacy', runId: 'run_legacy' })
+    const lock = JSON.parse(await readFile(managed.lockPath, 'utf8')) as Record<string, unknown>
+    await writeFile(managed.lockPath, `${JSON.stringify({
+      ...lock,
+      owner: { source: 'automation', id: '' },
+    }, null, 2)}\n`, 'utf8')
+
+    await expect(service.listWorktrees()).resolves.toEqual([])
   })
 
   it('finds locks when the workspace service starts from a repository subdirectory', async () => {
@@ -89,6 +156,14 @@ describe('WorkspaceWorktreeService', () => {
       .toThrow('Cleanup confirmation must equal')
     const removed = await service.cleanupWorktree({ runId: 'run_1', confirmation: 'remove run_1' })
 
-    expect(removed).toMatchObject({ runId: 'run_1', status: 'removed', lockStatus: 'removed' })
+    const removedLock = JSON.parse(await readFile(removed.lockPath, 'utf8')) as Record<string, unknown>
+
+    expect(removed).toMatchObject({
+      owner: { source: 'kanban', id: 'task_1' },
+      runId: 'run_1',
+      status: 'removed',
+      lockStatus: 'removed',
+    })
+    expect(removedLock.owner).toEqual({ source: 'kanban', id: 'task_1' })
   })
 })

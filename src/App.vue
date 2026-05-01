@@ -44,37 +44,15 @@
             </button>
           </div>
 
-          <button
+          <SidebarPrimaryNav
             v-if="!isSidebarCollapsed"
-            class="sidebar-skills-link"
-            :class="{ 'is-active': isSkillsRoute }"
-            type="button"
-            @click="router.push({ name: 'skills' }); isMobile && setSidebarCollapsed(true)"
-          >
-            <span class="sidebar-skills-link-icon" aria-hidden="true">
-              <IconTablerBolt />
-            </span>
-            <span class="sidebar-skills-link-copy">
-              <span class="sidebar-skills-link-title">{{ t('Skills') }}</span>
-              <span class="sidebar-skills-link-subtitle">{{ t('Plugins, apps, MCPs') }}</span>
-            </span>
-          </button>
-
-          <button
-            v-if="!isSidebarCollapsed"
-            class="sidebar-skills-link"
-            :class="{ 'is-active': isKanbanRoute }"
-            type="button"
-            @click="router.push({ name: 'kanban' }); isMobile && setSidebarCollapsed(true)"
-          >
-            <span class="sidebar-skills-link-icon" aria-hidden="true">
-              <IconTablerLayoutKanban />
-            </span>
-            <span class="sidebar-skills-link-copy">
-              <span class="sidebar-skills-link-title">{{ t('Kanban') }}</span>
-              <span class="sidebar-skills-link-subtitle">{{ t('Local task board') }}</span>
-            </span>
-          </button>
+            class="sidebar-primary-nav-host"
+            :active-route="primaryNavActiveRoute"
+            @start-new-thread="onStartNewThreadFromToolbar"
+            @navigate-automations="onNavigateAutomations"
+            @navigate-skills="onNavigateSkills"
+            @navigate-kanban="onNavigateKanban"
+          />
 
           <SidebarThreadTree :groups="projectGroups" :project-display-name-by-id="projectDisplayNameById"
             v-if="!isSidebarCollapsed"
@@ -86,6 +64,7 @@
             @archive="onArchiveThread" @start-new-thread="onStartNewThread" @rename-project="onRenameProject"
             @browse-thread-files="onBrowseThreadFiles"
             @rename-thread="onRenameThread"
+            @manage-automation="onManageThreadAutomation"
             @fork-thread="onForkThread"
             @remove-project="onRemoveProject" @reorder-project="onReorderProject"
             @export-thread="onExportThread"
@@ -478,7 +457,7 @@
         :style="contentStyle"
       >
         <span v-if="isVirtualKeyboardOpen" class="content-keyboard-spacer" aria-hidden="true" />
-        <ContentHeader :title="contentTitle" :accent="isSkillsRoute || isKanbanRoute">
+        <ContentHeader :title="contentTitle" :accent="isSkillsRoute || isKanbanRoute || isAutomationsRoute">
           <template #leading>
             <SidebarThreadControls
               v-if="isSidebarCollapsed || isMobile"
@@ -488,7 +467,7 @@
               @toggle-sidebar="setSidebarCollapsed(!isSidebarCollapsed)"
               @start-new-thread="onStartNewThreadFromToolbar"
             />
-            <span v-if="isSkillsRoute" class="skills-route-header-icon" aria-hidden="true">
+            <span v-if="isSkillsRoute || isAutomationsRoute" class="skills-route-header-icon" aria-hidden="true">
               <IconTablerBolt />
             </span>
             <span v-else-if="isKanbanRoute" class="skills-route-header-icon" aria-hidden="true">
@@ -549,6 +528,9 @@
               @skills-changed="onSkillsChanged"
               @try-item="onTryDirectoryItem"
             />
+          </template>
+          <template v-else-if="isAutomationsRoute">
+            <AutomationsPage />
           </template>
           <template v-else-if="isKanbanRoute">
             <KanbanBoardPage />
@@ -939,6 +921,7 @@
 import { computed, defineAsyncComponent, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import DesktopLayout from './components/layout/DesktopLayout.vue'
+import SidebarPrimaryNav from './components/sidebar/SidebarPrimaryNav.vue'
 import SidebarThreadTree from './components/sidebar/SidebarThreadTree.vue'
 import ContentHeader from './components/content/ContentHeader.vue'
 import ThreadComposer from './components/content/ThreadComposer.vue'
@@ -997,6 +980,7 @@ const ThreadTerminalPanel = defineAsyncComponent(() => import('./components/cont
 const ReviewPane = defineAsyncComponent(() => import('./components/content/ReviewPane.vue'))
 const DirectoryHub = defineAsyncComponent(() => import('./components/content/DirectoryHub.vue'))
 const KanbanBoardPage = defineAsyncComponent(() => import('./components/kanban/KanbanBoardPage.vue'))
+const AutomationsPage = defineAsyncComponent(() => import('./components/automations/AutomationsPage.vue'))
 const ThreadArtifactSidebar = defineAsyncComponent(() => import('./components/artifacts/ThreadArtifactSidebar.vue'))
 const ThreadWorkspaceHeader = defineAsyncComponent(() => import('./components/artifacts/ThreadWorkspaceHeader.vue'))
 const { t, uiLanguage, uiLanguageOptions, setUiLanguage } = useUiLanguage()
@@ -1369,9 +1353,18 @@ const routeThreadId = computed(() => {
 const isHomeRoute = computed(() => route.name === 'home')
 const isSkillsRoute = computed(() => route.name === 'skills')
 const isKanbanRoute = computed(() => route.name === 'kanban')
+const isAutomationsRoute = computed(() => route.name === 'automations')
+const primaryNavActiveRoute = computed<'home' | 'thread' | 'automations' | 'skills' | 'kanban'>(() => {
+  if (isAutomationsRoute.value) return 'automations'
+  if (isSkillsRoute.value) return 'skills'
+  if (isKanbanRoute.value) return 'kanban'
+  if (isHomeRoute.value) return 'home'
+  return 'thread'
+})
 const canShowArtifactDrawerToggle = computed(() => route.name === 'thread' && selectedThreadId.value.trim().length > 0 && !isReviewPaneOpen.value)
 const contentTitle = computed(() => {
   if (isSkillsRoute.value) return t('Skills')
+  if (isAutomationsRoute.value) return t('Automations')
   if (isKanbanRoute.value) return t('Kanban')
   if (isHomeRoute.value) return t('Start new thread')
   return selectedThread.value?.title ?? t('Choose a thread')
@@ -1381,7 +1374,7 @@ const browserHostName =
     ? (window.location.hostname || window.location.host || 'codexui')
     : 'codexui'
 const pageTitle = computed(() => {
-  if (isSkillsRoute.value || isKanbanRoute.value || isHomeRoute.value) return contentTitle.value
+  if (isSkillsRoute.value || isAutomationsRoute.value || isKanbanRoute.value || isHomeRoute.value) return contentTitle.value
   const threadTitle = selectedThread.value?.title?.trim() ?? ''
   return threadTitle || browserHostName
 })
@@ -1433,7 +1426,7 @@ const isTerminalKeyboardLayoutActive = computed(() => (
 ))
 const directoryCwd = computed(() => selectedThread.value?.cwd?.trim() ?? newThreadCwd.value.trim())
 const isSelectedThreadInProgress = computed(() => !isHomeRoute.value && selectedThread.value?.inProgress === true)
-const showThreadContextBadge = computed(() => !isHomeRoute.value && !isSkillsRoute.value && !isKanbanRoute.value && selectedThreadId.value.trim().length > 0)
+const showThreadContextBadge = computed(() => !isHomeRoute.value && !isSkillsRoute.value && !isAutomationsRoute.value && !isKanbanRoute.value && selectedThreadId.value.trim().length > 0)
 const isAccountSwitchBlocked = computed(() =>
   isSendingMessage.value ||
   isInterruptingTurn.value ||
@@ -1871,6 +1864,30 @@ function onSelectThread(threadId: string): void {
   if (route.name === 'thread' && routeThreadId.value === threadId) return
   void router.push({ name: 'thread', params: { threadId } })
   if (isMobile.value) setSidebarCollapsed(true)
+}
+
+function onNavigateAutomations(): void {
+  void router.push({ name: 'automations' })
+  if (isMobile.value) setSidebarCollapsed(true)
+}
+
+function onNavigateSkills(): void {
+  void router.push({ name: 'skills' })
+  if (isMobile.value) setSidebarCollapsed(true)
+}
+
+function onNavigateKanban(): void {
+  void router.push({ name: 'kanban' })
+  if (isMobile.value) setSidebarCollapsed(true)
+}
+
+function onManageThreadAutomation(threadId: string): void {
+  if (!threadId) return
+  void router.push({ name: 'automations', query: { threadId } })
+    .then(() => {
+      if (isMobile.value) setSidebarCollapsed(true)
+    })
+    .catch(() => {})
 }
 
 async function onExportThread(threadId: string): Promise<void> {
@@ -3031,7 +3048,7 @@ function onImplementPlan(payload: { turnId: string }): void {
 
 
 function onExportChat(): void {
-  if (isHomeRoute.value || isSkillsRoute.value || isKanbanRoute.value || typeof document === 'undefined') return
+  if (isHomeRoute.value || isSkillsRoute.value || isAutomationsRoute.value || isKanbanRoute.value || typeof document === 'undefined') return
   if (!selectedThread.value || filteredMessages.value.length === 0) return
   const markdown = buildThreadMarkdown()
   const fileName = buildExportFileName()
@@ -3482,7 +3499,7 @@ async function syncThreadSelectionWithRoute(): Promise<void> {
     do {
       hasPendingRouteSync = false
 
-      if (route.name === 'home' || route.name === 'skills') {
+      if (route.name === 'home' || route.name === 'skills' || route.name === 'kanban' || route.name === 'automations') {
         if (selectedThreadId.value !== '') {
           await selectThread('')
         }
@@ -3525,7 +3542,7 @@ watch(
   async (threadId) => {
     if (!hasInitialized.value) return
     if (isRouteSyncInProgress.value) return
-    if (isHomeRoute.value || isSkillsRoute.value || isKanbanRoute.value) return
+    if (isHomeRoute.value || isSkillsRoute.value || isAutomationsRoute.value || isKanbanRoute.value) return
 
     if (!threadId) {
       if (route.name !== 'home') {

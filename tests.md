@@ -2,6 +2,8 @@
 
 This file tracks manual regression and feature verification steps.
 
+Automation review sections use `${WORKTREE_ROOT}` for the current checkout and `${HOST_NODE_MODULES}` for any compatible shared dependency directory used only when the worktree lacks its own install.
+
 ## Template
 
 ### Feature: <name>
@@ -42,6 +44,25 @@ This file tracks manual regression and feature verification steps.
 
 #### Rollback/Cleanup
 - Remove any test automation from the thread automation dialog or delete its folder under `$CODEX_HOME/automations/<automation-id>/`.
+
+### Automations Phase 2 heartbeat store extraction
+
+#### Prerequisites
+- Use the `feat/automations` worktree.
+- If this worktree lacks dependencies, or `node_modules` exists but does not include Vitest/build tooling, temporarily link `node_modules` to `${HOST_NODE_MODULES}` and remove the link after verification.
+
+#### Steps
+1. Run `pnpm exec vitest run src/server/automations/__tests__/nativeStore.test.ts src/server/automations/__tests__/legacyRoutes.test.ts src/server/codexAppServerBridge.inlinePayload.test.ts`.
+2. Run `pnpm run build`.
+
+#### Expected Results
+- Native automation TOML parsing, serialization, invalid-record skipping, and injected-Codex-home filesystem behavior pass.
+- Existing bridge inline payload behavior remains green after delegating legacy thread automation endpoints to the extracted store and adapter.
+- Legacy thread automation routes keep data-wrapped response shapes and uppercase status behavior.
+- The production build completes without TypeScript, Vite, or CLI bundle errors.
+
+#### Rollback/Cleanup
+- Remove only a temporary `node_modules` symlink if one was created for this worktree.
 
 ### Feature: Projectless new chat folders
 
@@ -175,6 +196,222 @@ This file tracks manual regression and feature verification steps.
 
 #### Rollback/Cleanup
 - None.
+
+---
+
+### Automations Route And Shared Editor
+
+#### Feature/Change Name
+First-class Automations hash route with shared heartbeat editor.
+
+#### Prerequisites/Setup
+1. Use `${WORKTREE_ROOT}`.
+2. If this worktree has incomplete dependencies, temporarily point `node_modules` at `${HOST_NODE_MODULES}` for verification, then restore the original local dependency tree.
+3. Start the app with `pnpm run dev -- --host 0.0.0.0 --port 4173` for manual browser checks.
+
+#### Steps
+1. Run `pnpm exec vitest run src/api/automationsGateway.test.ts src/composables/useAutomations.test.ts src/router/index.test.ts`.
+2. Run `pnpm run build`.
+3. In light theme, open `http://127.0.0.1:<vite-port>/#/automations`.
+4. Confirm the existing primary sidebar Automations row is active.
+5. Confirm existing heartbeat definitions list with name, status, target thread id, RRULE, source, and updated timestamp.
+6. Confirm diagnostics and native/sidecar storage paths wrap without horizontal overflow.
+7. Create or edit a thread-attached heartbeat automation, then confirm save returns to the shared editor with the affected automation selected.
+8. Pause and resume the selected automation and confirm the status changes.
+9. Click delete and confirm the copy states the native automation folder will be removed; cancel unless intentionally testing deletion.
+10. Open a thread menu and click `Manage automation...`; confirm the route becomes `#/automations?threadId=<id>` and the editor preselects the matching automation or creates a draft for that thread.
+11. Open the same thread menu and click `Quick edit automation...`; confirm the legacy dialog still opens.
+12. Switch to dark theme and repeat steps 3-11 for readable surfaces, controls, diagnostics, and wrapped paths.
+
+#### Expected Results
+- `#/automations` loads without scheduler, manual-run, run-history, artifact, triage, or Kanban-projection controls.
+- The shared editor supports create, edit, pause, resume, and native-folder-removing delete for heartbeat automations.
+- Route query thread prefill works even during initial automation loading.
+- The existing primary nav row is reused instead of adding an ad hoc Automations button.
+- The legacy quick-edit dialog remains visibly reachable from the thread menu.
+- Light and dark themes keep the table, editor fields, action buttons, diagnostics, and long paths readable.
+
+#### Observed Results
+- 2026-04-30: Focused Vitest passed with 3 files and 16 tests.
+- 2026-04-30: `pnpm run build` passed after temporarily symlinking this worktree to `${HOST_NODE_MODULES}`.
+- 2026-04-30: Headless Chrome verification against `the active Vite URL, for example http://127.0.0.1:<vite-port>/#/automations` with temporary `CODEX_HOME=/tmp/codexui-phase4-ui-kCktPV` passed:
+  - light theme rendered without `:root.dark`, with readable light panel colors and no horizontal overflow
+  - existing heartbeat listed and selected from `?threadId=thread_phase4`
+  - create, pause, resume, and native-folder-removing delete flow completed against temporary automation storage
+  - `?threadId=thread_prefill_new` opened a create draft with the target thread prefilled
+  - dark theme rendered with `:root.dark`, readable dark panel colors, dark buttons, and no horizontal overflow
+  - browser console/runtime checks reported no warnings or errors
+- 2026-04-30: Headless Chrome thread-menu check with an injected test thread passed:
+  - `Manage automation...` routed to `#/automations?threadId=thread_phase4`
+  - `Quick edit automation...` opened the legacy `Thread automation` dialog
+  - browser console/runtime checks reported no warnings or errors
+
+#### Rollback/Cleanup
+- Stop the dev server.
+- Restore any temporarily moved worktree `node_modules`.
+- Remove any test automation created during manual verification if it is not needed.
+
+---
+
+### Automations Phase 10A run-history triage UI
+
+#### Feature/Change Name
+Compact run-history triage actions for automation runs.
+
+#### Prerequisites/Setup
+1. Use `${WORKTREE_ROOT}`.
+2. Start the app with `pnpm run dev -- --host 0.0.0.0 --port 4173`.
+3. Ensure at least one heartbeat automation has recent runs, including a failed run or a run with findings if possible.
+4. Ensure light and dark themes are available from Settings.
+
+#### Steps
+1. Run `pnpm exec vitest run src/composables/useAutomations.test.ts src/api/automationsGateway.test.ts`.
+2. Run `pnpm run build`.
+3. Open `http://127.0.0.1:<vite-port>/#/automations` in light theme.
+4. Select an automation with recent run history.
+5. Confirm each run displays compact state, trigger, timestamp, and path details.
+6. Confirm `inboxTitle` appears when present and `inboxSummary` appears when present.
+7. For an unread findings or failed run, click `Read` and confirm the run history refreshes without leaving the selected automation.
+8. For an unarchived run, click `Archive` and confirm the action changes to `Unarchive`.
+9. Click `Unarchive` and confirm the action changes back to `Archive`.
+10. Repeat steps 3-9 in dark theme.
+11. Resize the browser to a narrow mobile width and confirm long inbox copy, paths, and buttons wrap without overlap.
+
+#### Expected Results
+- Run history remains a compact list with no card-in-card layout.
+- `Read` is shown only for unread runs with findings or failed state.
+- Unarchived runs show `Archive`; archived runs show `Unarchive`.
+- Triage actions call the existing run mutation endpoints and refresh selected run history.
+- Light and dark themes keep run titles, summaries, buttons, paths, and status pills readable.
+- Long inbox text and paths wrap inside the run item without horizontal overlap.
+
+#### Rollback/Cleanup
+- Unarchive any run archived only for testing if preserving the previous triage state matters.
+- Stop the dev server if it was started only for this test.
+
+---
+
+### Automations Phase 10B schedule status polish
+
+#### Feature/Change Name
+Next-run display, schedule wording, and capability status chips for the Automations route.
+
+#### Prerequisites/Setup
+1. Use `${WORKTREE_ROOT}`.
+2. Start the app with `pnpm run dev -- --host 0.0.0.0 --port 4173`.
+3. Prepare at least one active automation with a supported schedule, one paused automation, and one automation with no next run or a scheduler-unsupported monthly/yearly schedule if available.
+4. Ensure light and dark themes are available from Settings.
+
+#### Steps
+1. Run `pnpm exec vitest run src/composables/useAutomations.test.ts src/api/automationsGateway.test.ts`.
+2. Run `pnpm run build`.
+3. Open `http://127.0.0.1:<vite-port>/#/automations` in light theme.
+4. Confirm the summary band shows status chips for Scheduler, Manual run, Artifact indexing, and Kanban projection, with only on/off status and no toggles.
+5. Confirm the list column is `Next run`, not `Updated`.
+6. Confirm an active scheduled automation shows a formatted next-run timestamp.
+7. Confirm a paused automation shows `Paused`.
+8. Confirm an automation with no next run shows `Not scheduled`.
+9. Select an automation and confirm the editor storage/details area includes `Next run` beside automation id, native path, and sidecar path.
+10. Confirm the editor field label says `Schedule rule` and the helper text says `RRULE format, for example FREQ=DAILY;BYHOUR=9;BYMINUTE=0.`
+11. Confirm the thread field label says `Attached thread id`.
+12. Open `#/automations?threadId=<id>` and confirm the create or edit header says `Prefilled from thread <id>`.
+13. If monthly/yearly scheduler diagnostics are present, confirm diagnostics surface the unsupported schedule reason without adding separate scheduler controls.
+14. Repeat steps 4-13 in dark theme.
+15. Resize to a narrow mobile width and tablet width and confirm chips, helper text, diagnostics, paths, and next-run values wrap without overlap.
+
+#### Expected Results
+- Next-run status is visible in both the list and selected automation details.
+- Scheduled active automations show a formatted timestamp; paused automations show `Paused`; unsupported or unscheduled automations show `Not scheduled`.
+- Schedule and thread labels use operator-facing wording.
+- Capability chips reflect `state.featureFlags` only and do not introduce new toggles.
+- Empty, error, and diagnostics copy stays concise and does not say scheduler or artifact indexing is absent when feature flags report those capabilities as present.
+- Light and dark themes keep chips, helper text, table cells, diagnostics, and storage details readable.
+
+#### Rollback/Cleanup
+- Restore any automation statuses or schedules changed only for testing.
+- Stop the dev server if it was started only for this test.
+
+---
+
+### Automations Phase 3 API Spec Review Gaps
+
+#### Feature/Change Name
+Automations Phase 3 API code-quality review regressions.
+
+#### Prerequisites/Setup
+1. Use the `codexUI` worktree.
+2. If this worktree has incomplete dependencies, temporarily point `node_modules` at `${HOST_NODE_MODULES}` and restore the original dependency tree after testing.
+
+#### Steps
+1. Run `pnpm exec vitest run src/server/automations/__tests__/nativeStore.test.ts src/server/automations/__tests__/legacyRoutes.test.ts src/server/automations/__tests__/routes.test.ts`.
+
+#### Expected Results
+- Duplicate `POST /codex-api/automations` requests for an existing heartbeat `targetThreadId` return HTTP 409 and do not overwrite the native automation.
+- Ambiguous `GET`/`PATCH`/`DELETE` ids resolve exact native record ids before matching source directory names.
+- Duplicate `PATCH /codex-api/automations/:automationId` `targetThreadId` requests return HTTP 409 and do not mutate the patched automation.
+- `runMode` persists through `codexui.json` for create and patch, including accepted `null` and `chat` values.
+- Production `GET /codex-api/automations/health` is handled by the first-class automations router before the generic bridge.
+- Existing invalid `codexui.json` sidecar fields fall back to API defaults while valid fields are preserved where possible.
+- Automations state diagnostics include a warning for invalid sidecar content.
+- Expected command result: 3 test files pass, 19 tests pass.
+
+#### Rollback/Cleanup
+- Restore the original `node_modules` directory if a temporary symlink was used.
+
+---
+
+### Feature: Automations Phase 3 first-class API
+
+#### Prerequisites
+- Use `${WORKTREE_ROOT}` on `feat/automations`.
+- If this worktree has absent or incomplete dependencies, temporarily replace `node_modules` with a symlink to `${HOST_NODE_MODULES}` and restore/remove the temporary symlink after verification.
+- No UI, scheduler, manual run, Kanban projection, or artifact indexing behavior is included in this phase.
+
+#### Steps
+1. Run `pnpm exec vitest run src/server/automations/__tests__/nativeStore.test.ts src/server/automations/__tests__/legacyRoutes.test.ts src/server/automations/__tests__/routes.test.ts`.
+2. Run `pnpm run build`.
+3. Run `node dist-cli/index.js --help`.
+4. Run `git diff --check`.
+5. Optional API smoke: start the app server and request `GET /codex-api/automations/health`, `GET /codex-api/automations/state`, and `GET /codex-api/automations/templates`.
+6. Optional mutation smoke: request `GET /codex-api/automations/csrf` from loopback and use the returned `x-codexui-automations-csrf` header for create/patch/pause/resume/delete requests.
+
+#### Expected Results
+- Native store tests prove first-class listing sees detached heartbeat automations by automation id while the legacy thread map continues to filter detached records.
+- First-class route tests prove data-wrapped health/state/templates/list/get responses, CSRF issuance, trusted-access enforcement, mutation CSRF enforcement, create/patch/pause/resume/delete behavior, and bridge precedence for `/codex-api/automations/health`.
+- Legacy `/codex-api/thread-automation*` tests continue to pass unchanged.
+- Build, CLI CJS smoke, and whitespace checks complete without errors.
+- Light and dark theme checks are not required because Phase 3 has no UI changes.
+
+#### Rollback/Cleanup
+- Remove any temporary `node_modules` symlink and restore the prior worktree dependency directory if it was moved aside for verification.
+
+---
+
+### Feature: Automations Phase 1 right sidebar IA stabilization
+
+#### Prerequisites
+- App is running from this repository.
+- At least one chat thread exists.
+- Light and dark themes are available from Settings.
+
+#### Steps
+1. Run `pnpm exec vitest run src/composables/useThreadWorkspace.test.ts src/composables/useThreadArtifacts.test.ts`.
+2. Run `pnpm run build`.
+3. Open a thread in light theme and open the right sidebar.
+4. Confirm the first-level menu shows Thread, Kanban, Automations, Worktrees, Artifacts, Actions, and Permissions.
+5. Click Thread and confirm Plan, Run, Evidence, Review, and Proposals appear only inside the Thread panel.
+6. Confirm the Thread row count matches visible thread artifacts without double-counting proposals, and Worktrees uses the active worktree count.
+7. Click Automations and confirm it opens an in-place deferred panel rather than a nested artifact tab.
+8. Switch to dark theme and repeat steps 3-7.
+
+#### Expected Results
+- Plan, Run, Evidence, Review, and Proposals are nested under Thread only.
+- Automations has a stable first-level home and remains deferred.
+- Only one first-level panel is visible at a time.
+- Light and dark themes remain readable.
+
+#### Rollback/Cleanup
+- Stop the dev server if one was started.
 
 ### Feature: Remove GitHub trending projects from the new-thread screen
 
@@ -4527,7 +4764,7 @@ Thread workspace model and workspace-scoped right drawer sections.
 
 #### Prerequisites/Setup
 1. Use the `feature/thread-workspace-right-drawer-ia-dev` worktree.
-2. Reuse the shared dependency install with `node_modules -> /home/drj/projects/codexUI/node_modules` if this worktree does not already have dependencies.
+2. Reuse the shared dependency install with `node_modules -> ${HOST_NODE_MODULES}` if this worktree does not already have dependencies.
 3. Start the dev server with `pnpm run dev -- --host 0.0.0.0 --port 5173`.
 4. Open a normal chat thread with the right artifact drawer available.
 5. Use browser viewports of 1440x900 for desktop, 768x1024 for tablet, and 375x812 for mobile checks.
@@ -4714,7 +4951,7 @@ Safe indexed artifact preview routes and preview panel shell.
 
 #### Prerequisites/Setup
 1. Use the `feature/desktop-parity-artifact-previews-dev` worktree.
-2. Reuse the shared dependency install with `node_modules -> /home/drj/projects/codexUI/node_modules` if this worktree does not already have dependencies.
+2. Reuse the shared dependency install with `node_modules -> ${HOST_NODE_MODULES}` if this worktree does not already have dependencies.
 
 #### Steps
 1. Run `pnpm vitest run src/server/artifacts/__tests__/security.test.ts src/server/artifacts/__tests__/routes.test.ts`.
@@ -4740,7 +4977,7 @@ Shared managed-worktree status service and artifact UI panels.
 
 #### Prerequisites/Setup
 1. Use the `feature/desktop-parity-worktrees-dev` worktree.
-2. Reuse the shared dependency install with `node_modules -> /home/drj/projects/codexUI/node_modules` if this worktree does not already have dependencies.
+2. Reuse the shared dependency install with `node_modules -> ${HOST_NODE_MODULES}` if this worktree does not already have dependencies.
 
 #### Steps
 1. Run `pnpm vitest run src/server/workspaces/__tests__/worktreeService.test.ts src/server/kanban/__tests__/worktreeManager.test.ts src/server/kanban/__tests__/recoveryService.test.ts`.
@@ -4765,7 +5002,7 @@ Local project action registry, policy checks, and action evidence UI shell.
 
 #### Prerequisites/Setup
 1. Use the `feature/desktop-parity-local-actions-dev` worktree.
-2. Reuse the shared dependency install with `node_modules -> /home/drj/projects/codexUI/node_modules` if this worktree does not already have dependencies.
+2. Reuse the shared dependency install with `node_modules -> ${HOST_NODE_MODULES}` if this worktree does not already have dependencies.
 
 #### Steps
 1. Run `pnpm vitest run src/server/actions/__tests__/actionRegistry.test.ts`.
@@ -4792,7 +5029,7 @@ Shared inert proposal summary panel for Kanban and artifact contexts.
 
 #### Prerequisites/Setup
 1. Use the `feature/desktop-parity-proposals-dev` worktree.
-2. Reuse the shared dependency install with `node_modules -> /home/drj/projects/codexUI/node_modules` if this worktree does not already have dependencies.
+2. Reuse the shared dependency install with `node_modules -> ${HOST_NODE_MODULES}` if this worktree does not already have dependencies.
 3. For browser verification, start the dev server with `pnpm run dev -- --host 0.0.0.0 --port 4177`. In this run Vite used `http://127.0.0.1:5177`.
 
 #### Steps
@@ -4853,7 +5090,7 @@ Shared review packet freshness fingerprinting and summary UI.
 
 #### Prerequisites/Setup
 1. Use the `feature/desktop-parity-review-packets-dev` worktree.
-2. Reuse the shared dependency install with `node_modules -> /home/drj/projects/codexUI/node_modules` if this worktree does not already have dependencies.
+2. Reuse the shared dependency install with `node_modules -> ${HOST_NODE_MODULES}` if this worktree does not already have dependencies.
 3. For browser verification, start the dev server with `pnpm run dev -- --host 0.0.0.0 --port 4176`. In this run Vite used `http://127.0.0.1:5176`.
 
 #### Steps
@@ -4904,3 +5141,947 @@ Shared review packet freshness fingerprinting and summary UI.
 
 #### Rollback/Cleanup
 - None.
+
+---
+
+### Automations Phase 5D Shared Audit Log Source Schema
+
+#### Feature/Change Name
+Shared execution audit log schema, Kanban source wrapper, legacy hash-chain compatibility, and default redaction.
+
+#### Prerequisites/Setup
+1. Use the `feat/automations` worktree.
+2. Reuse the shared dependency install with `node_modules -> ${HOST_NODE_MODULES}` if this worktree does not already have dependencies.
+3. No dev server is required; this slice is server-only and has no light/dark UI surface.
+
+#### Steps
+1. Run `pnpm exec vitest run src/server/execution/__tests__/auditLog.test.ts src/server/kanban/__tests__/auditLog.test.ts src/server/kanban/__tests__/codexKanbanRunner.test.ts`.
+2. Run `pnpm run build`.
+3. Run `git diff --check`.
+
+#### Expected Results
+- Shared audit records use schema `codexui.execution.audit.v1`.
+- New Kanban audit records include `source: "kanban"` while retaining the existing audit file path.
+- A new execution audit record continues the hash chain from an existing legacy `codexui.kanban.audit.v1` record without rewriting the legacy line.
+- Secret-shaped fields such as authorization tokens and API keys are redacted before persistence and before event-hash calculation, even when no explicit redactor is supplied.
+- Kanban audit writes project only known Kanban audit fields and drop accidental extra input fields before hashing/persistence.
+- The targeted audit and runner tests pass, the production build passes, and diff whitespace checks are clean.
+
+#### Rollback/Cleanup
+- None. Tests write only temporary audit files under the OS temp directory.
+
+---
+
+### Automations Phase 5E Worktree Owner Metadata
+
+#### Feature/Change Name
+Managed worktree lock owner metadata, legacy Kanban lock normalization, and shared workspace lock helpers.
+
+#### Prerequisites/Setup
+1. Use the `feat/automations` worktree.
+2. Reuse the shared dependency install with `node_modules -> ${HOST_NODE_MODULES}` if this worktree does not already have dependencies.
+3. No dev server is required; this slice is server-only and has no light/dark UI surface.
+
+#### Steps
+1. Run `pnpm exec vitest run src/server/kanban/__tests__/worktreeManager.test.ts src/server/workspaces/__tests__/worktreeService.test.ts src/server/kanban/__tests__/codexKanbanRunner.test.ts src/server/artifacts/__tests__/routes.test.ts`.
+2. Run `pnpm exec vitest run src/server/execution/__tests__/runProfiles.test.ts src/server/execution/__tests__/codexBridgeAdapter.test.ts src/server/execution/__tests__/runQueue.test.ts src/server/execution/__tests__/auditLog.test.ts`.
+3. Run `pnpm exec vitest run src/server/kanban/__tests__/codexKanbanRunner.test.ts src/server/kanban/__tests__/taskQueue.test.ts src/server/kanban/__tests__/auditLog.test.ts src/server/kanban/__tests__/worktreeManager.test.ts src/server/workspaces/__tests__/worktreeService.test.ts src/server/kanban/__tests__/policy.test.ts src/server/kanban/__tests__/reviewPacketService.test.ts src/server/kanban/__tests__/startupRecovery.test.ts src/server/kanban/__tests__/recoveryService.test.ts src/server/kanban/__tests__/routes.test.ts src/server/kanban/__tests__/taskService.test.ts`.
+4. Run `pnpm run build`.
+5. Run `git diff --check`.
+
+#### Expected Results
+- New Kanban worktree lock JSON keeps the existing `codexui-kanban-worktree.json` filename and includes `owner: { source: "kanban", id: taskId }`.
+- Legacy locks without `owner` are normalized to Kanban task owners while preserving `taskId`.
+- Active-lock checks use owner metadata and still block a second active Kanban worktree for the same task.
+- Workspace worktree listing exposes `owner` metadata while retaining the existing `taskId` field.
+- Workspace cleanup preserves owner metadata and keeps typed confirmation and dirty-worktree refusal safeguards unchanged.
+- The focused Slice 5E tests, shared execution primitive tests, Phase 5 Kanban compatibility gate, production build, and diff whitespace checks pass.
+
+#### Rollback/Cleanup
+- None. Tests create temporary git repositories and managed worktree roots under the OS temp directory.
+
+---
+
+### Automations Phase 6A Manual Chat And Local Runs
+
+#### Feature/Change Name
+Persisted manual automation run API for chat and local modes.
+
+#### Prerequisites/Setup
+1. Use the `feat/automations` worktree.
+2. Reuse the shared dependency install with `node_modules -> ${HOST_NODE_MODULES}` if this worktree does not already have dependencies.
+3. No dev server or browser theme verification is required for Slice 6A; this slice is server-only and does not change UI.
+
+#### Steps
+1. Run `pnpm exec vitest run src/server/automations/__tests__/runner.test.ts src/server/automations/__tests__/routes.test.ts src/server/automations/__tests__/legacyRoutes.test.ts`.
+2. Run `pnpm run build`.
+3. Run `git diff --check`.
+
+#### Expected Results
+- `POST /codex-api/automations/:automationId/run` requires trusted CSRF-protected execution access and returns a clear error when the bridge is unavailable.
+- Chat runs resume the configured target thread, start a turn with the automation prompt, persist `run.json`, append `events.jsonl`, and write `run.log`.
+- Local runs require an absolute `cwd`, start a new thread in that cwd, and pass resolved Codex run settings to `turn/start`.
+- Duplicate active run requests, including concurrent requests for the same automation, start at most one bridge turn.
+- Execution-disabled, `danger-full-access`, `approvalPolicy: never`, and disallowed network profiles are blocked before bridge calls.
+- Matching `turn/completed` notifications read the thread, mark the run `completed_no_findings`, persist the result summary, and allow another run.
+- `GET /codex-api/automations/:automationId/runs` returns persisted runs newest-first.
+
+#### Rollback/Cleanup
+- None. Tests create temporary automation directories under the OS temp directory.
+
+---
+
+### Automations Phase 6B Worktree Manual Runs And Route UI
+
+#### Feature/Change Name
+Manual automation runs in chat, local cwd, and managed worktree modes with route-level run controls and recent-run history.
+
+#### Prerequisites/Setup
+1. Use the `feat/automations` worktree at `${WORKTREE_ROOT}`.
+2. Reuse the shared dependency install with `node_modules -> ${HOST_NODE_MODULES}` if this worktree does not already have dependencies.
+3. For manual UI verification, start the dev server with automation execution enabled from trusted local access: `CODEXUI_KANBAN_EXECUTION_ENABLED=1 pnpm run dev -- --host 127.0.0.1 --port 4173`.
+4. Use a saved heartbeat automation and, for managed worktree mode, configure `cwd` as an absolute path to a committed Git repository.
+5. Light and dark themes are available from Settings.
+
+#### Steps
+1. Run `pnpm exec vitest run src/server/workspaces/__tests__/managedWorktreeService.test.ts src/server/automations/__tests__/runner.test.ts src/server/automations/__tests__/routes.test.ts src/api/automationsGateway.test.ts src/composables/useAutomations.test.ts`.
+2. Run `pnpm run build`.
+3. Run `git diff --check`.
+4. Run the final Phase 6 gate: `pnpm exec vitest run src/server/automations/__tests__/runner.test.ts src/server/automations/__tests__/routes.test.ts src/server/automations/__tests__/legacyRoutes.test.ts src/server/workspaces/__tests__/managedWorktreeService.test.ts src/server/workspaces/__tests__/worktreeService.test.ts src/api/automationsGateway.test.ts src/composables/useAutomations.test.ts`.
+5. Open `http://127.0.0.1:<vite-port>/#/automations` in light theme.
+6. Select or create a saved automation, choose each run mode option (`Chat`, `Local cwd`, `Managed worktree`), and confirm the cwd field is required for local/worktree modes.
+7. Click `Run now` on a saved automation and confirm the compact recent-run list updates with state, trigger, thread, turn, cwd/worktree, log path, started timestamp, and completed timestamp.
+8. For managed worktree mode, confirm a lock file named `codexui-kanban-worktree.json` is written under the managed worktree metadata root and includes `owner: { source: "automation", id: <automation-id> }`.
+9. Confirm the route does not show scheduler, artifact-indexing, or Kanban-projection controls.
+10. Switch to dark theme and repeat steps 5-9, verifying the editor controls, Run now action, and recent-run list remain readable.
+
+#### Expected Results
+- `ManagedWorktreeService` creates automation-owned worktrees with branch names beginning `codexui/automation/<automation-id>-<run-id>-<name>`.
+- Active managed worktrees for the same automation owner block duplicate active worktree creation, while completed automation runs can start later runs without deleting prior worktrees.
+- Worktree-mode runner calls `thread/start` and `turn/start` with the managed worktree path, stores worktree path and branch snapshots in the run record, and preserves worktrees after success, failure, and completion.
+- Gateway and composable run helpers use CSRF-protected mutation for `Run now`, retry stale CSRF once, refresh state, and load recent run history.
+- The Automations route exposes only manual run controls required for Phase 6B and remains readable in both light and dark themes.
+
+#### Observed Results
+- 2026-04-30: Slice 6B gate passed: 5 files, 48 tests.
+- 2026-04-30: Final Phase 6 gate passed: 7 files, 54 tests.
+- 2026-04-30: `pnpm run build` passed.
+- 2026-04-30: `git diff --check` passed.
+
+#### Rollback/Cleanup
+- Remove clean manual test worktrees with `git -C <repo-root> worktree remove <worktree-path>`.
+- Remove manual test branches with `git -C <repo-root> branch -D <branch-name>` after removing the worktree.
+- Remove any test automation records or temporary managed-worktree metadata under `${CODEX_HOME:-$HOME/.codex}/worktrees/` if no longer needed.
+
+---
+
+### Automations Phase 7 Scheduler And Recovery
+
+#### Feature/Change Name
+Persisted automation scheduler loop, startup recovery, and conservative run limits.
+
+#### Prerequisites/Setup
+1. Use `${WORKTREE_ROOT}`.
+2. Reuse the shared dependency install with `node_modules -> ${HOST_NODE_MODULES}` if this worktree does not already have dependencies.
+3. Start a bridge-enabled server with automation execution enabled, then create or select an active heartbeat automation with a supported RRULE schedule.
+4. For local/worktree limit checks, configure two test automations with the same absolute `cwd`.
+5. Light and dark themes are available from Settings.
+
+#### Steps
+1. Run `pnpm exec vitest run src/server/automations/__tests__/scheduler.test.ts src/server/automations/__tests__/runner.test.ts src/server/automations/__tests__/routes.test.ts src/server/automations/__tests__/legacyRoutes.test.ts`.
+2. Run the full Phase 7 gate listed in the implementation plan, then run `pnpm run build` and `git diff --check`.
+3. Inspect `${CODEX_HOME:-$HOME/.codex}/automations/<automation-id>/scheduler.json` and confirm it contains `nextDueAtIso`, `missedRunPolicy`, `lastScheduledRunId`, and `unsupportedReason`.
+4. Let the scheduler interval fire, or trigger a due tick in a controlled test environment.
+5. Inspect the automation run history and the corresponding `runs/<run-id>/run.json`.
+6. Restart the server while a scheduled run is persisted in `queued`, `starting`, or `running`, then inspect the same run after startup recovery.
+7. Create or patch valid `FREQ=MONTHLY` and `FREQ=YEARLY` automations and inspect their scheduler state.
+8. In light theme, open `#/automations` and confirm next-run and recent-run history remain readable.
+9. Switch to dark theme and repeat the same route checks.
+
+#### Expected Results
+- Each due scheduler tick starts at most one scheduled catch-up run per automation and advances `nextDueAtIso` beyond the current tick time.
+- Startup recovery marks interrupted active scheduled runs failed before any due scan starts.
+- Global and per-repo active-run limits block additional scheduled starts without advancing `nextDueAtIso`, so the next tick can retry.
+- Paused automations do not execute.
+- Imported native automations missing `scheduler.json` are initialized on tick before scheduler decisions.
+- `FREQ=MONTHLY` and `FREQ=YEARLY` automations remain readable and editable, show no next run, and do not execute until scheduler support is added.
+- Light and dark Automations route surfaces still show next-run and recent-run data without unreadable panels or controls.
+
+#### Rollback/Cleanup
+- Pause test automations from the UI or API to stop future scheduled starts.
+- Remove test scheduler/run artifacts under `${CODEX_HOME:-$HOME/.codex}/automations/<automation-id>/scheduler.json` and `runs/` only for disposable test automations.
+- Remove any temporary local/worktree test repositories created for per-repo limit checks.
+
+---
+
+### Automations Phase 8 - Triage and artifact indexing
+
+#### Feature/Change Name
+Automation run read/archive triage actions and automation artifact route indexing.
+
+#### Prerequisites/Setup
+1. Use `${WORKTREE_ROOT}` on `feat/automations`.
+2. Reuse the shared dependency install with `node_modules -> ${HOST_NODE_MODULES}` if this worktree does not already have dependencies.
+3. Start a trusted local dev server with automation execution enabled: `CODEXUI_KANBAN_EXECUTION_ENABLED=1 pnpm run dev -- --host 127.0.0.1 --port 4173`.
+4. Create or select a disposable heartbeat automation, for example `daily-check`, and run it once so `${CODEX_HOME:-$HOME/.codex}/automations/daily-check/runs/<run-id>/` contains `run.json`, `run.log`, and `events.jsonl`.
+5. Capture the disposable automation ID and run ID for the API checks below.
+
+#### Steps
+1. Run `pnpm exec vitest run src/api/automationsGateway.test.ts src/composables/useAutomations.test.ts src/server/automations/__tests__/routes.test.ts src/server/artifacts/__tests__/routes.test.ts`.
+2. Run `pnpm run build`.
+3. Run `git diff --check`.
+4. Open `http://127.0.0.1:<vite-port>/#/automations`, select the disposable automation, and confirm the run appears in recent run history.
+5. Mark the run read by calling `POST /codex-api/automations/<automation-id>/runs/<run-id>/read` with the Automations CSRF header, then refresh the run history.
+6. Archive the same run by calling `POST /codex-api/automations/<automation-id>/runs/<run-id>/archive` with the Automations CSRF header, then refresh the run history.
+7. Unarchive the same run by calling `POST /codex-api/automations/<automation-id>/runs/<run-id>/unarchive` with the Automations CSRF header, then refresh the run history.
+8. Call `GET /codex-api/artifacts?source=automation&automationId=<automation-id>` and locate the run/evidence/worktree descriptors for the disposable run.
+9. Call preview and raw routes for an indexed automation artifact, for example `GET /codex-api/artifacts/<artifact-id>/preview` and `GET /codex-api/artifacts/<artifact-id>/raw`.
+10. Repeat an automation evidence read with an ignored path query, for example `GET /codex-api/artifacts/<evidence-artifact-id>/raw?path=/etc/passwd`.
+
+#### Expected Results
+- Gateway triage actions use CSRF-protected `POST` requests to `/codex-api/automations/:automationId/runs/:runId/read`, `/archive`, and `/unarchive`.
+- The composable exposes `markRunRead`, `archiveRun`, and `unarchiveRun`; each action refreshes the selected automation run history and keeps `selectedAutomationId` unchanged.
+- The read action persists `readAtIso` on the selected run.
+- The archive action persists `archivedAtIso` on the selected run.
+- The unarchive action clears `archivedAtIso` on the selected run.
+- `source=automation&automationId=<automation-id>` returns only indexed automation artifacts for that automation.
+- Preview and raw artifact routes return content from the indexed automation descriptor.
+- `path=/etc/passwd` is ignored for automation evidence reads; the response is still limited to the indexed `run.log` or `events.jsonl` path, not `/etc/passwd`.
+
+#### Rollback/Cleanup
+- Pause or delete the disposable automation after verification.
+- Remove temporary run artifacts only for the disposable automation: `${CODEX_HOME:-$HOME/.codex}/automations/<automation-id>/runs/<run-id>/`.
+- Remove any temporary worktrees or branches created by worktree-mode automation runs.
+
+---
+
+### Automations Phase 9 - Kanban projection
+
+#### Feature/Change Name
+Opt-in automation definition and run projection to inert Kanban follow-up cards.
+
+#### Prerequisites/Setup
+1. Use `${WORKTREE_ROOT}`.
+2. Reuse the shared dependency install with `node_modules -> ${HOST_NODE_MODULES}` if this worktree does not already have dependencies.
+3. Start a trusted local dev server with automation execution enabled: `CODEXUI_KANBAN_EXECUTION_ENABLED=1 pnpm run dev -- --host 127.0.0.1 --port 4173`.
+4. Create or select a disposable heartbeat automation with a valid `targetThreadId`.
+5. Keep a disposable Kanban board/project root for confirming created cards can be removed after the check.
+
+#### Steps
+1. Run `pnpm exec vitest run src/server/automations/__tests__/kanbanProjection.test.ts src/server/automations/__tests__/runner.test.ts src/server/automations/__tests__/routes.test.ts`.
+2. Run `pnpm run build`.
+3. Run `git diff --check`.
+4. Create or patch the disposable automation with `kanbanProjection: { "mode": "definition_card" }`.
+5. Read the automation state and confirm the returned definition includes a stable `kanbanProjection.taskId`.
+6. Patch the same automation again with the same `definition_card` projection and confirm the same task ID is returned.
+7. Patch the automation with `kanbanProjection: { "mode": "run_card", "createFor": "findings_only" }`, run it, and complete the turn with a findings result such as `RESULT: FINDINGS`.
+8. Read the completed run and confirm it has `kanbanTaskId`; inspect the Kanban task with that ID.
+9. Repeat the same completed-turn notification or inspect after refresh and confirm only one Kanban task exists for that run label.
+10. Run or simulate a no-findings completion with `findings_only` still enabled and confirm no `kanbanTaskId` is written.
+11. Patch the automation with `kanbanProjection: { "mode": "run_card", "createFor": "failures_only" }`, trigger a failed run, and inspect the completed run and Kanban task.
+12. For an error-path check, temporarily make Kanban projection unavailable or invalid, complete a terminal run, then inspect `events.jsonl` and `run.log`.
+
+#### Expected Results
+- Definition-card projection creates one idle Kanban task and preserves the same task ID across repeated patches.
+- Findings-only run-card projection creates one idle Kanban task only for `completed_with_findings` runs and persists that task ID on `run.kanbanTaskId`.
+- Repeated completion handling is idempotent; the same run keeps the same task ID and does not create duplicate active tasks.
+- Findings-only projection does not create a task for `completed_no_findings`.
+- Failures-only projection creates one idle Kanban task for failed terminal runs.
+- Projected Kanban tasks remain inert: `runState` is `idle`, `currentRunId` is empty, and `runIds` is empty.
+- Projection failures do not change the terminal run state; they append `automation_projection.failed` to `events.jsonl` and `Kanban projection failed: <message>` to `run.log`.
+
+#### Rollback/Cleanup
+- Patch disposable automations back to `kanbanProjection: { "mode": "off" }` or delete them after verification.
+- Archive or delete disposable Kanban tasks created by definition-card and run-card checks.
+- Remove temporary run artifacts only for disposable automations under `${CODEX_HOME:-$HOME/.codex}/automations/<automation-id>/runs/`.
+
+---
+
+### Automations Phase 10 - Final manual UI verification
+
+#### Feature/Change Name
+Automations route parity polish for run triage, schedule status, capability chips, and responsive light/dark layout.
+
+#### Prerequisites/Setup
+1. Use `${WORKTREE_ROOT}`.
+2. Start the app with `pnpm run dev -- --host 0.0.0.0 --port 4173`.
+3. Prepare at least three disposable heartbeat automations:
+   - an active automation with a supported daily/hourly RRULE and a visible `nextRunAtIso`;
+   - a paused automation;
+   - an automation with no next run, or an unsupported monthly/yearly schedule that produces a diagnostic.
+4. Ensure at least one automation has recent runs including an unread findings or failed run and an archived run, if possible.
+5. Ensure light and dark themes are available from Settings.
+
+#### Steps
+1. Run `pnpm exec vitest run src/api/automationsGateway.test.ts src/composables/useAutomations.test.ts src/server/automations/__tests__/routes.test.ts src/server/artifacts/__tests__/routes.test.ts`.
+2. Run `pnpm run build`.
+3. Run `git diff --check`.
+4. Open `http://127.0.0.1:<vite-port>/#/automations` in light theme.
+5. Confirm the summary band shows Total, Active, Paused, Native storage root, and capability chips for Scheduler, Manual run, Artifact indexing, and Kanban projection.
+6. Confirm the automation list uses a `Next run` column.
+7. Confirm the active scheduled automation shows a formatted next-run timestamp.
+8. Confirm the paused automation shows `Paused`.
+9. Confirm the unsupported or unscheduled automation shows `Not scheduled`.
+10. Select an automation and confirm the editor details area shows Automation id, Native path, Sidecar path, and Next run.
+11. Confirm the schedule field is labeled `Schedule rule` and shows the RRULE helper copy.
+12. Confirm the thread field is labeled `Attached thread id`.
+13. Open `#/automations?threadId=<id>` and confirm the header shows `Prefilled from thread <id>` only while the visible draft or selected automation is attached to that same thread.
+14. In Recent runs, confirm `inboxTitle` and `inboxSummary` appear when present.
+15. Click `Read` on an unread findings or failed run and confirm the selected automation remains selected after refresh.
+16. Click `Archive` on an unarchived run and confirm it changes to `Unarchive`.
+17. Click `Unarchive` and confirm it changes back to `Archive`.
+18. Repeat steps 4-17 in dark theme.
+19. Resize the browser to 375px wide and confirm summary chips, table cells, helper text, storage paths, run inbox copy, and triage buttons wrap without overlap.
+20. Resize the browser to tablet width, around 768px, and repeat the no-overlap check.
+
+#### Expected Results
+- Light and dark themes keep the Automations list, editor, run history, triage actions, capability chips, diagnostics, and storage details readable.
+- Next-run display distinguishes scheduled active, paused, and unsupported/unscheduled automations.
+- Triage actions refresh run history without changing the selected automation or leaving controls stuck disabled.
+- Schedule and thread wording uses the polished labels.
+- Capability chips are status-only and do not introduce new toggles.
+- Mobile and tablet widths do not show overlapping text, clipped buttons, unreadable surfaces, or horizontal layout breakage.
+
+#### Rollback/Cleanup
+- Restore any temporary automation schedules, statuses, or projection settings changed only for testing.
+- Unarchive any run archived only for verification if preserving prior state matters.
+- Delete disposable automations and projected Kanban tasks created only for this check.
+- Stop the dev server if it was started only for this test.
+
+---
+
+### Automations review fixes - scheduler isolation and detached execution creates
+
+#### Feature/Change Name
+Automations review fixes for per-entry scheduler failure isolation and direct local/worktree automation creation without an attached thread.
+
+#### Prerequisites/Setup
+1. Use `${WORKTREE_ROOT}`.
+2. Start the app with `pnpm run dev -- --host 0.0.0.0 --port 4173` for manual UI checks.
+3. Use disposable automations and disposable project directories only.
+4. Ensure light and dark themes are available from Settings.
+
+#### Steps
+1. Run `pnpm exec vitest run src/server/automations/__tests__/scheduler.test.ts src/server/automations/__tests__/routes.test.ts src/server/automations/__tests__/nativeStore.test.ts src/composables/useAutomations.test.ts src/api/automationsGateway.test.ts`.
+2. Run `pnpm test:unit`.
+3. Run `pnpm run build`.
+4. Run `git diff --check`.
+5. In light theme, open `http://127.0.0.1:<vite-port>/#/automations`.
+6. Create a Local cwd automation with a valid absolute cwd, prompt, and schedule, leaving Attached thread id blank.
+7. Create a Managed worktree automation with a valid absolute cwd, prompt, and schedule, leaving Attached thread id blank.
+8. Confirm both saved definitions show `No thread`, preserve their run mode and cwd, and remain selectable.
+9. Create or prepare one active due chat automation with no attached thread and one healthy active due chat automation.
+10. Let the scheduler tick in a controlled test environment or run the scheduler unit test fixture.
+11. Repeat steps 5-8 in dark theme.
+
+#### Expected Results
+- Local and managed-worktree automation creation does not require an attached thread id.
+- Chat automation creation still requires an attached thread id.
+- A due but unrunnable automation does not abort the scheduler scan for later healthy due automations.
+- Light and dark themes keep the create form required-field behavior, list rows, storage details, and run-mode/cwd fields readable.
+
+#### Rollback/Cleanup
+- Delete disposable local/worktree automations created for this check.
+- Remove temporary scheduler/run artifacts only under disposable automation directories.
+- Stop the dev server if it was started only for this test.
+
+---
+
+### Automations PR review cycle 1 fixes
+
+#### Feature/Change Name
+Review-cycle hardening for automation scheduler recovery, TOML persistence, artifact indexing scope, execution queue errors, run history listing, worktree locks, audit logs, and dev-server cleanup.
+
+#### Prerequisites/Setup
+1. Use `${WORKTREE_ROOT}`.
+2. Start the app with `pnpm run dev -- --host 0.0.0.0 --port 4173` for manual UI checks.
+3. Use disposable automation records, Kanban tasks, and managed worktrees only.
+4. Ensure light and dark themes are available from Settings.
+
+#### Steps
+1. Run `pnpm exec vitest run src/server/automations/__tests__/scheduler.test.ts src/server/automations/__tests__/nativeStore.test.ts src/server/execution/__tests__/runQueue.test.ts src/server/kanban/__tests__/taskQueue.test.ts src/server/artifacts/__tests__/routes.test.ts src/server/automations/__tests__/schedulerStore.test.ts src/server/execution/__tests__/auditLog.test.ts src/server/workspaces/__tests__/worktreeService.test.ts src/server/kanban/__tests__/worktreeManager.test.ts src/server/workspaces/__tests__/managedWorktreeService.test.ts src/server/kanban/__tests__/taskService.test.ts src/server/kanban/__tests__/routes.test.ts src/server/automations/__tests__/scheduleCalculator.test.ts src/server/automations/__tests__/runStore.test.ts`.
+2. Run `pnpm test:unit`.
+3. Run `pnpm run build`.
+4. Run `git diff --check`.
+5. In light theme, open `http://127.0.0.1:<vite-port>/#/automations` while the initial list is loading and confirm the editor controls are disabled until load settles.
+6. Confirm existing automations, recent runs, and storage details remain readable after load.
+7. Repeat steps 5-6 in dark theme.
+
+#### Expected Results
+- A failed scheduler startup recovery can be retried by a later tick.
+- Multiline TOML values with key-like text do not corrupt known automation fields.
+- Artifact routes do not index ambient automation storage unless automation storage is explicitly configured.
+- Queue duplicate handling uses typed errors instead of message matching.
+- Malformed or invalid worktree locks are isolated instead of breaking all lock scans.
+- Audit writes to the same file remain hash-chained across separate log instances.
+- Vite dev-server shutdown disposes the automation scheduler middleware.
+- Light and dark themes keep the loading-disabled Automations editor readable.
+
+#### Rollback/Cleanup
+- Delete disposable automation records, run folders, Kanban tasks, and worktrees created only for this check.
+- Stop the dev server if it was started only for this test.
+
+---
+
+### Automations PR review cycle 2 fixes
+
+#### Feature/Change Name
+Review-cycle hardening for generated automation IDs, production artifact indexing, run-store scans, scheduler reservation repair, manual-run capacity checks, and portable automation plan commands.
+
+#### Prerequisites/Setup
+1. Use the `feat/automations` worktree.
+2. Reuse an existing compatible dependency install if this worktree does not already have dependencies.
+3. Use disposable automation records and run folders only.
+
+#### Steps
+1. Run `pnpm exec vitest run src/server/automations/__tests__/nativeStore.test.ts src/server/automations/__tests__/runStore.test.ts src/server/automations/__tests__/runner.test.ts src/server/automations/__tests__/scheduler.test.ts`.
+2. Run `pnpm test:unit`.
+3. Run `pnpm run build`.
+4. Run `git diff --check`.
+5. Create two heartbeat automations with the same display name but different thread ids in a disposable Codex home.
+6. Start one manual chat automation run, then attempt a second manual run while the first is active.
+7. Start one manual local automation run for a disposable cwd, then attempt a second manual local run for the same cwd while the first is active.
+
+#### Expected Results
+- Generated native automation ids include thread identity so same-name automations do not collide.
+- Production server artifact indexing has access to the automation artifact provider when the automations API advertises artifact indexing.
+- Limited run listings read timestamp-prefixed run directories in newest-first order before parsing.
+- Scheduler reservation repair checks the specific persisted run id without listing all runs.
+- Manual runs reject global and per-repo active-run limit violations before starting another bridge turn.
+- Automation phase plan commands use portable `pnpm exec vitest` and `$CODEX_HOME`/`$HOME`-based reference paths.
+
+#### Rollback/Cleanup
+- Delete disposable automation records and run folders created only for this check.
+
+### Automations PR review cycle 6 fixes
+
+#### Feature/Change Name
+Pre-persistence automation target validation and RRULE parser guardrails.
+
+#### Prerequisites/Setup
+1. Use the `feat/automations` worktree.
+2. Reuse an existing compatible dependency install if this worktree does not already have dependencies.
+3. Use disposable automation records only.
+
+#### Steps
+1. Run `pnpm exec vitest run src/server/automations/__tests__/routes.test.ts src/server/automations/__tests__/scheduleCalculator.test.ts`.
+2. Run `pnpm test:unit`.
+3. Run `pnpm run build`.
+4. Run `git diff --check`.
+5. Attempt to patch a chat automation to `targetThreadId: null`, then read the same automation.
+6. Evaluate RRULEs with an oversized `INTERVAL` and invalid `BYDAY=__proto__`.
+
+#### Expected Results
+- Invalid target patches fail before `automation.toml` or sidecar state is persisted.
+- The automation remains readable with its previous valid thread/run-target fields after rejected patches.
+- Oversized RRULE intervals and prototype-key `BYDAY` tokens are rejected instead of entering unsafe scheduler calculations.
+
+#### Rollback/Cleanup
+- Delete disposable automation records created only for this check.
+
+---
+
+### Automations PR review cycle 5 fixes
+
+#### Feature/Change Name
+Trusted-access protection for automations read routes.
+
+#### Prerequisites/Setup
+1. Use the `feat/automations` worktree.
+2. Reuse an existing compatible dependency install if this worktree does not already have dependencies.
+3. Use disposable automation records and run folders only.
+
+#### Steps
+1. Run `pnpm exec vitest run src/server/automations/__tests__/routes.test.ts`.
+2. Run `pnpm test:unit`.
+3. Run `pnpm run build`.
+4. Run `git diff --check`.
+5. From an untrusted forwarded address, request `/codex-api/automations/state`, `/templates`, `/`, `/:automationId`, and `/:automationId/runs`.
+6. From trusted loopback or Tailscale access, request the same routes.
+
+#### Expected Results
+- Untrusted clients receive `403` for all automations read routes that expose definitions, prompts, paths, or run metadata.
+- Trusted clients can still read automations state, templates, definitions, and run history.
+- `/codex-api/automations/health` remains a non-sensitive health endpoint.
+
+#### Rollback/Cleanup
+- Delete disposable automation records and run folders created only for this check.
+
+### Automations PR review cycle 3 fixes
+
+#### Feature/Change Name
+Run-store limited listing resilience when malformed newer run directories are present.
+
+#### Prerequisites/Setup
+1. Use the `feat/automations` worktree.
+2. Reuse an existing compatible dependency install if this worktree does not already have dependencies.
+3. Use disposable automation run folders only.
+
+#### Steps
+1. Run `pnpm exec vitest run src/server/automations/__tests__/runStore.test.ts`.
+2. Run `pnpm test:unit`.
+3. Run `pnpm run build`.
+4. Run `git diff --check`.
+5. In a disposable automation run directory, create a newer malformed run folder and at least one older valid run folder.
+6. Call `listRuns({ limit: 1 })`.
+
+#### Expected Results
+- Limited listings sort run directory names newest-first but continue past malformed newer records until the requested number of valid runs is returned or no directories remain.
+- Malformed run directories are ignored without hiding valid older run history.
+
+#### Rollback/Cleanup
+- Delete disposable run folders created only for this check.
+
+---
+
+### Automations PR review cycle 4 fixes
+
+#### Feature/Change Name
+Heartbeat-only automation API safety, PATCH run-target invariants, TOML parser hardening, and correctness-preserving active-run lookup.
+
+#### Prerequisites/Setup
+1. Use the `feat/automations` worktree.
+2. Reuse an existing compatible dependency install if this worktree does not already have dependencies.
+3. Use disposable automation records, cron records, and run folders only.
+
+#### Steps
+1. Run `pnpm exec vitest run src/server/automations/__tests__/nativeStore.test.ts src/server/automations/__tests__/routes.test.ts src/server/automations/__tests__/runner.test.ts src/server/automations/__tests__/runStore.test.ts`.
+2. Run `pnpm test:unit`.
+3. Run `pnpm run build`.
+4. Run `git diff --check`.
+5. Create a disposable `automation.toml` with multiline basic/literal strings, key-like body lines, and trailing comments on scalar fields.
+6. Create a disposable native `kind = "cron"` automation and confirm heartbeat API `GET`, `PATCH`, and `DELETE ?removeNative=true` return 404 without deleting the cron file.
+7. Patch a chat automation to remove `targetThreadId`, patch a chat automation to `runMode: local` without `cwd`, then perform valid chat/local transitions.
+8. Create an older active run and many newer completed runs, then call `listActiveRuns()`.
+
+#### Expected Results
+- TOML parsing preserves multiline known fields and strips trailing comments only outside quoted values.
+- Heartbeat API lookup and mutation paths ignore non-heartbeat native records.
+- PATCH cannot persist chat automations without a thread or local/worktree automations without an absolute cwd.
+- Active-run lookup finds active runs even when they are older than recent completed history.
+
+#### Rollback/Cleanup
+- Delete disposable automation records and run folders created only for this check.
+
+---
+
+### Automations PR review cycle 6 fixes
+
+#### Feature/Change Name
+Review-cycle hardening for automation run-start concurrency, startup recovery ownership, CSRF error codes, worktree lock owner validation, storage errors, and right-sidebar artifact counts.
+
+#### Prerequisites/Setup
+1. Use `${WORKTREE_ROOT}` on `feat/automations`.
+2. Reuse an existing compatible dependency install if this worktree does not already have dependencies.
+3. Use disposable automation records, run folders, and managed worktree locks only.
+
+#### Steps
+1. Run `pnpm exec vitest run src/server/execution/__tests__/runQueue.test.ts src/composables/useThreadWorkspace.test.ts src/api/automationsGateway.test.ts src/server/automations/__tests__/nativeStore.test.ts src/server/automations/__tests__/routes.test.ts src/server/automations/__tests__/runner.test.ts src/server/workspaces/__tests__/worktreeService.test.ts src/server/kanban/__tests__/worktreeManager.test.ts src/server/workspaces/__tests__/managedWorktreeService.test.ts`.
+2. Run `pnpm test:unit`.
+3. Run `pnpm run build`.
+4. Run `git diff --check`.
+5. Start two manual runs for different automations concurrently while the global active-run limit is `1`.
+6. Start an automation run and invoke startup recovery while the same service still owns that active run.
+7. Create an ownerless managed-worktree lock with an automation branch name and list workspace worktrees.
+8. Attempt to read automation storage when `$CODEX_HOME/automations` exists as a file rather than a directory.
+9. Open a thread with proposal artifacts and confirm the top-level Thread badge matches artifact count without adding proposal count again.
+
+#### Expected Results
+- Concurrent cross-automation starts serialize so only one run starts when global capacity is `1`.
+- Startup recovery skips runs owned by the current service instance.
+- Scheduler-start persistence failures after run creation mark the run failed and do not start bridge work.
+- Invalid queue limits throw at construction time.
+- Ownerless non-Kanban worktree locks are skipped instead of being coerced to Kanban.
+- Non-`ENOENT` automation storage read failures surface instead of being reported as empty storage.
+- Structured CSRF error codes drive stale-token refresh without retrying unrelated 403 responses.
+- Thread badge counts no longer double-count proposal artifacts.
+
+#### Observed Results
+- 2026-04-30: Focused Vitest passed with 9 files and 114 tests.
+- 2026-04-30: `pnpm test:unit` passed with 48 files and 403 tests.
+- 2026-04-30: `pnpm run build` passed.
+- 2026-04-30: `git diff --check` passed.
+
+#### Rollback/Cleanup
+- Delete disposable automation records, run folders, and managed worktree lock folders created only for this check.
+
+### Automations PR review cycle 7 fixes
+
+#### Feature/Change Name
+Review-cycle hardening for active-run index writes, stale automation worktree locks, multiline TOML parsing, and completion-response diagnostics.
+
+#### Prerequisites/Setup
+1. Use `${WORKTREE_ROOT}` on `feat/automations`.
+2. Reuse an existing compatible dependency install if this worktree does not already have dependencies.
+3. Use disposable automation records, run folders, and managed worktree locks only.
+
+#### Steps
+1. Run `pnpm exec vitest run src/server/automations/__tests__/runStore.test.ts src/server/automations/__tests__/runner.test.ts src/server/automations/__tests__/nativeStore.test.ts`.
+2. Run `pnpm test:unit`.
+3. Run `pnpm run build`.
+4. Run `git diff --check`.
+5. Start several active runs concurrently for the same automation run store.
+6. Start a worktree-mode automation run, remove its persisted run record, then start the automation again.
+7. Parse an `automation.toml` multiline basic string containing escaped triple quotes before the real closing delimiter.
+8. Complete an automation run when `thread/read` omits the completed turn.
+
+#### Expected Results
+- Concurrent active-run index updates preserve every active run id.
+- Missing persisted run records make existing automation-owned worktree locks inactive so reruns are not blocked forever.
+- Escaped triple quotes inside multiline basic strings do not terminate parsing early.
+- Completion continues to classify the run without falling back to unrelated turns and records a completion warning in the run log/events.
+
+#### Rollback/Cleanup
+- Delete disposable automation records, run folders, and managed worktree lock folders created only for this check.
+
+---
+
+### Automations PR review cycle 8 fixes
+
+#### Feature/Change Name
+Review-cycle hardening for automation completion parsing and route parameter validation.
+
+#### Prerequisites/Setup
+1. Use `${WORKTREE_ROOT}` on `feat/automations`.
+2. Reuse an existing compatible dependency install if this worktree does not already have dependencies.
+3. Use disposable automation records and run folders only.
+
+#### Steps
+1. Run `pnpm exec vitest run src/server/automations/__tests__/runner.test.ts src/server/automations/__tests__/routes.test.ts`.
+2. Run `pnpm test:unit`.
+3. Run `pnpm run build`.
+4. Run `git diff --check`.
+5. Complete an automation run where `thread/read` returns the completed turn with assistant `messages` and nested text content blocks instead of `items`.
+6. Submit route params with empty, traversal-like, and dot-only automation ids.
+
+#### Expected Results
+- Completion parsing extracts assistant output from `messages`, nested message objects, and text/content block arrays without falling back to unrelated turns.
+- Runs with nested assistant findings are classified as `completed_with_findings` and keep the extracted summary.
+- Invalid automation route ids are rejected before service lookup.
+
+#### Rollback/Cleanup
+- Delete disposable automation records and run folders created only for this check.
+
+---
+
+### Automations PR review cycle 9 fixes
+
+#### Feature/Change Name
+Review-cycle hardening for automation runner ownership cleanup and notification subscription disposal.
+
+#### Prerequisites/Setup
+1. Use `${WORKTREE_ROOT}` on `feat/automations`.
+2. Reuse an existing compatible dependency install if this worktree does not already have dependencies.
+3. Use disposable automation records and run folders only.
+
+#### Steps
+1. Run `pnpm exec vitest run src/server/automations/__tests__/runner.test.ts`.
+2. Run `pnpm test:unit`.
+3. Run `pnpm run build`.
+4. Run `git diff --check`.
+5. Start an automation run that fails during `turn/start`, then remove its persisted run record before failure persistence runs.
+6. Construct and dispose an automation service backed by a bridge notification subscription.
+
+#### Expected Results
+- Startup failure still reports the original run failure when failed-run persistence also fails.
+- In-memory active-run ownership is released in all startup and completion terminal paths even when persistence throws.
+- Disposing the automation service unsubscribes the runner from bridge notifications.
+
+#### Rollback/Cleanup
+- Delete disposable automation records and run folders created only for this check.
+
+---
+
+### Automations PR review cycle 10 fixes
+
+#### Feature/Change Name
+Review-cycle hardening for stale manual-run recovery, middleware teardown, service-level cwd validation, and multiline TOML comments.
+
+#### Prerequisites/Setup
+1. Use `${WORKTREE_ROOT}` on `feat/automations`.
+2. Reuse an existing compatible dependency install if this worktree does not already have dependencies.
+3. Use disposable automation records and run folders only.
+
+#### Steps
+1. Run `pnpm exec vitest run src/server/automations/__tests__/nativeStore.test.ts src/server/automations/__tests__/runner.test.ts src/server/automations/__tests__/routes.test.ts`.
+2. Run `pnpm test:unit`.
+3. Run `pnpm run build`.
+4. Run `git diff --check`.
+5. Start one automation run, recreate the automation service without scheduler startup recovery, then start a second automation while the global active-run limit is `1`.
+6. Construct automation middleware with a bridge, dispose the middleware, and verify the bridge notification subscription is unsubscribed.
+7. Parse multiline basic TOML where escaped triple quotes are followed by `#` text inside the body and a real trailing comment after the closing delimiter.
+8. Attempt to save or run local/worktree automations whose effective `cwd` is missing or relative.
+
+#### Expected Results
+- Manual starts recover stale active runs from other automations before global-capacity checks when startup recovery has not run.
+- Same-automation orphan recovery keeps its manual-run recovery path and diagnostics.
+- Middleware teardown stops the scheduler and disposes the automation service subscription.
+- Escaped triple quotes inside multiline TOML do not make following `#` body text look like a comment.
+- Local and worktree automation targets require an absolute `cwd` at the service boundary.
+
+#### Rollback/Cleanup
+- Delete disposable automation records and run folders created only for this check.
+
+---
+
+### Automations PR review cycle 11 fixes
+
+#### Feature/Change Name
+Review-cycle hardening for active-run index crash recovery, stale lock reclamation, and typed Kanban queue errors.
+
+#### Prerequisites/Setup
+1. Use `${WORKTREE_ROOT}` on `feat/automations`.
+2. Reuse an existing compatible dependency install if this worktree does not already have dependencies.
+3. Use disposable automation directories and run records only.
+
+#### Steps
+1. Run `pnpm exec vitest run src/server/automations/__tests__/runStore.test.ts src/server/kanban/__tests__/taskQueue.test.ts`.
+2. Run `pnpm test:unit`.
+3. Run `pnpm run build`.
+4. Run `git diff --check`.
+5. Create a running automation `run.json` manually while `.active-runs.json` exists as an empty array, then list active runs.
+6. Create a `.active-runs.json.lock/owner.json` with a dead PID, then create a new active run.
+7. Enqueue duplicate Kanban runs and duplicate queued tasks and inspect the thrown error classes and messages.
+
+#### Expected Results
+- Empty active-run indexes do not hide persisted active runs after a crash between run creation and index sync.
+- Listing active runs repairs an empty index by scanning persisted run directories.
+- Dead-owner active-run index locks are reclaimed before new active-run writes time out.
+- Kanban duplicate run/task cases throw typed errors while preserving legacy error messages.
+
+#### Rollback/Cleanup
+- Delete disposable automation directories, run records, and lock directories created only for this check.
+
+---
+
+### Automations PR review cycle 12 fixes
+
+#### Feature/Change Name
+Review-cycle hardening for middleware service ownership, storage error propagation, nested completion notifications, and same-automation recovery.
+
+#### Prerequisites/Setup
+1. Use `${WORKTREE_ROOT}` on `feat/automations`.
+2. Reuse an existing compatible dependency install if this worktree does not already have dependencies.
+3. Use disposable automation directories and run records only.
+
+#### Steps
+1. Run `pnpm exec vitest run src/server/automations/__tests__/nativeStore.test.ts src/server/automations/__tests__/runStore.test.ts src/server/automations/__tests__/runner.test.ts src/server/automations/__tests__/routes.test.ts`.
+2. Run `pnpm test:unit`.
+3. Run `pnpm run build`.
+4. Run `git diff --check`.
+5. Create middleware with a caller-owned `AutomationsService`, dispose the middleware, and then dispose the service explicitly.
+6. Create a listed automation directory whose `automation.toml` path is unreadable and list native automation entries.
+7. Create an automation `runs` path that is not a directory and list runs.
+8. Complete a run with notification payload `{ thread: { threadId }, turn: { id } }`.
+9. Restart the service after a scheduled run remains active for the same automation, then start a manual run.
+
+#### Expected Results
+- Middleware teardown does not dispose caller-owned automation services.
+- Non-missing `automation.toml` and `runs` filesystem failures are surfaced instead of being reported as invalid or empty storage.
+- Nested thread IDs in completion notifications match active runs and allow completion.
+- Same-automation stale scheduled runs recover before manual starts when startup recovery has not run.
+
+#### Rollback/Cleanup
+- Delete disposable automation directories and run records created only for this check.
+
+---
+
+### Automations PR review cycle 13 fixes
+
+#### Feature/Change Name
+Review-cycle performance hardening for turn-completion lookup and scheduler definition mapping.
+
+#### Prerequisites/Setup
+1. Use `${WORKTREE_ROOT}` on `feat/automations`.
+2. Reuse an existing compatible dependency install if this worktree does not already have dependencies.
+3. Use disposable automation directories and run records only.
+
+#### Steps
+1. Run `pnpm exec vitest run src/server/automations/__tests__/runner.test.ts src/server/automations/__tests__/scheduler.test.ts`.
+2. Run `pnpm test:unit`.
+3. Run `pnpm run build`.
+4. Run `git diff --check`.
+5. Start a chat automation run, create an unrelated broken automation directory, then send a `turn/completed` notification for an unrelated thread and turn.
+6. Create a scheduler-ready automation whose `runs` path is not a directory, then call `listSchedulerEntries()`.
+
+#### Expected Results
+- Unrelated turn-completion notifications are ignored through the in-memory active-run index without scanning native automation storage or warning.
+- Matching automation turn completions still read the indexed run and mark it terminal.
+- Scheduler entry listing does not read recent run history and returns definitions with empty `recentRuns` and `lastRunAtIso: null`.
+- API definition and state reads continue to include recent run history.
+
+#### Rollback/Cleanup
+- Delete disposable automation directories and run records created only for this check.
+
+---
+
+### Automations PR review cycle 14 fixes
+
+#### Feature/Change Name
+Review-cycle diagnostics for malformed managed worktree lock files.
+
+#### Prerequisites/Setup
+1. Use `${WORKTREE_ROOT}` on `feat/automations`.
+2. Reuse an existing compatible dependency install if this worktree does not already have dependencies.
+3. Use disposable Git repositories, Kanban data directories, and managed worktree lock files only.
+
+#### Steps
+1. Run `pnpm exec vitest run src/server/kanban/__tests__/worktreeManager.test.ts src/server/workspaces/__tests__/worktreeService.test.ts src/server/workspaces/__tests__/managedWorktreeService.test.ts`.
+2. Run `pnpm test:unit`.
+3. Run `pnpm run build`.
+4. Run `git diff --check`.
+5. Create a managed worktree lock file containing malformed JSON, then invoke Kanban worktree creation.
+6. Create a malformed shared workspace worktree lock, then invoke workspace worktree listing.
+7. Create a malformed automation-managed worktree lock, then invoke automation managed-worktree creation.
+
+#### Expected Results
+- Malformed lock JSON remains skipped so existing recovery paths continue, but each skipped malformed lock emits a warning containing the lock path.
+- Missing lock files and intentionally invalid owner metadata continue to be skipped without noisy warnings.
+- Kanban, workspace, and automation managed-worktree readers all use the same observable malformed-lock behavior.
+
+#### Rollback/Cleanup
+- Delete disposable repositories, worktrees, and data directories created only for this check.
+
+---
+
+### Automations PR review cycle 15 fixes
+
+#### Feature/Change Name
+Review-cycle hardening for sidecar read errors and persisted run record normalization.
+
+#### Prerequisites/Setup
+1. Use `${WORKTREE_ROOT}` on `feat/automations`.
+2. Reuse an existing compatible dependency install if this worktree does not already have dependencies.
+3. Use disposable automation directories, sidecar files, and run records only.
+
+#### Steps
+1. Run `pnpm exec vitest run src/server/automations/__tests__/runStore.test.ts src/server/automations/__tests__/runner.test.ts`.
+2. Run `pnpm test:unit`.
+3. Run `pnpm run build`.
+4. Run `git diff --check`.
+5. Replace an automation `codexui.json` sidecar with a directory and read the definition.
+6. Replace an automation `codexui.json` sidecar with a directory, complete a running automation turn, and inspect the completion warning.
+7. Create a run directory whose `run.json` path is a directory, then call `listRuns()` and `hasRun()`.
+8. Create a persisted run whose `threadId` and `turnId` are non-string values, then read the run.
+
+#### Expected Results
+- Missing or invalid JSON sidecars still fall back to defaults, but non-missing sidecar filesystem errors propagate instead of being collapsed into defaults.
+- Projection-sidecar read faults during completion surface through the bridge notification warning path.
+- Run listings skip only missing or malformed run records and propagate other filesystem read errors.
+- `hasRun()` returns `false` only for missing run files and propagates other read failures.
+- Persisted malformed `threadId` and `turnId` values normalize to `null`.
+
+#### Rollback/Cleanup
+- Delete disposable automation directories and run records created only for this check.
+
+---
+
+### Automations PR review cycle 16 fixes
+
+#### Feature/Change Name
+Review-cycle hardening for fast turn-completion notifications.
+
+#### Prerequisites/Setup
+1. Use `${WORKTREE_ROOT}` on `feat/automations`.
+2. Reuse an existing compatible dependency install if this worktree does not already have dependencies.
+3. Use disposable automation directories and run records only.
+
+#### Steps
+1. Run `pnpm exec vitest run src/server/automations/__tests__/runner.test.ts`.
+2. Run `pnpm test:unit`.
+3. Run `pnpm run build`.
+4. Run `git diff --check`.
+5. Start a chat automation run and deliver a matching `turn/completed` notification immediately after `turn/start` returns while run-state persistence is still catching up.
+
+#### Expected Results
+- The runner indexes the started turn before awaiting persistence that marks the run as `running`.
+- Completion handling waits for the running record to be durable before reading and completing the run.
+- The fast completion notification is not dropped, the run becomes `completed_no_findings`, and later runs for the automation are not blocked.
+
+#### Rollback/Cleanup
+- Delete disposable automation directories and run records created only for this check.
+
+---
+
+### Automations PR review cycle 17 fixes
+
+#### Feature/Change Name
+Review-cycle policy gating for automations execution feature flags and scheduler startup.
+
+#### Prerequisites/Setup
+1. Use `${WORKTREE_ROOT}` on `feat/automations`.
+2. Reuse an existing compatible dependency install if this worktree does not already have dependencies.
+3. Use disposable HTTP server instances and automation storage only.
+
+#### Steps
+1. Run `pnpm exec vitest run src/server/automations/__tests__/routes.test.ts`.
+2. Run `pnpm test:unit`.
+3. Run `pnpm run build`.
+4. Run `git diff --check`.
+5. Start the shared server with default execution policy and request `/codex-api/automations/state`.
+6. Start the shared server with `CODEXUI_KANBAN_EXECUTION_ENABLED=1` and verify the scheduler interval is created and disposed.
+7. Start automations middleware with a disabled execution policy, bridge, and scheduler request, then request `/codex-api/automations/state`.
+
+#### Expected Results
+- Default shared-server state reports `featureFlags.manualRun: false` and `featureFlags.scheduler: false` when execution policy is disabled.
+- The production scheduler interval is not started while execution is disabled.
+- With execution explicitly enabled, scheduler startup and disposal still work.
+- A disabled execution policy suppresses manual-run and scheduler feature flags even when a bridge and scheduler request are provided.
+
+#### Rollback/Cleanup
+- Stop disposable servers and delete automation storage created only for this check.
+
+---
+
+### Automations PR review cycle 19 fixes
+
+#### Feature/Change Name
+Review-cycle active-run index empty-state performance fix.
+
+#### Prerequisites/Setup
+1. Use `${WORKTREE_ROOT}` on `feat/automations`.
+2. Reuse an existing compatible dependency install if this worktree does not already have dependencies.
+3. Use disposable automation run storage only.
+
+#### Steps
+1. Run `pnpm exec vitest run src/server/automations/__tests__/runStore.test.ts`.
+2. Run `pnpm test:unit`.
+3. Run `pnpm run build`.
+4. Run `git diff --check`.
+5. Create an automation run directory with a stale active run, write `.active-runs.json` as an empty array, then call `listActiveRuns()`.
+
+#### Expected Results
+- `listActiveRuns()` treats an existing empty active-run index as authoritative and returns an empty list.
+- The call does not scan historical run directories or rewrite the empty active-run index.
+- Missing or malformed active-run indexes still use the existing recovery scan path.
+
+#### Rollback/Cleanup
+- Delete disposable automation run storage created only for this check.
+
+---
+
+### Automations PR review cycle 20 fixes
+
+#### Feature/Change Name
+Review-cycle scheduler feature flag consistency for caller-owned services.
+
+#### Prerequisites/Setup
+1. Use `${WORKTREE_ROOT}` on `feat/automations`.
+2. Reuse an existing compatible dependency install if this worktree does not already have dependencies.
+3. Use disposable automations middleware instances and fake timers only.
+
+#### Steps
+1. Run `pnpm exec vitest run src/server/automations/__tests__/routes.test.ts`.
+2. Run `pnpm test:unit`.
+3. Run `pnpm run build`.
+4. Run `git diff --check`.
+5. Create a caller-owned `AutomationsService` with a bridge and execution enabled, then mount middleware with `enableScheduler: true` but no separate bridge option.
+6. Create a caller-owned `AutomationsService` without a bridge, then mount middleware with `enableScheduler: true` and inspect `/codex-api/automations/state`.
+
+#### Expected Results
+- Runnable caller-owned services start and stop the scheduler interval even when the middleware bridge option is omitted.
+- Services without a runner report `featureFlags.scheduler: false` and `featureFlags.manualRun: false`.
+- Middleware teardown still does not dispose caller-owned service bridge subscriptions.
+
+#### Rollback/Cleanup
+- Dispose middleware and caller-owned services created only for this check.

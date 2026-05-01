@@ -64,71 +64,26 @@ export class KanbanTaskService {
   }
 
   async createTask(input: CreateKanbanTaskInput): Promise<KanbanTask> {
-    const nowIso = new Date().toISOString()
     let createdTask: KanbanTask | null = null
     await this.storage.mutate((state) => {
-      const board = Object.values(state.boards)[0]
-      if (!board) throw new Error('Kanban board is missing')
-      const defaultStatus = state.settings.kanbanConfig.defaults.status
-      const defaultPriority = state.settings.kanbanConfig.defaults.priority
-      const runProfiles = state.settings.kanbanConfig.runProfiles
-      const runProfileId = input.runProfileId?.trim() || state.settings.kanbanConfig.defaultRunProfileId
-      assertKnownKanbanRunProfile(runProfileId, runProfiles)
-      const taskId = createKanbanId('task')
-      const nextColumnOrder = Object.values(state.tasks)
-        .filter((task) => task.status === defaultStatus && !task.archived)
-        .reduce((nextOrder, task) => Math.max(nextOrder, task.columnOrder + 1), 0)
-      createdTask = {
-        id: taskId,
-        boardId: board.id,
-        title: input.title.trim(),
-        description: input.description?.trim() ?? '',
-        status: defaultStatus,
-        priority: input.priority ?? defaultPriority,
-        runState: 'idle',
-        labels: input.labels ?? [],
-        acceptanceCriteria: (input.acceptanceCriteria ?? []).map((criterion) => ({
-          id: createKanbanId('criterion'),
-          text: criterion.text.trim(),
-          checked: criterion.checked === true,
-          createdAtIso: nowIso,
-          updatedAtIso: nowIso,
-        })),
-        projectRoot: this.projectRoot,
-        cwd: this.projectRoot,
-        baseBranch: '',
-        branchName: '',
-        worktreeId: '',
-        worktreePath: '',
-        codexThreadId: '',
-        createdBy: 'operator',
-        sourceSessionKey: '',
-        assignee: input.assignee ?? 'codex:auto',
-        columnOrder: nextColumnOrder,
-        currentRunId: '',
-        runIds: [],
-        reviewPacketId: '',
-        proposalIds: [],
-        result: '',
-        resultAtIso: '',
-        model: input.model?.trim() ?? '',
-        thinking: input.thinking ?? 'medium',
-        runProfileId,
-        dueAtIso: input.dueAtIso ?? '',
-        estimateMinutes: input.estimateMinutes ?? null,
-        actualMinutes: input.actualMinutes ?? null,
-        feedback: [],
-        blockedReason: input.blockedReason?.trim() ?? '',
-        errorMessage: '',
-        archived: false,
-        createdAtIso: nowIso,
-        updatedAtIso: nowIso,
-        version: 1,
-      }
-      state.tasks[taskId] = createdTask
+      createdTask = createTaskInState(state, input, this.projectRoot, new Date().toISOString())
     })
     if (!createdTask) throw new Error('Failed to create Kanban task')
     return createdTask
+  }
+
+  async createTaskIfNoActiveLabel(labelName: string, input: CreateKanbanTaskInput): Promise<KanbanTask> {
+    const normalizedLabelName = labelName.trim()
+    if (!normalizedLabelName) throw new Error('labelName is required')
+    let task: KanbanTask | null = null
+    await this.storage.mutate((state) => {
+      const existing = Object.values(state.tasks).find((candidate) => (
+        !candidate.archived && candidate.labels.some((label) => label.name === normalizedLabelName)
+      ))
+      task = existing ?? createTaskInState(state, ensureTaskLabel(input, normalizedLabelName), this.projectRoot, new Date().toISOString())
+    })
+    if (!task) throw new Error('Failed to create or find Kanban task')
+    return task
   }
 
   async listTasks(query: KanbanTaskListQuery): Promise<KanbanTaskListResult> {
@@ -333,6 +288,86 @@ function readExistingTask(tasks: Record<string, KanbanTask>, taskId: string): Ka
   const task = tasks[taskId]
   if (!task) throw new KanbanNotFoundError('Kanban task not found')
   return task
+}
+
+function createTaskInState(
+  state: KanbanStateFileV1,
+  input: CreateKanbanTaskInput,
+  projectRoot: string,
+  nowIso: string,
+): KanbanTask {
+  const board = Object.values(state.boards)[0]
+  if (!board) throw new Error('Kanban board is missing')
+  const defaultStatus = state.settings.kanbanConfig.defaults.status
+  const defaultPriority = state.settings.kanbanConfig.defaults.priority
+  const runProfiles = state.settings.kanbanConfig.runProfiles
+  const runProfileId = input.runProfileId?.trim() || state.settings.kanbanConfig.defaultRunProfileId
+  assertKnownKanbanRunProfile(runProfileId, runProfiles)
+  const taskId = createKanbanId('task')
+  const nextColumnOrder = Object.values(state.tasks)
+    .filter((task) => task.status === defaultStatus && !task.archived)
+    .reduce((nextOrder, task) => Math.max(nextOrder, task.columnOrder + 1), 0)
+  const task: KanbanTask = {
+    id: taskId,
+    boardId: board.id,
+    title: input.title.trim(),
+    description: input.description?.trim() ?? '',
+    status: defaultStatus,
+    priority: input.priority ?? defaultPriority,
+    runState: 'idle',
+    labels: input.labels ?? [],
+    acceptanceCriteria: (input.acceptanceCriteria ?? []).map((criterion) => ({
+      id: createKanbanId('criterion'),
+      text: criterion.text.trim(),
+      checked: criterion.checked === true,
+      createdAtIso: nowIso,
+      updatedAtIso: nowIso,
+    })),
+    projectRoot,
+    cwd: projectRoot,
+    baseBranch: '',
+    branchName: '',
+    worktreeId: '',
+    worktreePath: '',
+    codexThreadId: '',
+    createdBy: 'operator',
+    sourceSessionKey: '',
+    assignee: input.assignee ?? 'codex:auto',
+    columnOrder: nextColumnOrder,
+    currentRunId: '',
+    runIds: [],
+    reviewPacketId: '',
+    proposalIds: [],
+    result: '',
+    resultAtIso: '',
+    model: input.model?.trim() ?? '',
+    thinking: input.thinking ?? 'medium',
+    runProfileId,
+    dueAtIso: input.dueAtIso ?? '',
+    estimateMinutes: input.estimateMinutes ?? null,
+    actualMinutes: input.actualMinutes ?? null,
+    feedback: [],
+    blockedReason: input.blockedReason?.trim() ?? '',
+    errorMessage: '',
+    archived: false,
+    createdAtIso: nowIso,
+    updatedAtIso: nowIso,
+    version: 1,
+  }
+  state.tasks[taskId] = task
+  return task
+}
+
+function ensureTaskLabel(input: CreateKanbanTaskInput, labelName: string): CreateKanbanTaskInput {
+  const labels = input.labels ?? []
+  if (labels.some((label) => label.name === labelName)) return input
+  return {
+    ...input,
+    labels: [
+      ...labels,
+      { id: createKanbanId('label'), name: labelName, color: '#64748b' },
+    ],
+  }
 }
 
 function createValidatedKanbanConfig(currentConfig: KanbanBoardConfig, input: UpdateKanbanBoardConfigInput): KanbanBoardConfig {

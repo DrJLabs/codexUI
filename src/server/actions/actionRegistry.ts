@@ -1,6 +1,6 @@
 import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import type { CodexRunProfile } from '../../types/kanban'
+import type { CodexRunProfile } from '../../types/execution'
 import type { LocalActionCommand, LocalActionKind, LocalActionPolicy } from '../../types/localActions'
 
 const ACTION_SCRIPT_NAMES: Record<LocalActionKind, string[]> = {

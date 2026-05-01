@@ -67,6 +67,10 @@ afterEach(async () => {
 })
 
 describe('createKanbanMiddleware', () => {
+  it('rejects taskService injection without matching storage', () => {
+    expect(() => createKanbanMiddleware({ taskService: {} as never })).toThrow('taskService injection requires matching storage')
+  })
+
   it('serves health and initial state under /codex-api/kanban', async () => {
     const { baseUrl } = await createTestServer()
 

@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto'
-import type { CodexRunProfile, KanbanReviewPacket } from '../../types/kanban'
+import type { CodexRunProfile } from '../../types/execution'
+import type { KanbanReviewPacket } from '../../types/kanban'
 
 export type ReviewPacketFreshnessReason =
   | 'missing_worktree_path'

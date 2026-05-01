@@ -3,11 +3,15 @@ import { access, readFile, readdir, writeFile } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import { promisify } from 'node:util'
 import type { WorkspaceWorktree, WorkspaceWorktreeStatus } from '../../types/worktree'
-import type { ManagedWorktreeLock } from '../kanban/worktreeManager'
-import { projectHash } from '../kanban/paths'
+import {
+  MANAGED_WORKTREE_LOCK_FILENAME,
+  normalizeManagedWorktreeLock,
+  resolveManagedWorktreeRoot,
+  type LegacyManagedWorktreeLock,
+  type ManagedWorktreeLock,
+} from './worktreeLocks'
 
 const execFileAsync = promisify(execFile)
-const LOCK_FILENAME = 'codexui-kanban-worktree.json'
 
 export class WorkspaceWorktreeService {
   private readonly dataDir: string
@@ -60,11 +64,16 @@ export class WorkspaceWorktreeService {
     }
     const locks: ManagedWorktreeLock[] = []
     for (const entry of entries) {
-      const lockPath = join(root, entry, LOCK_FILENAME)
+      const lockPath = join(root, entry, MANAGED_WORKTREE_LOCK_FILENAME)
       try {
-        locks.push(JSON.parse(await readFile(lockPath, 'utf8')) as ManagedWorktreeLock)
+        locks.push(normalizeManagedWorktreeLock(JSON.parse(await readFile(lockPath, 'utf8')) as LegacyManagedWorktreeLock))
       } catch (error) {
         if (isMissingFileError(error)) continue
+        if (error instanceof SyntaxError) {
+          console.warn(`Skipping malformed workspace worktree lock at ${lockPath}:`, error)
+          continue
+        }
+        if (isInvalidManagedWorktreeOwnerError(error)) continue
         throw error
       }
     }
@@ -82,6 +91,7 @@ export class WorkspaceWorktreeService {
     const status = resolveStatus(lock.status, { missing, dirty, stale })
     return {
       taskId: lock.taskId,
+      owner: lock.owner,
       runId: lock.runId,
       branchName: lock.branchName,
       baseRef: lock.baseRef,
@@ -99,6 +109,13 @@ export class WorkspaceWorktreeService {
       cleanupConfirmation: `remove ${lock.runId}`,
     }
   }
+}
+
+function isInvalidManagedWorktreeOwnerError(error: unknown): boolean {
+  return error instanceof Error && (
+    error.message === 'Invalid managed worktree owner' ||
+    error.message === 'Missing managed worktree owner'
+  )
 }
 
 function resolveStatus(lockStatus: ManagedWorktreeLock['status'], checks: { missing: boolean; dirty: boolean; stale: boolean }): WorkspaceWorktreeStatus {
@@ -135,8 +152,4 @@ function isMissingFileError(error: unknown): boolean {
 async function runGit(cwd: string, args: string[]): Promise<string> {
   const { stdout } = await execFileAsync('git', args, { cwd })
   return stdout
-}
-
-function resolveManagedWorktreeRoot(dataDir: string, projectRoot: string): string {
-  return join(resolve(dataDir), 'worktrees', projectHash(projectRoot))
 }

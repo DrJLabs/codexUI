@@ -1,8 +1,21 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import {
+  ExecutionRunQueue,
+  ExecutionRunQueueDuplicateOwnerError,
+  ExecutionRunQueueDuplicateRunError,
+} from '../../execution/runQueue'
 import { classifyRecoveredRunState, classifyStartupRecovery } from '../recoveryService'
-import { KanbanTaskQueue } from '../taskQueue'
+import {
+  KanbanDuplicateRunError,
+  KanbanDuplicateTaskError,
+  KanbanTaskQueue,
+} from '../taskQueue'
 
 describe('KanbanTaskQueue', () => {
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
   it('keeps one global active run and promotes the next eligible item on completion', () => {
     const queue = new KanbanTaskQueue()
 
@@ -44,6 +57,61 @@ describe('KanbanTaskQueue', () => {
     expect(() => queue.enqueue({ runId: 'run_3', taskId: 'task_2', repoRoot: '/repo/b' }))
       .toThrow('Kanban task task_2 already has a queued run')
     expect(queue.getQueuedRunIds()).toEqual(['run_2'])
+  })
+
+  it('throws typed Kanban duplicate errors while preserving legacy messages', () => {
+    const queue = new KanbanTaskQueue({ maxGlobalActiveRuns: 1 })
+
+    queue.enqueue({ runId: 'run_1', taskId: 'task_1', repoRoot: '/repo/a' })
+    queue.enqueue({ runId: 'run_2', taskId: 'task_2', repoRoot: '/repo/b' })
+
+    let duplicateRunError: unknown
+    try {
+      queue.enqueue({ runId: 'run_2', taskId: 'task_3', repoRoot: '/repo/c' })
+    } catch (error) {
+      duplicateRunError = error
+    }
+    let duplicateTaskError: unknown
+    try {
+      queue.enqueue({ runId: 'run_3', taskId: 'task_2', repoRoot: '/repo/c' })
+    } catch (error) {
+      duplicateTaskError = error
+    }
+
+    expect(duplicateRunError).toBeInstanceOf(KanbanDuplicateRunError)
+    expect(duplicateRunError).toMatchObject({ runId: 'run_2', message: 'Kanban run run_2 is already queued' })
+    expect(duplicateTaskError).toBeInstanceOf(KanbanDuplicateTaskError)
+    expect(duplicateTaskError).toMatchObject({ taskId: 'task_2', message: 'Kanban task task_2 already has a queued run' })
+  })
+
+  it('preserves duplicate queued task wording', () => {
+    const queue = new KanbanTaskQueue({ maxGlobalActiveRuns: 1 })
+
+    queue.enqueue({ runId: 'run_1', taskId: 'task_1', repoRoot: '/repo/a' })
+    queue.enqueue({ runId: 'run_2', taskId: 'task_2', repoRoot: '/repo/b' })
+
+    expect(() => queue.enqueue({ runId: 'run_3', taskId: 'task_2', repoRoot: '/repo/c' }))
+      .toThrow('Kanban task task_2 already has a queued run')
+  })
+
+  it('maps duplicate run errors by type instead of execution message text', () => {
+    vi.spyOn(ExecutionRunQueue.prototype, 'enqueue').mockImplementationOnce(() => {
+      throw new ExecutionRunQueueDuplicateRunError('run_1', 'Execution duplicate run wording changed')
+    })
+    const queue = new KanbanTaskQueue()
+
+    expect(() => queue.enqueue({ runId: 'run_1', taskId: 'task_1', repoRoot: '/repo/a' }))
+      .toThrow('Kanban run run_1 is already queued')
+  })
+
+  it('maps duplicate owner errors by type instead of execution message text', () => {
+    vi.spyOn(ExecutionRunQueue.prototype, 'enqueue').mockImplementationOnce(() => {
+      throw new ExecutionRunQueueDuplicateOwnerError('kanban:task:task_1', 'Execution duplicate owner wording changed')
+    })
+    const queue = new KanbanTaskQueue()
+
+    expect(() => queue.enqueue({ runId: 'run_1', taskId: 'task_1', repoRoot: '/repo/a' }))
+      .toThrow('Kanban task task_1 already has a queued run')
   })
 })
 

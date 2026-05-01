@@ -27,7 +27,7 @@ describe('useThreadWorkspace', () => {
       threadId: ref('thread_1'),
       artifacts: computed(() => [baseArtifact, runArtifact]),
       proposalCount: ref(2),
-      activeWorktreeCount: ref(1),
+      activeWorktreeCount: ref(3),
       availableActionCount: ref(3),
     })
 
@@ -56,7 +56,7 @@ describe('useThreadWorkspace', () => {
       deferred: false,
     })
     expect(model.value.sections.find((section) => section.id === 'worktrees')).toMatchObject({
-      count: 1,
+      count: 3,
       enabled: true,
     })
     expect(model.value.threadArtifactSections.find((section) => section.id === 'evidence')).toMatchObject({

@@ -577,7 +577,7 @@ function normalizeWorkspaceArtifactKind(value: unknown): WorkspaceArtifactKind |
 }
 
 function normalizeWorkspaceArtifactSource(value: unknown): WorkspaceArtifactSource | null {
-  return value === 'thread' || value === 'kanban' ? value : null
+  return value === 'thread' || value === 'kanban' || value === 'automation' ? value : null
 }
 
 function normalizeWorkspaceArtifacts(value: unknown): WorkspaceArtifact[] {
@@ -2270,6 +2270,7 @@ export async function listWorkspaceArtifacts(query: WorkspaceArtifactQuery = {})
   if (query.source) params.set('source', query.source)
   if (query.kind) params.set('kind', query.kind)
   if (query.taskId) params.set('taskId', query.taskId)
+  if (query.automationId) params.set('automationId', query.automationId)
   if (query.runId) params.set('runId', query.runId)
   if (query.threadId) params.set('threadId', query.threadId)
   const suffix = params.toString()

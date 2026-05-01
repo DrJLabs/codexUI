@@ -1,3 +1,12 @@
+import {
+  ExecutionRunQueue,
+  ExecutionRunQueueDuplicateOwnerError,
+  ExecutionRunQueueDuplicateRunError,
+  type ExecutionRunQueueItem,
+  type ExecutionRunQueueLimitReason,
+  type ExecutionRunQueueLimits,
+} from '../execution/runQueue'
+
 export type KanbanTaskQueueItem = {
   runId: string
   taskId: string
@@ -14,88 +23,111 @@ export type KanbanTaskQueueEnqueueResult =
   | { state: 'active'; item: KanbanTaskQueueItem }
   | { state: 'queued'; reason: 'global_limit' | 'repo_limit' | 'task_limit'; item: KanbanTaskQueueItem }
 
-const DEFAULT_LIMITS: KanbanTaskQueueLimits = {
-  maxGlobalActiveRuns: 1,
-  maxActiveRunsPerRepo: 1,
-  maxActiveRunsPerTask: 1,
+const KANBAN_TASK_OWNER_PREFIX = 'kanban:task:'
+
+export class KanbanDuplicateRunError extends Error {
+  readonly runId: string
+
+  constructor(runId: string, message = `Kanban run ${runId} is already queued`) {
+    super(message)
+    this.name = 'KanbanDuplicateRunError'
+    this.runId = runId
+  }
+}
+
+export class KanbanDuplicateTaskError extends Error {
+  readonly taskId: string
+
+  constructor(taskId: string, message = `Kanban task ${taskId} already has a queued run`) {
+    super(message)
+    this.name = 'KanbanDuplicateTaskError'
+    this.taskId = taskId
+  }
 }
 
 export class KanbanTaskQueue {
-  private readonly limits: KanbanTaskQueueLimits
-  private readonly active = new Map<string, KanbanTaskQueueItem>()
-  private readonly queued: KanbanTaskQueueItem[] = []
+  private readonly queue: ExecutionRunQueue
 
   constructor(limits: Partial<KanbanTaskQueueLimits> = {}) {
-    this.limits = { ...DEFAULT_LIMITS, ...limits }
+    this.queue = new ExecutionRunQueue(toExecutionLimits(limits))
   }
 
   enqueue(item: KanbanTaskQueueItem): KanbanTaskQueueEnqueueResult {
-    this.assertUniqueRun(item.runId)
-    this.assertNoDuplicateQueuedTask(item.taskId)
-    const blockReason = this.getBlockReason(item)
-    if (!blockReason) {
-      this.active.set(item.runId, item)
-      return { state: 'active', item }
+    try {
+      const result = this.queue.enqueue(toExecutionItem(item))
+      if (result.state === 'active') {
+        return { state: 'active', item: toKanbanItem(result.item) }
+      }
+      return { state: 'queued', reason: toKanbanReason(result.reason), item: toKanbanItem(result.item) }
+    } catch (error) {
+      throw toKanbanQueueError(error, item)
     }
-    this.queued.push(item)
-    return { state: 'queued', reason: blockReason, item }
   }
 
   complete(runId: string): KanbanTaskQueueItem[] {
-    this.active.delete(runId)
-    return this.promoteEligible()
+    return this.queue.complete(runId).map(toKanbanItem)
   }
 
   cancel(runId: string): KanbanTaskQueueItem[] {
-    this.active.delete(runId)
-    const queuedIndex = this.queued.findIndex((item) => item.runId === runId)
-    if (queuedIndex >= 0) {
-      this.queued.splice(queuedIndex, 1)
-    }
-    return this.promoteEligible()
+    return this.queue.cancel(runId).map(toKanbanItem)
   }
 
   getActiveRunIds(): string[] {
-    return Array.from(this.active.keys())
+    return this.queue.getActiveRunIds()
   }
 
   getQueuedRunIds(): string[] {
-    return this.queued.map((item) => item.runId)
+    return this.queue.getQueuedRunIds()
   }
+}
 
-  private promoteEligible(): KanbanTaskQueueItem[] {
-    const promoted: KanbanTaskQueueItem[] = []
-    let index = 0
-    while (index < this.queued.length) {
-      const item = this.queued[index]
-      if (!item || this.getBlockReason(item)) {
-        index += 1
-        continue
-      }
-      this.queued.splice(index, 1)
-      this.active.set(item.runId, item)
-      promoted.push(item)
-    }
-    return promoted
+function toExecutionLimits(limits: Partial<KanbanTaskQueueLimits>): Partial<ExecutionRunQueueLimits> {
+  return {
+    maxGlobalActiveRuns: limits.maxGlobalActiveRuns,
+    maxActiveRunsPerRepo: limits.maxActiveRunsPerRepo,
+    maxActiveRunsPerOwner: limits.maxActiveRunsPerTask,
   }
+}
 
-  private getBlockReason(item: KanbanTaskQueueItem): 'global_limit' | 'repo_limit' | 'task_limit' | null {
-    const activeItems = Array.from(this.active.values())
-    if (activeItems.length >= this.limits.maxGlobalActiveRuns) return 'global_limit'
-    if (activeItems.filter((active) => active.repoRoot === item.repoRoot).length >= this.limits.maxActiveRunsPerRepo) return 'repo_limit'
-    if (activeItems.filter((active) => active.taskId === item.taskId).length >= this.limits.maxActiveRunsPerTask) return 'task_limit'
-    return null
+function toExecutionItem(item: KanbanTaskQueueItem): ExecutionRunQueueItem {
+  return {
+    runId: item.runId,
+    ownerKey: toKanbanOwnerKey(item.taskId),
+    repoRoot: item.repoRoot,
   }
+}
 
-  private assertUniqueRun(runId: string): void {
-    if (this.active.has(runId) || this.queued.some((item) => item.runId === runId)) {
-      throw new Error(`Kanban run ${runId} is already queued`)
-    }
+function toKanbanItem(item: ExecutionRunQueueItem): KanbanTaskQueueItem {
+  return {
+    runId: item.runId,
+    taskId: fromKanbanOwnerKey(item.ownerKey),
+    repoRoot: item.repoRoot,
   }
+}
 
-  private assertNoDuplicateQueuedTask(taskId: string): void {
-    if (this.queued.some((item) => item.taskId === taskId)) {
-      throw new Error(`Kanban task ${taskId} already has a queued run`)
-    }
+function toKanbanReason(reason: ExecutionRunQueueLimitReason): 'global_limit' | 'repo_limit' | 'task_limit' {
+  if (reason === 'owner_limit') return 'task_limit'
+  return reason
+}
+
+function toKanbanOwnerKey(taskId: string): string {
+  return `${KANBAN_TASK_OWNER_PREFIX}${taskId}`
+}
+
+function fromKanbanOwnerKey(ownerKey: string): string {
+  if (ownerKey.startsWith(KANBAN_TASK_OWNER_PREFIX)) {
+    return ownerKey.slice(KANBAN_TASK_OWNER_PREFIX.length)
   }
+  return ownerKey
+}
+
+function toKanbanQueueError(error: unknown, item: KanbanTaskQueueItem): Error {
+  if (error instanceof ExecutionRunQueueDuplicateRunError) {
+    return new KanbanDuplicateRunError(item.runId)
+  }
+  if (error instanceof ExecutionRunQueueDuplicateOwnerError) {
+    return new KanbanDuplicateTaskError(item.taskId)
+  }
+  const message = error instanceof Error ? error.message : String(error)
+  return error instanceof Error ? error : new Error(message)
 }

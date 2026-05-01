@@ -170,6 +170,24 @@ describe('KanbanTaskService', () => {
     expect(result.hasMore).toBe(false)
   })
 
+  it('enforces createTaskIfNoActiveLabel labels on newly created tasks', async () => {
+    const { service } = await createHarness()
+
+    const task = await service.createTaskIfNoActiveLabel('automation:daily-check', {
+      title: 'Automation failure',
+      labels: [],
+    })
+    const duplicate = await service.createTaskIfNoActiveLabel('automation:daily-check', {
+      title: 'Duplicate automation failure',
+      labels: [],
+    })
+
+    expect(task.labels).toEqual([
+      expect.objectContaining({ name: 'automation:daily-check' }),
+    ])
+    expect(duplicate.id).toBe(task.id)
+  })
+
   it('filters listed tasks by metadata and label', async () => {
     const { service } = await createHarness()
     const highTask = await service.createTask({
