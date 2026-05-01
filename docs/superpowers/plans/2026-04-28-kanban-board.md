@@ -670,7 +670,7 @@ pnpm run build:frontend
 
 Manual check:
 
-1. Start `pnpm run dev -- --host 0.0.0.0 --port 4173`.
+1. Start `pnpm run dev --host 0.0.0.0 --port 4173`.
 2. Open `http://127.0.0.1:4173/#/kanban`.
 3. Confirm the shell title is `Kanban`, the sidebar nav item is active, and no thread is required.
 4. Switch light/dark/system using Settings and confirm the empty page is legible.
@@ -755,7 +755,7 @@ Async mutation failures must be caught and surfaced in the page instead of being
 
 - [x] **Step 2: Manual verification**
 
-Run `pnpm run dev -- --host 0.0.0.0 --port 4173`.
+Run `pnpm run dev --host 0.0.0.0 --port 4173`.
 
 Verify:
 

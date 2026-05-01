@@ -798,7 +798,7 @@ Append:
 ## Thread Workspace Right Drawer IA
 
 ### Prerequisites/Setup
-- Start the dev server with `pnpm run dev -- --host 0.0.0.0 --port 5173`.
+- Start the dev server with `pnpm run dev --host 0.0.0.0 --port 5173`.
 - Open a normal chat thread with the right artifact drawer available.
 - Use browser viewports of 1440x900 for desktop, 768x1024 for tablet, and 375x812 for mobile checks.
 
@@ -861,7 +861,7 @@ Expected: build succeeds.
 - [ ] **Step 3: Start dev server for browser checks**
 
 ```bash
-pnpm run dev -- --host 0.0.0.0 --port 5173
+pnpm run dev --host 0.0.0.0 --port 5173
 ```
 
 Expected: Vite serves the app on `http://127.0.0.1:5173`.

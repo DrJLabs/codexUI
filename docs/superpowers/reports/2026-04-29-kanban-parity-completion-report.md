@@ -94,7 +94,7 @@ pnpm vitest run src/server/kanban/__tests__/codexBridgeAdapter.test.ts src/serve
 Host-side dev server smoke:
 
 ```text
-CODEXUI_KANBAN_EXECUTION_ENABLED=1 pnpm run dev -- --host 0.0.0.0 --port 5173
+CODEXUI_KANBAN_EXECUTION_ENABLED=1 pnpm run dev --host 0.0.0.0 --port 5173
 Server started from this worktree on port 5173.
 
 curl -sS http://127.0.0.1:5173/codex-api/kanban/health

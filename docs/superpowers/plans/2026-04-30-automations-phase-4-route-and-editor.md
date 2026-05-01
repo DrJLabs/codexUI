@@ -416,7 +416,7 @@ Expected: TypeScript and Vue compilation pass.
   - Include both light-theme and dark-theme verification steps/results.
 
 - [ ] **Step 4: Perform manual UI verification**
-  - Start the app with `pnpm run dev -- --host 0.0.0.0 --port 4173` after build/test errors are clear.
+  - Start the app with `pnpm run dev --host 0.0.0.0 --port 4173` after build/test errors are clear.
   - Open `http://127.0.0.1:4173/#/automations` in a browser.
   - Verify light theme:
     - the Automations primary nav row is active

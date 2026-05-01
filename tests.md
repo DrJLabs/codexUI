@@ -207,7 +207,7 @@ First-class Automations hash route with shared heartbeat editor.
 #### Prerequisites/Setup
 1. Use `${WORKTREE_ROOT}`.
 2. If this worktree has incomplete dependencies, temporarily point `node_modules` at `${HOST_NODE_MODULES}` for verification, then restore the original local dependency tree.
-3. Start the app with `pnpm run dev -- --host 0.0.0.0 --port 4173` for manual browser checks.
+3. Start the app with `pnpm run dev --host 0.0.0.0 --port 4173` for manual browser checks.
 
 #### Steps
 1. Run `pnpm exec vitest run src/api/automationsGateway.test.ts src/composables/useAutomations.test.ts src/router/index.test.ts`.
@@ -260,7 +260,7 @@ Compact run-history triage actions for automation runs.
 
 #### Prerequisites/Setup
 1. Use `${WORKTREE_ROOT}`.
-2. Start the app with `pnpm run dev -- --host 0.0.0.0 --port 4173`.
+2. Start the app with `pnpm run dev --host 0.0.0.0 --port 4173`.
 3. Ensure at least one heartbeat automation has recent runs, including a failed run or a run with findings if possible.
 4. Ensure light and dark themes are available from Settings.
 
@@ -298,7 +298,7 @@ Next-run display, schedule wording, and capability status chips for the Automati
 
 #### Prerequisites/Setup
 1. Use `${WORKTREE_ROOT}`.
-2. Start the app with `pnpm run dev -- --host 0.0.0.0 --port 4173`.
+2. Start the app with `pnpm run dev --host 0.0.0.0 --port 4173`.
 3. Prepare at least one active automation with a supported schedule, one paused automation, and one automation with no next run or a scheduler-unsupported monthly/yearly schedule if available.
 4. Ensure light and dark themes are available from Settings.
 
@@ -2159,7 +2159,7 @@ Automations Phase 3 API code-quality review regressions.
 
 #### Steps
 1. Clone or pull branch `codex/thread-stream-parity` on A1 into `~/codexui`.
-2. Run `pnpm install` and start dev server: `pnpm run dev -- --host 0.0.0.0 --port 4173`.
+2. Run `pnpm install` and start dev server: `pnpm run dev --host 0.0.0.0 --port 4173`.
 3. From A1 locally, call `curl http://localhost:<port>/codex-api/rpc -X POST -H "Content-Type: application/json" -d '{"jsonrpc":"2.0","method":"thread/list","params":{},"id":1}'` and verify thread list returns.
 4. Pick a thread with known commands and file edits (e.g., MCP server deploy thread).
 5. Call `curl http://localhost:<port>/codex-api/thread-live-state?threadId=<id>` and inspect response.
@@ -4096,7 +4096,7 @@ Queued messages are saved through the backend, survive page refresh, and can be 
 Server-persisted local Kanban board with `#/kanban` route, sidebar navigation, seven status columns, query-linked task selection, task editing, acceptance criteria, label filters, and accessible mobile task sheet.
 
 #### Prerequisites/Setup
-1. Dev server running with `pnpm run dev -- --host 0.0.0.0 --port 4173`
+1. Dev server running with `pnpm run dev --host 0.0.0.0 --port 4173`
 2. Open `http://127.0.0.1:4173/#/kanban`
 3. Light theme and dark theme are both available from Settings
 4. No Playwright automation is required unless explicitly requested
@@ -4142,7 +4142,7 @@ Server-persisted local Kanban board with `#/kanban` route, sidebar navigation, s
 Trusted local or Tailscale execution preflight with per-router CSRF token and append-only audit hash chain.
 
 #### Prerequisites/Setup
-1. Dev server running with `pnpm run dev -- --host 0.0.0.0 --port 4173`
+1. Dev server running with `pnpm run dev --host 0.0.0.0 --port 4173`
 2. A local Kanban task ID is available from `#/kanban`
 3. Execution remains disabled unless `CODEXUI_KANBAN_EXECUTION_ENABLED=1` is set before starting the server
 4. Light theme and dark theme are both available from Settings
@@ -4179,7 +4179,7 @@ Managed Git worktree creation, one-active-run queue limits, and conservative sta
 
 #### Prerequisites/Setup
 1. A Git-backed project is available with a committed `main` or `master` branch
-2. Dev server can be started with `CODEXUI_KANBAN_EXECUTION_ENABLED=1 pnpm run dev -- --host 0.0.0.0 --port 4173`
+2. Dev server can be started with `CODEXUI_KANBAN_EXECUTION_ENABLED=1 pnpm run dev --host 0.0.0.0 --port 4173`
 3. Light theme and dark theme are both available from Settings
 
 #### Steps
@@ -4213,7 +4213,7 @@ Narrow internal Codex bridge runtime and Kanban adapter allowlist for future run
 
 #### Prerequisites/Setup
 1. Project dependencies are installed
-2. Dev server can be started with `pnpm run dev -- --host 0.0.0.0 --port 4173`
+2. Dev server can be started with `pnpm run dev --host 0.0.0.0 --port 4173`
 3. Light theme and dark theme are both available from Settings
 
 #### Steps
@@ -4242,7 +4242,7 @@ Kanban task run controls, managed worktree runner start, interrupt route, and pe
 
 #### Prerequisites/Setup
 1. A Git-backed project is available with a committed `main` or `master` branch
-2. Dev server running locally with `CODEXUI_KANBAN_EXECUTION_ENABLED=1 pnpm run dev -- --host 0.0.0.0 --port 4173`
+2. Dev server running locally with `CODEXUI_KANBAN_EXECUTION_ENABLED=1 pnpm run dev --host 0.0.0.0 --port 4173`
 3. Open `http://127.0.0.1:4173/#/kanban` or the configured Tailscale Serve URL
 4. Light theme and dark theme are both available from Settings
 
@@ -4276,7 +4276,7 @@ Kanban task run controls, managed worktree runner start, interrupt route, and pe
 Kanban trusted-access policy for phone-driven Tailscale Serve usage.
 
 #### Prerequisites/Setup
-1. Dev server running with `CODEXUI_KANBAN_EXECUTION_ENABLED=1 pnpm run dev -- --host 0.0.0.0 --port 4173`
+1. Dev server running with `CODEXUI_KANBAN_EXECUTION_ENABLED=1 pnpm run dev --host 0.0.0.0 --port 4173`
 2. Tailscale Serve maps the device DNS name to the local dev server, for example `https://codexui-dev.tail7570d1.ts.net`
 3. Open the Tailscale Serve URL on a phone connected to the same tailnet
 4. Light theme and dark theme are both available from Settings
@@ -4310,7 +4310,7 @@ Review packet generation from managed worktree diffs, review approve/reject rout
 
 #### Prerequisites/Setup
 1. A Kanban run has produced a managed worktree with local file changes
-2. Dev server running locally with `CODEXUI_KANBAN_EXECUTION_ENABLED=1 pnpm run dev -- --host 0.0.0.0 --port 4173`
+2. Dev server running locally with `CODEXUI_KANBAN_EXECUTION_ENABLED=1 pnpm run dev --host 0.0.0.0 --port 4173`
 3. Open `http://127.0.0.1:4173/#/kanban`
 4. Light theme and dark theme are both available from Settings
 
@@ -4344,7 +4344,7 @@ End-to-end safe execution hardening for Kanban runs: loopback gating, CSRF, mana
 #### Prerequisites/Setup
 1. Use a local browser on the same machine as the dev server
 2. Start from a Git-backed project with a clean committed `main` or `master` branch
-3. Start the dev server with `CODEXUI_KANBAN_EXECUTION_ENABLED=1 pnpm run dev -- --host 0.0.0.0 --port 4173`
+3. Start the dev server with `CODEXUI_KANBAN_EXECUTION_ENABLED=1 pnpm run dev --host 0.0.0.0 --port 4173`
 4. Open `http://127.0.0.1:4173/#/kanban`
 5. Light theme and dark theme are both available from Settings
 
@@ -4387,7 +4387,7 @@ End-to-end safe execution hardening for Kanban runs: loopback gating, CSRF, mana
 Kanban metadata editor, priority/assignee toolbar filters, server-side task list filtering, and card metadata display.
 
 #### Prerequisites/Setup
-1. Start the dev server with `pnpm run dev -- --host 0.0.0.0 --port 4173`
+1. Start the dev server with `pnpm run dev --host 0.0.0.0 --port 4173`
 2. Open `http://127.0.0.1:4173/#/kanban`
 3. Create or select at least two tasks with different labels
 4. Light theme and dark theme are both available from Settings
@@ -4419,7 +4419,7 @@ Kanban metadata editor, priority/assignee toolbar filters, server-side task list
 Kanban board configuration panel, config-visible columns, WIP limit display, and native drag/drop card reorder.
 
 #### Prerequisites/Setup
-1. Start the dev server with `pnpm run dev -- --host 0.0.0.0 --port 4173`
+1. Start the dev server with `pnpm run dev --host 0.0.0.0 --port 4173`
 2. Open `http://127.0.0.1:4173/#/kanban`
 3. Create at least three tasks across two statuses
 4. Light theme and dark theme are both available from Settings
@@ -4456,7 +4456,7 @@ Kanban board configuration panel, config-visible columns, WIP limit display, and
 Kanban proposal V2 records, fenced `kanban:create` / `kanban:update` marker parsing, proposal approval/rejection routes, and status filtering.
 
 #### Prerequisites/Setup
-1. Start the dev server with `pnpm run dev -- --host 0.0.0.0 --port 4173`
+1. Start the dev server with `pnpm run dev --host 0.0.0.0 --port 4173`
 2. Open `http://127.0.0.1:4173/#/kanban`
 3. Create at least one task that can receive an update proposal
 4. Light theme and dark theme are both available from Settings
@@ -4494,7 +4494,7 @@ Kanban proposal V2 records, fenced `kanban:create` / `kanban:update` marker pars
 Kanban proposal inbox tabs, compact proposal previews, and approve/reject actions.
 
 #### Prerequisites/Setup
-1. Start the dev server with `pnpm run dev -- --host 0.0.0.0 --port 4173`
+1. Start the dev server with `pnpm run dev --host 0.0.0.0 --port 4173`
 2. Open `http://127.0.0.1:4173/#/kanban`
 3. Have at least one pending create proposal and one pending update proposal, or create them through the proposal API
 4. Light theme and dark theme are both available from Settings
@@ -4530,7 +4530,7 @@ Final verification for the CodexUI Kanban parity implementation.
 
 #### Prerequisites/Setup
 1. Use the `feature/kanban-board-dev` worktree.
-2. Start the dev server with `CODEXUI_KANBAN_EXECUTION_ENABLED=1 pnpm run dev -- --host 0.0.0.0 --port 5173`.
+2. Start the dev server with `CODEXUI_KANBAN_EXECUTION_ENABLED=1 pnpm run dev --host 0.0.0.0 --port 5173`.
 3. Ensure the Tailscale Serve host is configured as an allowed Vite host.
 
 #### Steps
@@ -4564,7 +4564,7 @@ Kanban CSRF coverage, review approval validation, startup recovery, and failed-s
 
 #### Prerequisites/Setup
 1. Use the `feature/kanban-board-dev` worktree.
-2. Start the dev server with `CODEXUI_KANBAN_EXECUTION_ENABLED=1 pnpm run dev -- --host 0.0.0.0 --port 5173`.
+2. Start the dev server with `CODEXUI_KANBAN_EXECUTION_ENABLED=1 pnpm run dev --host 0.0.0.0 --port 5173`.
 3. Open `http://127.0.0.1:5173/#/kanban` locally, or the configured Tailscale Serve host from a phone.
 
 #### Steps
@@ -4638,7 +4638,7 @@ Desktop parity execution-mode defaults, access gating, and visible run policy st
 #### Prerequisites/Setup
 1. Use the `feature/desktop-parity-execution-modes-dev` worktree.
 2. For automated verification, no dev server is required.
-3. For manual UI verification, start the dev server with `pnpm run dev -- --host 127.0.0.1 --port 5173` and open `http://127.0.0.1:5173/#/kanban`.
+3. For manual UI verification, start the dev server with `pnpm run dev --host 127.0.0.1 --port 5173` and open `http://127.0.0.1:5173/#/kanban`.
 
 #### Steps
 1. Run `pnpm vitest run src/server/kanban/__tests__/config.test.ts src/server/kanban/__tests__/remoteAccess.test.ts src/server/kanban/__tests__/policy.test.ts src/server/kanban/__tests__/routes.test.ts src/composables/useKanbanBoard.test.ts`.
@@ -4670,7 +4670,7 @@ Named Codex run profiles for Kanban task execution.
 #### Prerequisites/Setup
 1. Use the `feature/desktop-parity-run-profiles-dev` worktree.
 2. For automated verification, no dev server is required.
-3. For manual UI verification, start the dev server with `pnpm run dev -- --host 127.0.0.1 --port 5173` and open `http://127.0.0.1:5173/#/kanban`.
+3. For manual UI verification, start the dev server with `pnpm run dev --host 127.0.0.1 --port 5173` and open `http://127.0.0.1:5173/#/kanban`.
 
 #### Steps
 1. Run `pnpm vitest run src/server/kanban/__tests__/taskService.test.ts src/server/kanban/__tests__/routes.test.ts src/server/kanban/__tests__/codexKanbanRunner.test.ts`.
@@ -4729,7 +4729,7 @@ Normal-thread artifact sidebar shell with Plan, Run, Evidence, and Review tabs.
 
 #### Prerequisites/Setup
 1. Use the `feature/desktop-parity-thread-artifacts-dev` worktree.
-2. Start the dev server with `pnpm run dev -- --host 0.0.0.0 --port 4173`.
+2. Start the dev server with `pnpm run dev --host 0.0.0.0 --port 5174`.
 3. Open the assigned dev URL. In this verification run Vite used `http://127.0.0.1:5174`.
 
 #### Steps
@@ -4765,7 +4765,7 @@ Thread workspace model and workspace-scoped right drawer sections.
 #### Prerequisites/Setup
 1. Use the `feature/thread-workspace-right-drawer-ia-dev` worktree.
 2. Reuse the shared dependency install with `node_modules -> ${HOST_NODE_MODULES}` if this worktree does not already have dependencies.
-3. Start the dev server with `pnpm run dev -- --host 0.0.0.0 --port 5173`.
+3. Start the dev server with `pnpm run dev --host 0.0.0.0 --port 5173`.
 4. Open a normal chat thread with the right artifact drawer available.
 5. Use browser viewports of 1440x900 for desktop, 768x1024 for tablet, and 375x812 for mobile checks.
 
@@ -4855,7 +4855,7 @@ Thread artifact sidebar converted to a right-side drawer.
 
 #### Prerequisites/Setup
 1. Use the `feature/desktop-parity-squashed-dev` worktree.
-2. Start the dev server with `pnpm run dev -- --host 0.0.0.0 --port 5173`.
+2. Start the dev server with `pnpm run dev --host 0.0.0.0 --port 5173`.
 3. Open a route with an existing selected thread, such as `http://127.0.0.1:5173/#/thread/<thread-id>`.
 
 #### Steps
@@ -4890,7 +4890,7 @@ Thread composer remains visible after artifact drawer layout changes.
 
 #### Prerequisites/Setup
 1. Use the `feature/desktop-parity-squashed-dev` worktree.
-2. Start the dev server with `pnpm run dev -- --host 0.0.0.0 --port 5173`.
+2. Start the dev server with `pnpm run dev --host 0.0.0.0 --port 5173`.
 3. Ensure the thread list has at least two selectable chats.
 
 #### Steps
@@ -4919,7 +4919,7 @@ Thread artifact drawer loads indexed artifacts and artifact routes enforce read 
 
 #### Prerequisites/Setup
 1. Use the `feature/desktop-parity-squashed-dev` worktree.
-2. Start the dev server with `pnpm run dev -- --host 0.0.0.0 --port 5173`.
+2. Start the dev server with `pnpm run dev --host 0.0.0.0 --port 5173`.
 3. Use a thread route such as `http://127.0.0.1:5173/#/thread/<thread-id>`.
 
 #### Steps
@@ -5030,7 +5030,7 @@ Shared inert proposal summary panel for Kanban and artifact contexts.
 #### Prerequisites/Setup
 1. Use the `feature/desktop-parity-proposals-dev` worktree.
 2. Reuse the shared dependency install with `node_modules -> ${HOST_NODE_MODULES}` if this worktree does not already have dependencies.
-3. For browser verification, start the dev server with `pnpm run dev -- --host 0.0.0.0 --port 4177`. In this run Vite used `http://127.0.0.1:5177`.
+3. For browser verification, start the dev server with `pnpm run dev --host 0.0.0.0 --port 5177`. In this run Vite used `http://127.0.0.1:5177`.
 
 #### Steps
 1. Run `pnpm vitest run src/server/kanban/__tests__/markerParser.test.ts src/server/kanban/__tests__/proposalService.test.ts src/server/kanban/__tests__/routes.test.ts`.
@@ -5061,7 +5061,7 @@ Shared artifact evidence panel reused by Kanban run logs.
 
 #### Prerequisites/Setup
 1. Use the `feature/desktop-parity-evidence-dev` worktree.
-2. For browser verification, start the dev server with `pnpm run dev -- --host 0.0.0.0 --port 4173`. In this run Vite used `http://127.0.0.1:5175`.
+2. For browser verification, start the dev server with `pnpm run dev --host 0.0.0.0 --port 5175`. In this run Vite used `http://127.0.0.1:5175`.
 
 #### Steps
 1. Run `pnpm vitest run src/composables/useArtifactEvidence.test.ts src/server/kanban/__tests__/codexKanbanRunner.test.ts src/server/kanban/__tests__/auditLog.test.ts`.
@@ -5091,7 +5091,7 @@ Shared review packet freshness fingerprinting and summary UI.
 #### Prerequisites/Setup
 1. Use the `feature/desktop-parity-review-packets-dev` worktree.
 2. Reuse the shared dependency install with `node_modules -> ${HOST_NODE_MODULES}` if this worktree does not already have dependencies.
-3. For browser verification, start the dev server with `pnpm run dev -- --host 0.0.0.0 --port 4176`. In this run Vite used `http://127.0.0.1:5176`.
+3. For browser verification, start the dev server with `pnpm run dev --host 0.0.0.0 --port 5176`. In this run Vite used `http://127.0.0.1:5176`.
 
 #### Steps
 1. Run `pnpm vitest run src/server/kanban/__tests__/reviewPacketService.test.ts src/server/kanban/__tests__/routes.test.ts src/composables/useKanbanBoard.test.ts`.
@@ -5239,7 +5239,7 @@ Manual automation runs in chat, local cwd, and managed worktree modes with route
 #### Prerequisites/Setup
 1. Use the `feat/automations` worktree at `${WORKTREE_ROOT}`.
 2. Reuse the shared dependency install with `node_modules -> ${HOST_NODE_MODULES}` if this worktree does not already have dependencies.
-3. For manual UI verification, start the dev server with automation execution enabled from trusted local access: `CODEXUI_KANBAN_EXECUTION_ENABLED=1 pnpm run dev -- --host 127.0.0.1 --port 4173`.
+3. For manual UI verification, start the dev server with automation execution enabled from trusted local access: `CODEXUI_KANBAN_EXECUTION_ENABLED=1 pnpm run dev --host 127.0.0.1 --port 4173`.
 4. Use a saved heartbeat automation and, for managed worktree mode, configure `cwd` as an absolute path to a committed Git repository.
 5. Light and dark themes are available from Settings.
 
@@ -5322,7 +5322,7 @@ Automation run read/archive triage actions and automation artifact route indexin
 #### Prerequisites/Setup
 1. Use `${WORKTREE_ROOT}` on `feat/automations`.
 2. Reuse the shared dependency install with `node_modules -> ${HOST_NODE_MODULES}` if this worktree does not already have dependencies.
-3. Start a trusted local dev server with automation execution enabled: `CODEXUI_KANBAN_EXECUTION_ENABLED=1 pnpm run dev -- --host 127.0.0.1 --port 4173`.
+3. Start a trusted local dev server with automation execution enabled: `CODEXUI_KANBAN_EXECUTION_ENABLED=1 pnpm run dev --host 127.0.0.1 --port 4173`.
 4. Create or select a disposable heartbeat automation, for example `daily-check`, and run it once so `${CODEX_HOME:-$HOME/.codex}/automations/daily-check/runs/<run-id>/` contains `run.json`, `run.log`, and `events.jsonl`.
 5. Capture the disposable automation ID and run ID for the API checks below.
 
@@ -5363,7 +5363,7 @@ Opt-in automation definition and run projection to inert Kanban follow-up cards.
 #### Prerequisites/Setup
 1. Use `${WORKTREE_ROOT}`.
 2. Reuse the shared dependency install with `node_modules -> ${HOST_NODE_MODULES}` if this worktree does not already have dependencies.
-3. Start a trusted local dev server with automation execution enabled: `CODEXUI_KANBAN_EXECUTION_ENABLED=1 pnpm run dev -- --host 127.0.0.1 --port 4173`.
+3. Start a trusted local dev server with automation execution enabled: `CODEXUI_KANBAN_EXECUTION_ENABLED=1 pnpm run dev --host 127.0.0.1 --port 4173`.
 4. Create or select a disposable heartbeat automation with a valid `targetThreadId`.
 5. Keep a disposable Kanban board/project root for confirming created cards can be removed after the check.
 
@@ -5404,7 +5404,7 @@ Automations route parity polish for run triage, schedule status, capability chip
 
 #### Prerequisites/Setup
 1. Use `${WORKTREE_ROOT}`.
-2. Start the app with `pnpm run dev -- --host 0.0.0.0 --port 4173`.
+2. Start the app with `pnpm run dev --host 0.0.0.0 --port 4173`.
 3. Prepare at least three disposable heartbeat automations:
    - an active automation with a supported daily/hourly RRULE and a visible `nextRunAtIso`;
    - a paused automation;
@@ -5457,7 +5457,7 @@ Automations review fixes for per-entry scheduler failure isolation and direct lo
 
 #### Prerequisites/Setup
 1. Use `${WORKTREE_ROOT}`.
-2. Start the app with `pnpm run dev -- --host 0.0.0.0 --port 4173` for manual UI checks.
+2. Start the app with `pnpm run dev --host 0.0.0.0 --port 4173` for manual UI checks.
 3. Use disposable automations and disposable project directories only.
 4. Ensure light and dark themes are available from Settings.
 
@@ -5494,7 +5494,7 @@ Review-cycle hardening for automation scheduler recovery, TOML persistence, arti
 
 #### Prerequisites/Setup
 1. Use `${WORKTREE_ROOT}`.
-2. Start the app with `pnpm run dev -- --host 0.0.0.0 --port 4173` for manual UI checks.
+2. Start the app with `pnpm run dev --host 0.0.0.0 --port 4173` for manual UI checks.
 3. Use disposable automation records, Kanban tasks, and managed worktrees only.
 4. Ensure light and dark themes are available from Settings.
 
