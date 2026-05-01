@@ -6085,3 +6085,39 @@ Review-cycle scheduler feature flag consistency for caller-owned services.
 
 #### Rollback/Cleanup
 - Dispose middleware and caller-owned services created only for this check.
+
+---
+
+### Desktop automation TOML compatibility
+
+#### Feature/Change Name
+Desktop-compatible automation TOML parsing, writeback, listing, and scheduling.
+
+#### Prerequisites/Setup
+1. Use `/home/drj/projects/codexUI-desktop-automation-schema-parity-dev` on `feature/desktop-automation-schema-parity-dev`.
+2. Reuse an existing compatible dependency install if this worktree does not already have dependencies.
+3. Use a temporary `CODEX_HOME` or disposable test profile.
+4. Copy `fixtures/desktop-automations/hourly-fixture/automation.toml` to `$CODEX_HOME/automations/hourly-fixture/automation.toml`.
+
+#### Steps
+1. Run `pnpm exec vitest run src/server/automations/__tests__/nativeStore.test.ts src/server/automations/__tests__/scheduleCalculator.test.ts src/server/automations/__tests__/routes.test.ts src/server/automations/__tests__/scheduler.test.ts src/server/automations/__tests__/runner.test.ts src/api/automationsGateway.test.ts src/composables/useAutomations.test.ts`.
+2. Run `pnpm run build`.
+3. Open the Automations page in light theme.
+4. Confirm `hourly fixture` appears in the automation list.
+5. Select `hourly fixture`.
+6. Confirm kind is `cron`, status is active, target thread shows no thread, run mode is `worktree`, cwd is `/mnt/c/Users/projects/apollo`, model is `gpt-5.5`, and reasoning effort is `low`.
+7. Save the automation without changing fields.
+8. Reopen `$CODEX_HOME/automations/hourly-fixture/automation.toml`.
+9. Confirm `rrule` still starts with `RRULE:`, `cwds` is still an array, `model` and `reasoning_effort` are present, and empty `target_thread_id` was not added.
+10. Switch to dark theme and repeat steps 4-6.
+
+#### Expected Results
+- Desktop-created cron records parse, list, and open without a thread target.
+- Scheduler accepts the Desktop-prefixed RRULE after normalization.
+- No-op save preserves Desktop TOML fields and unknown fields.
+- New detached worktree scheduled automations write `kind = "cron"`, `RRULE:`-prefixed `rrule`, `execution_environment`, `cwds`, `model`, and `reasoning_effort` to `automation.toml`.
+- Light and dark themes both render the automation fields readably.
+
+#### Rollback/Cleanup
+- Remove `$CODEX_HOME/automations/hourly-fixture/` from the disposable profile.
+- Stop any local server used only for this check.
