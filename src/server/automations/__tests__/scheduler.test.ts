@@ -280,6 +280,22 @@ describe('AutomationScheduler', () => {
     expect(Date.parse(schedulerState.nextDueAtIso ?? '')).toBeGreaterThan(now.getTime())
   })
 
+  it('lists scheduler entries without reading automation run history', async () => {
+    const { codexHomeDir, service } = await createHarness()
+    const automationDir = await writeNative(codexHomeDir, 'daily-check-dir', nativeRecord)
+    await writeFreshScheduler(service, 'daily-check', automationDir)
+    await writeFile(join(automationDir, 'runs'), 'not a run directory', 'utf8')
+
+    const entries = await service.listSchedulerEntries()
+
+    expect(entries).toHaveLength(1)
+    expect(entries[0]?.definition).toMatchObject({
+      id: 'daily-check',
+      recentRuns: [],
+      lastRunAtIso: null,
+    })
+  })
+
   it('refreshes stale scheduler state before evaluating due work', async () => {
     const now = new Date('2026-04-30T10:00:00.000Z')
     const { codexHomeDir, service } = await createHarness()

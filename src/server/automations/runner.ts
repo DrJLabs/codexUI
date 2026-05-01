@@ -16,7 +16,7 @@ import {
   resolveAutomationRunProfile,
   type AutomationRunProfileInput,
 } from './policy'
-import { listNativeAutomationEntries, type NativeAutomationEntry, type NativeAutomationStoreOptions } from './nativeStore'
+import { type NativeAutomationEntry, type NativeAutomationStoreOptions } from './nativeStore'
 import {
   createAutomationRunPaths,
   createAutomationRunStore,
@@ -36,6 +36,11 @@ export type AutomationRunnerOptions = NativeAutomationStoreOptions & {
 const AUTOMATION_BRIDGE_METHODS = ['thread/start', 'thread/resume', 'thread/read', 'turn/start'] as const
 let automationRunSequence = 0
 
+type IndexedActiveRun = {
+  entry: NativeAutomationEntry
+  runId: string
+}
+
 export class AutomationRunner {
   private readonly bridge: RestrictedCodexBridgeAdapter
   private readonly policy: KanbanExecutionPolicy
@@ -44,6 +49,7 @@ export class AutomationRunner {
   private readonly locks = new Map<string, Promise<unknown>>()
   private readonly completionLocks = new Map<string, Promise<void>>()
   private readonly ownedActiveRunIds = new Set<string>()
+  private readonly activeRunsByTurn = new Map<string, IndexedActiveRun>()
   private readonly unsubscribeNotifications: () => void
 
   constructor(options: AutomationRunnerOptions) {
@@ -59,6 +65,7 @@ export class AutomationRunner {
 
   dispose(): void {
     this.unsubscribeNotifications()
+    this.activeRunsByTurn.clear()
   }
 
   async runNow(input: {
@@ -206,6 +213,10 @@ export class AutomationRunner {
         threadId,
         turnId,
       })
+      this.activeRunsByTurn.set(activeRunTurnKey(threadId, turnId), {
+        entry: createNativeEntryForRun(definition, input.automationDirPath, input.sourceDirName),
+        runId: run.id,
+      })
       await store.appendEvent(run, { type: `${eventPrefix}.turn_started`, threadId, turnId })
       await store.appendLog(run, `Turn started: ${turnId}`)
       return run
@@ -230,6 +241,7 @@ export class AutomationRunner {
         // Preserve the original startup failure while still releasing in-memory ownership.
       } finally {
         this.ownedActiveRunIds.delete(run.id)
+        this.forgetActiveRunTurn(run)
       }
       throw error
     }
@@ -379,6 +391,7 @@ export class AutomationRunner {
         await this.projectTerminalRun({ definition, store: match.store, run: failed })
       } finally {
         this.ownedActiveRunIds.delete(match.run.id)
+        this.activeRunsByTurn.delete(activeRunTurnKey(threadId, turnId))
       }
       return
     }
@@ -414,6 +427,7 @@ export class AutomationRunner {
       await this.projectTerminalRun({ definition, store: match.store, run: completed })
     } finally {
       this.ownedActiveRunIds.delete(match.run.id)
+      this.activeRunsByTurn.delete(activeRunTurnKey(threadId, turnId))
     }
   }
 
@@ -422,17 +436,29 @@ export class AutomationRunner {
     run: AutomationRun
     store: ReturnType<typeof createAutomationRunStore>
   } | null> {
-    const entries = await listNativeAutomationEntries(this.options)
-    for (const entry of entries.records) {
-      const store = createAutomationRunStore(entry.automationDirPath)
-      const run = (await store.listActiveRuns()).find((candidate) => (
-        candidate.threadId === threadId &&
-        candidate.turnId === turnId &&
-        isActiveAutomationRunState(candidate.state)
-      ))
-      if (run) return { entry, run, store }
+    const key = activeRunTurnKey(threadId, turnId)
+    const indexed = this.activeRunsByTurn.get(key)
+    if (!indexed) return null
+    const store = createAutomationRunStore(indexed.entry.automationDirPath)
+    try {
+      const run = await store.readRun(indexed.runId)
+      if (
+        run.threadId === threadId &&
+        run.turnId === turnId &&
+        isActiveAutomationRunState(run.state)
+      ) {
+        return { entry: indexed.entry, run, store }
+      }
+    } catch {
+      // Stale in-memory entries are discarded below.
     }
+    this.activeRunsByTurn.delete(key)
     return null
+  }
+
+  private forgetActiveRunTurn(run: AutomationRun): void {
+    if (!run.threadId || !run.turnId) return
+    this.activeRunsByTurn.delete(activeRunTurnKey(run.threadId, run.turnId))
   }
 
   private async projectTerminalRun(input: {
@@ -579,6 +605,39 @@ async function readProjectionSidecar(entry: NativeAutomationEntry): Promise<Auto
 
 function dateIso(value: number | null): string {
   return new Date(value && Number.isFinite(value) ? value : 0).toISOString()
+}
+
+function activeRunTurnKey(threadId: string, turnId: string): string {
+  return JSON.stringify([threadId, turnId])
+}
+
+function createNativeEntryForRun(
+  definition: AutomationDefinition,
+  automationDirPath: string,
+  sourceDirName?: string,
+): NativeAutomationEntry {
+  return {
+    record: {
+      id: definition.id,
+      kind: 'heartbeat',
+      name: definition.name,
+      prompt: definition.prompt,
+      rrule: definition.schedule.rrule,
+      status: definition.legacyStatus === 'PAUSED' ? 'PAUSED' : 'ACTIVE',
+      targetThreadId: definition.targetThreadId,
+      createdAtMs: dateMs(definition.createdAtIso),
+      updatedAtMs: dateMs(definition.updatedAtIso),
+      nextRunAtMs: null,
+    },
+    sourceDirName: sourceDirName ?? definition.storage.nativeDirName ?? definition.id,
+    automationDirPath,
+    automationTomlPath: definition.storage.nativePath ?? join(automationDirPath, 'automation.toml'),
+  }
+}
+
+function dateMs(value: string): number {
+  const parsed = Date.parse(value)
+  return Number.isFinite(parsed) ? parsed : 0
 }
 
 function extractStartedThreadId(params: unknown): string {

@@ -5883,3 +5883,32 @@ Review-cycle hardening for middleware service ownership, storage error propagati
 
 #### Rollback/Cleanup
 - Delete disposable automation directories and run records created only for this check.
+
+---
+
+### Automations PR review cycle 13 fixes
+
+#### Feature/Change Name
+Review-cycle performance hardening for turn-completion lookup and scheduler definition mapping.
+
+#### Prerequisites/Setup
+1. Use `${WORKTREE_ROOT}` on `feat/automations`.
+2. Reuse an existing compatible dependency install if this worktree does not already have dependencies.
+3. Use disposable automation directories and run records only.
+
+#### Steps
+1. Run `pnpm exec vitest run src/server/automations/__tests__/runner.test.ts src/server/automations/__tests__/scheduler.test.ts`.
+2. Run `pnpm test:unit`.
+3. Run `pnpm run build`.
+4. Run `git diff --check`.
+5. Start a chat automation run, create an unrelated broken automation directory, then send a `turn/completed` notification for an unrelated thread and turn.
+6. Create a scheduler-ready automation whose `runs` path is not a directory, then call `listSchedulerEntries()`.
+
+#### Expected Results
+- Unrelated turn-completion notifications are ignored through the in-memory active-run index without scanning native automation storage or warning.
+- Matching automation turn completions still read the indexed run and mark it terminal.
+- Scheduler entry listing does not read recent run history and returns definitions with empty `recentRuns` and `lastRunAtIso: null`.
+- API definition and state reads continue to include recent run history.
+
+#### Rollback/Cleanup
+- Delete disposable automation directories and run records created only for this check.

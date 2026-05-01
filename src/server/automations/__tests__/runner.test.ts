@@ -426,6 +426,28 @@ describe('AutomationRunner', () => {
     expect(completed).toMatchObject({ id: first.id, state: 'completed_no_findings' })
   })
 
+  it('does not scan automation storage for unrelated completed turns', async () => {
+    const { codexHomeDir, service, notificationListeners } = await createHarness()
+    const automationDir = await writeNative(codexHomeDir, 'daily-check-dir', nativeRecord, { runMode: 'chat' })
+    const run = await service.runNow('daily-check')
+    await mkdir(join(codexHomeDir, 'automations', 'broken-dir', 'automation.toml'), { recursive: true })
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+
+    try {
+      await Promise.resolve(notificationListeners[0]!({
+        method: 'turn/completed',
+        params: { threadId: 'unrelated-thread', turnId: 'unrelated-turn' },
+        atIso: new Date().toISOString(),
+      }))
+      expect(warn).not.toHaveBeenCalled()
+    } finally {
+      warn.mockRestore()
+    }
+    const activeRun = await createAutomationRunStore(automationDir).readRun(run.id)
+
+    expect(activeRun).toMatchObject({ id: run.id, state: 'running' })
+  })
+
   it('marks completed turns with findings as unread completed_with_findings', async () => {
     const { codexHomeDir, service, notificationListeners } = await createHarness({
       readThreadResponse: {

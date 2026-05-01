@@ -37,6 +37,9 @@ import { parseAutomationSidecarRead, type AutomationCreateInput, type Automation
 const SIDECAR_FILENAME = 'codexui.json'
 
 type AutomationSidecar = AutomationSidecarRead
+type MapDefinitionOptions = {
+  includeRecentRuns?: boolean
+}
 type KanbanProjectionTaskValidator = {
   validateTask(taskId: string): Promise<void>
 }
@@ -272,7 +275,7 @@ export class AutomationsService {
 
   private async projectDefinitionSidecar(entry: NativeAutomationEntry, sidecar: AutomationSidecar): Promise<AutomationSidecar> {
     if (!this.kanbanProjection || sidecar.kanbanProjection.mode !== 'definition_card') return sidecar
-    const definition = (await mapDefinition(entry, sidecar)).definition
+    const definition = (await mapDefinition(entry, sidecar, { includeRecentRuns: false })).definition
     const result = await this.kanbanProjection.projectDefinition({ definition })
     if (!result.taskId || sidecar.kanbanProjection.taskId === result.taskId) return sidecar
     return {
@@ -290,7 +293,7 @@ export class AutomationsService {
     for (const entry of entries.records) {
       if (entry.record.kind !== 'heartbeat') continue
       const sidecarResult = await readSidecar(entry)
-      const mapped = await mapDefinition(entry, sidecarResult.sidecar)
+      const mapped = await mapDefinition(entry, sidecarResult.sidecar, { includeRecentRuns: false })
       const schedulerState = await readSchedulerStateForTick(entry)
       const currentScheduleHash = buildScheduleHash(entry, sidecarResult.sidecar)
       schedulerEntries.push({
@@ -350,7 +353,7 @@ export class AutomationsService {
       if (!entry) throw new AutomationNotFoundError(automationId)
       if (!this.runner) throw createServiceError(503, 'Codex bridge is not available for automation manual runs')
       const sidecarResult = await readSidecar(entry)
-      const definition = (await mapDefinition(entry, sidecarResult.sidecar)).definition
+      const definition = (await mapDefinition(entry, sidecarResult.sidecar, { includeRecentRuns: false })).definition
       await this.ensureInterruptedRunRecoveryBeforeCapacity(definition.id)
       await this.assertRunStartCapacity(definition)
       return await this.runner.runNow({
@@ -376,7 +379,7 @@ export class AutomationsService {
       if (!entry) throw new AutomationNotFoundError(automationId)
       if (!this.runner) throw createServiceError(503, 'Codex bridge is not available for automation scheduled runs')
       const sidecarResult = await readSidecar(entry)
-      const definition = (await mapDefinition(entry, sidecarResult.sidecar)).definition
+      const definition = (await mapDefinition(entry, sidecarResult.sidecar, { includeRecentRuns: false })).definition
       await this.ensureInterruptedRunRecoveryBeforeCapacity(definition.id)
       await this.assertRunStartCapacity(definition)
       return await this.runner.runScheduled({
@@ -412,7 +415,9 @@ export class AutomationsService {
       const store = createAutomationRunStore(entry.automationDirPath)
       const activeRuns = await store.listActiveRuns()
       const sidecarResult = activeRuns.length > 0 ? await readSidecar(entry) : null
-      const definition = sidecarResult ? (await mapDefinition(entry, sidecarResult.sidecar)).definition : null
+      const definition = sidecarResult
+        ? (await mapDefinition(entry, sidecarResult.sidecar, { includeRecentRuns: false })).definition
+        : null
       for (const run of activeRuns) {
         if (this.runner?.ownsActiveRun(run.id)) continue
         if (run.trigger === 'schedule') {
@@ -634,13 +639,20 @@ async function updateRunTriage(
   }
 }
 
-async function mapDefinition(entry: NativeAutomationEntry, sidecar: AutomationSidecar): Promise<{
+async function mapDefinition(
+  entry: NativeAutomationEntry,
+  sidecar: AutomationSidecar,
+  options: MapDefinitionOptions = {},
+): Promise<{
   definition: AutomationDefinition
   diagnostic: AutomationDiagnostic | null
 }> {
   const createdAtIso = dateIso(entry.record.createdAtMs)
   const updatedAtIso = dateIso(entry.record.updatedAtMs)
-  const recentRuns = await createAutomationRunStore(entry.automationDirPath).listRuns({ limit: 5 })
+  const includeRecentRuns = options.includeRecentRuns !== false
+  const recentRuns = includeRecentRuns
+    ? await createAutomationRunStore(entry.automationDirPath).listRuns({ limit: 5 })
+    : []
   const nextRun = await readDefinitionNextRunAtIso(entry, createdAtIso, updatedAtIso)
   return {
     diagnostic: nextRun.diagnostic,
