@@ -73,6 +73,7 @@ async function createHarness(options: {
   codexHomeDirs.push(codexHomeDir)
   const rpcCalls: Array<{ method: string; params: unknown }> = []
   const notificationListeners: Array<(notification: CodexBridgeNotification) => void> = []
+  const unsubscribe = vi.fn()
   let threadStartCount = 0
   let turnStartCount = 0
   const bridge: CodexBridgeRuntime = {
@@ -109,7 +110,7 @@ async function createHarness(options: {
     },
     subscribeNotifications: vi.fn((listener) => {
       notificationListeners.push(listener)
-      return () => {}
+      return unsubscribe
     }),
     dispose: vi.fn(),
   }
@@ -119,7 +120,7 @@ async function createHarness(options: {
     policy: options.policy ?? enabledPolicy,
     kanbanProjection: options.kanbanProjection,
   })
-  return { codexHomeDir, service, bridge, rpcCalls, notificationListeners }
+  return { codexHomeDir, service, bridge, rpcCalls, notificationListeners, unsubscribe }
 }
 
 async function createKanbanProjectionHarness() {
@@ -353,6 +354,35 @@ describe('AutomationRunner', () => {
     })
     expect(failed.branchName).toMatch(/^codexui\/automation\/daily-check-/u)
     expect(worktreeList).toContain(failed.worktreePath)
+  })
+
+  it('releases active-run ownership when startup failure persistence also fails', async () => {
+    let automationDir = ''
+    let runId = ''
+    const { codexHomeDir, service } = await createHarness({
+      turnStartError: new Error('turn start failed'),
+      beforeRpc: async (method) => {
+        if (method !== 'turn/start') return
+        const runIds = await readdir(join(automationDir, 'runs'))
+        runId = runIds[0]!
+        await rm(join(automationDir, 'runs', runId), { recursive: true, force: true })
+      },
+    })
+    automationDir = await writeNative(codexHomeDir, 'daily-check-dir', nativeRecord, { runMode: 'chat' })
+
+    await expect(service.runNow('daily-check')).rejects.toThrow('turn start failed')
+    const runner = (service as unknown as { runner: { ownsActiveRun(runId: string): boolean } }).runner
+
+    expect(runId).toMatch(/^automation_run_/u)
+    expect(runner.ownsActiveRun(runId)).toBe(false)
+  })
+
+  it('unsubscribes from bridge notifications when disposed', async () => {
+    const { service, unsubscribe } = await createHarness()
+
+    ;(service as unknown as { dispose(): void }).dispose()
+
+    expect(unsubscribe).toHaveBeenCalledOnce()
   })
 
   it('marks a matching completed turn as completed_no_findings and permits a later run', async () => {

@@ -97,6 +97,10 @@ export class AutomationsService {
       : null
   }
 
+  dispose(): void {
+    this.runner?.dispose()
+  }
+
   async listDefinitions(): Promise<AutomationDefinition[]> {
     const { definitions } = await this.listDefinitionsWithDiagnostics()
     return definitions

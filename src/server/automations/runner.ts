@@ -44,6 +44,7 @@ export class AutomationRunner {
   private readonly locks = new Map<string, Promise<unknown>>()
   private readonly completionLocks = new Map<string, Promise<void>>()
   private readonly ownedActiveRunIds = new Set<string>()
+  private readonly unsubscribeNotifications: () => void
 
   constructor(options: AutomationRunnerOptions) {
     this.bridge = createRestrictedCodexBridgeAdapter(options.bridge, {
@@ -53,7 +54,11 @@ export class AutomationRunner {
     this.policy = options.policy
     this.options = { codexHomeDir: options.codexHomeDir }
     this.kanbanProjection = options.kanbanProjection ?? null
-    this.bridge.subscribeNotifications((notification) => this.handleBridgeNotification(notification))
+    this.unsubscribeNotifications = this.bridge.subscribeNotifications((notification) => this.handleBridgeNotification(notification))
+  }
+
+  dispose(): void {
+    this.unsubscribeNotifications()
   }
 
   async runNow(input: {
@@ -207,20 +212,25 @@ export class AutomationRunner {
     } catch (error) {
       const message = error instanceof Error ? error.message : `Automation ${input.trigger} run failed`
       const classification = classifyAutomationRunFailure(message)
-      const failedRun = await store.updateRun(run.id, {
-        state: classification.state,
-        errorMessage: message,
-        findings: classification.findings,
-        inboxTitle: classification.inboxTitle,
-        inboxSummary: classification.inboxSummary,
-        readAtIso: null,
-        archivedAtIso: null,
-        completedAtIso: new Date().toISOString(),
-      })
-      this.ownedActiveRunIds.delete(run.id)
-      await store.appendEvent(failedRun, { type: `${eventPrefix}.failed`, errorMessage: message })
-      await store.appendLog(failedRun, `Run failed: ${message}`)
-      await this.projectTerminalRun({ definition, store, run: failedRun })
+      try {
+        const failedRun = await store.updateRun(run.id, {
+          state: classification.state,
+          errorMessage: message,
+          findings: classification.findings,
+          inboxTitle: classification.inboxTitle,
+          inboxSummary: classification.inboxSummary,
+          readAtIso: null,
+          archivedAtIso: null,
+          completedAtIso: new Date().toISOString(),
+        })
+        await store.appendEvent(failedRun, { type: `${eventPrefix}.failed`, errorMessage: message })
+        await store.appendLog(failedRun, `Run failed: ${message}`)
+        await this.projectTerminalRun({ definition, store, run: failedRun })
+      } catch {
+        // Preserve the original startup failure while still releasing in-memory ownership.
+      } finally {
+        this.ownedActiveRunIds.delete(run.id)
+      }
       throw error
     }
   }
@@ -351,54 +361,60 @@ export class AutomationRunner {
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Automation completion read failed'
       const classification = classifyAutomationRunFailure(message)
-      const failed = await match.store.updateRun(match.run.id, {
-        state: classification.state,
-        errorMessage: message,
-        findings: classification.findings,
-        inboxTitle: classification.inboxTitle,
-        inboxSummary: classification.inboxSummary,
-        readAtIso: null,
-        archivedAtIso: null,
-        completedAtIso: new Date().toISOString(),
-      })
-      this.ownedActiveRunIds.delete(match.run.id)
-      const eventPrefix = match.run.trigger === 'schedule' ? 'scheduled_run' : 'manual_run'
-      await match.store.appendEvent(failed, { type: `${eventPrefix}.failed`, threadId, turnId, errorMessage: message })
-      await match.store.appendLog(failed, `Run failed during completion: ${message}`)
-      const definition = await this.createProjectionDefinition(match.entry, failed)
-      await this.projectTerminalRun({ definition, store: match.store, run: failed })
+      try {
+        const failed = await match.store.updateRun(match.run.id, {
+          state: classification.state,
+          errorMessage: message,
+          findings: classification.findings,
+          inboxTitle: classification.inboxTitle,
+          inboxSummary: classification.inboxSummary,
+          readAtIso: null,
+          archivedAtIso: null,
+          completedAtIso: new Date().toISOString(),
+        })
+        const eventPrefix = match.run.trigger === 'schedule' ? 'scheduled_run' : 'manual_run'
+        await match.store.appendEvent(failed, { type: `${eventPrefix}.failed`, threadId, turnId, errorMessage: message })
+        await match.store.appendLog(failed, `Run failed during completion: ${message}`)
+        const definition = await this.createProjectionDefinition(match.entry, failed)
+        await this.projectTerminalRun({ definition, store: match.store, run: failed })
+      } finally {
+        this.ownedActiveRunIds.delete(match.run.id)
+      }
       return
     }
     const extracted = extractAssistantText(response, turnId)
     const resultSummary = extracted.text
     const now = new Date().toISOString()
     const classification = classifyAutomationRunResult(resultSummary)
-    const completed = await match.store.updateRun(match.run.id, {
-      state: classification.state,
-      resultSummary,
-      findings: classification.findings,
-      inboxTitle: classification.inboxTitle,
-      inboxSummary: classification.inboxSummary,
-      readAtIso: classification.findings ? null : now,
-      archivedAtIso: null,
-      completedAtIso: now,
-      updatedAtIso: now,
-    })
-    this.ownedActiveRunIds.delete(match.run.id)
-    const eventPrefix = match.run.trigger === 'schedule' ? 'scheduled_run' : 'manual_run'
-    if (extracted.warning) {
-      await match.store.appendEvent(completed, {
-        type: `${eventPrefix}.completion_warning`,
-        threadId,
-        turnId,
-        message: extracted.warning,
+    try {
+      const completed = await match.store.updateRun(match.run.id, {
+        state: classification.state,
+        resultSummary,
+        findings: classification.findings,
+        inboxTitle: classification.inboxTitle,
+        inboxSummary: classification.inboxSummary,
+        readAtIso: classification.findings ? null : now,
+        archivedAtIso: null,
+        completedAtIso: now,
+        updatedAtIso: now,
       })
-      await match.store.appendLog(completed, `Completion warning: ${extracted.warning}`)
+      const eventPrefix = match.run.trigger === 'schedule' ? 'scheduled_run' : 'manual_run'
+      if (extracted.warning) {
+        await match.store.appendEvent(completed, {
+          type: `${eventPrefix}.completion_warning`,
+          threadId,
+          turnId,
+          message: extracted.warning,
+        })
+        await match.store.appendLog(completed, `Completion warning: ${extracted.warning}`)
+      }
+      await match.store.appendEvent(completed, { type: `${eventPrefix}.completed`, threadId, turnId })
+      await match.store.appendLog(completed, `${match.run.trigger === 'schedule' ? 'Scheduled' : 'Manual'} run completed ${classification.findings ? 'with findings' : 'with no findings'}`)
+      const definition = await this.createProjectionDefinition(match.entry, completed)
+      await this.projectTerminalRun({ definition, store: match.store, run: completed })
+    } finally {
+      this.ownedActiveRunIds.delete(match.run.id)
     }
-    await match.store.appendEvent(completed, { type: `${eventPrefix}.completed`, threadId, turnId })
-    await match.store.appendLog(completed, `${match.run.trigger === 'schedule' ? 'Scheduled' : 'Manual'} run completed ${classification.findings ? 'with findings' : 'with no findings'}`)
-    const definition = await this.createProjectionDefinition(match.entry, completed)
-    await this.projectTerminalRun({ definition, store: match.store, run: completed })
   }
 
   private async findActiveRunForTurn(threadId: string, turnId: string): Promise<{

@@ -5553,8 +5553,6 @@ Review-cycle hardening for generated automation IDs, production artifact indexin
 #### Rollback/Cleanup
 - Delete disposable automation records and run folders created only for this check.
 
----
-
 ### Automations PR review cycle 6 fixes
 
 #### Feature/Change Name
@@ -5608,9 +5606,6 @@ Trusted-access protection for automations read routes.
 
 #### Rollback/Cleanup
 - Delete disposable automation records and run folders created only for this check.
-- No UI state cleanup is required.
-
----
 
 ### Automations PR review cycle 3 fixes
 
@@ -5763,6 +5758,34 @@ Review-cycle hardening for automation completion parsing and route parameter val
 - Completion parsing extracts assistant output from `messages`, nested message objects, and text/content block arrays without falling back to unrelated turns.
 - Runs with nested assistant findings are classified as `completed_with_findings` and keep the extracted summary.
 - Invalid automation route ids are rejected before service lookup.
+
+#### Rollback/Cleanup
+- Delete disposable automation records and run folders created only for this check.
+
+---
+
+### Automations PR review cycle 9 fixes
+
+#### Feature/Change Name
+Review-cycle hardening for automation runner ownership cleanup and notification subscription disposal.
+
+#### Prerequisites/Setup
+1. Use `${WORKTREE_ROOT}` on `feat/automations`.
+2. Reuse an existing compatible dependency install if this worktree does not already have dependencies.
+3. Use disposable automation records and run folders only.
+
+#### Steps
+1. Run `pnpm exec vitest run src/server/automations/__tests__/runner.test.ts`.
+2. Run `pnpm test:unit`.
+3. Run `pnpm run build`.
+4. Run `git diff --check`.
+5. Start an automation run that fails during `turn/start`, then remove its persisted run record before failure persistence runs.
+6. Construct and dispose an automation service backed by a bridge notification subscription.
+
+#### Expected Results
+- Startup failure still reports the original run failure when failed-run persistence also fails.
+- In-memory active-run ownership is released in all startup and completion terminal paths even when persistence throws.
+- Disposing the automation service unsubscribes the runner from bridge notifications.
 
 #### Rollback/Cleanup
 - Delete disposable automation records and run folders created only for this check.
