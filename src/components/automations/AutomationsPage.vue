@@ -60,7 +60,7 @@
 
         <p v-if="isLoading" class="automations-status">Loading automations...</p>
         <p v-else-if="definitions.length === 0" class="automations-empty">
-          No heartbeat automations configured.
+          No automations configured.
         </p>
 
         <div v-else class="automations-table-wrap">

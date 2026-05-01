@@ -195,7 +195,14 @@ function runModeFromExecutionEnvironment(value: string | null): AutomationRunMod
 function previousRawHasTopLevelKey(previousRaw: string | undefined, key: string): boolean {
   if (typeof previousRaw !== 'string') return false
   let multilineStringDelimiter: '"""' | "'''" | null = null
+  let multilineArrayValue: string | null = null
   for (const line of previousRaw.split(/\r?\n/u)) {
+    if (multilineArrayValue !== null) {
+      multilineArrayValue += `\n${line}`
+      if (findTomlArrayCloseIndex(multilineArrayValue) >= 0) multilineArrayValue = null
+      continue
+    }
+
     if (multilineStringDelimiter) {
       if (findTomlMultilineCloseIndex(line, multilineStringDelimiter) >= 0) multilineStringDelimiter = null
       continue
@@ -203,6 +210,11 @@ function previousRawHasTopLevelKey(previousRaw: string | undefined, key: string)
     const assignment = readTopLevelTomlAssignment(line)
     if (!assignment) continue
     if (assignment.key === key) return true
+    const trimmedValue = assignment.value.trim()
+    if (trimmedValue.startsWith('[') && findTomlArrayCloseIndex(trimmedValue) < 0) {
+      multilineArrayValue = trimmedValue
+      continue
+    }
     multilineStringDelimiter = getOpenMultilineTomlStringDelimiter(assignment.value)
   }
   return false
@@ -309,6 +321,7 @@ function findTomlMultilineCloseIndex(line: string, delimiter: '"""' | "'''", fro
 
 function findTomlArrayCloseIndex(value: string): number {
   let index = 0
+  let depth = 0
   while (index < value.length) {
     const char = value[index]
     if (char === '#') {
@@ -322,7 +335,17 @@ function findTomlArrayCloseIndex(value: string): number {
       index = stringEnd + 1
       continue
     }
-    if (char === ']') return index
+    if (char === '[') {
+      depth += 1
+      index += 1
+      continue
+    }
+    if (char === ']') {
+      if (depth <= 1) return index
+      depth -= 1
+      index += 1
+      continue
+    }
     index += 1
   }
   return -1
@@ -452,13 +475,14 @@ export function serializeAutomationToml(record: ThreadAutomationRecord, previous
   const merged: string[] = []
   let multilineStringDelimiter: '"""' | "'''" | null = null
   let skipMultilineString = false
-  let skipMultilineArray = false
+  let skippedArrayValue: string | null = null
 
   for (const [index, line] of lines.entries()) {
     if (index === lines.length - 1 && line.length === 0) continue
 
-    if (skipMultilineArray) {
-      if (findTomlArrayCloseIndex(line) >= 0) skipMultilineArray = false
+    if (skippedArrayValue !== null) {
+      skippedArrayValue += `\n${line}`
+      if (findTomlArrayCloseIndex(skippedArrayValue) >= 0) skippedArrayValue = null
       continue
     }
 
@@ -486,7 +510,7 @@ export function serializeAutomationToml(record: ThreadAutomationRecord, previous
         merged.push(`${assignment.key} = ${fields[assignment.key]}`)
       }
     }
-    if (skipFollowingArrayLines) skipMultilineArray = true
+    if (skipFollowingArrayLines) skippedArrayValue = assignment.value
     if (nextDelimiter) {
       multilineStringDelimiter = nextDelimiter
       skipMultilineString = true
@@ -524,10 +548,13 @@ async function chooseAvailableAutomationBasename(automationRoot: string, basenam
   let candidate = safeBase
   for (let attempt = 0; attempt < 100; attempt += 1) {
     try {
-      await stat(join(automationRoot, candidate))
-      candidate = `${safeBase}-${randomBytes(4).toString('hex')}`
+      await mkdir(join(automationRoot, candidate))
+      return candidate
     } catch (error) {
-      if (isMissingFileError(error)) return candidate
+      if (error instanceof Error && 'code' in error && error.code === 'EEXIST') {
+        candidate = `${safeBase}-${randomBytes(4).toString('hex')}`
+        continue
+      }
       throw error
     }
   }

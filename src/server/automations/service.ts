@@ -630,19 +630,20 @@ async function readSchedulerStateForTick(entry: NativeAutomationEntry): Promise<
 async function writeUnsupportedExecutionEnvironmentSchedulerState(
   entry: NativeAutomationEntry,
   sidecar: AutomationSidecar,
+  nowIso = new Date().toISOString(),
 ): Promise<AutomationSchedulerState> {
   const store = createAutomationSchedulerStore(entry.automationDirPath)
   const current = await store.readOrDefault({
     automationId: entry.record.id,
     sourceDirName: entry.sourceDirName,
   })
-  const nowIso = new Date().toISOString()
   return await store.writeState({
     ...current,
     automationId: entry.record.id,
     sourceDirName: entry.sourceDirName,
     scheduleHash: buildScheduleHash(entry, sidecar),
     nextDueAtIso: null,
+    lastEvaluatedAtIso: nowIso,
     unsupportedReason: `Unsupported automation execution_environment: ${entry.record.executionEnvironment}`,
     updatedAtIso: nowIso,
   })
@@ -753,6 +754,9 @@ async function refreshSchedulerState(
   sidecar: AutomationSidecar,
   nowIso = new Date().toISOString(),
 ): Promise<AutomationSchedulerState> {
+  if (entry.record.executionEnvironment && !entry.record.runMode) {
+    return await writeUnsupportedExecutionEnvironmentSchedulerState(entry, sidecar, nowIso)
+  }
   const decision = evaluateRruleSchedule({
     rrule: entry.record.rrule,
     nowIso,
@@ -828,6 +832,8 @@ function buildScheduleHash(entry: NativeAutomationEntry, _sidecar: AutomationSid
       id: entry.record.id,
       sourceDirName: entry.sourceDirName,
       rrule: entry.record.rrule,
+      executionEnvironment: entry.record.executionEnvironment,
+      runMode: entry.record.runMode,
     }))
     .digest('hex')
 }
