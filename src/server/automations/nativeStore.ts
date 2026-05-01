@@ -30,6 +30,21 @@ export type NativeAutomationStoreOptions = {
   codexHomeDir?: string
 }
 
+export type NativeAutomationWriteInput = {
+  id?: string | null
+  kind: 'heartbeat' | 'cron'
+  threadId: string | null
+  name: string
+  prompt: string
+  rrule: string
+  status: ThreadAutomationStatus
+  model?: string | null
+  reasoningEffort?: string | null
+  runMode?: AutomationRunMode | null
+  cwd?: string | null
+  cwds?: string[]
+}
+
 type ThreadAutomationStoreEntry = {
   record: ThreadAutomationRecord
   sourceDirName: string
@@ -535,7 +550,22 @@ export async function writeThreadHeartbeatAutomation(
   },
   options?: NativeAutomationStoreOptions,
 ): Promise<ThreadAutomationRecord> {
+  return await writeNativeAutomation({
+    kind: 'heartbeat',
+    threadId: input.threadId,
+    name: input.name,
+    prompt: input.prompt,
+    rrule: input.rrule,
+    status: input.status,
+  }, options)
+}
+
+export async function writeNativeAutomation(
+  input: NativeAutomationWriteInput,
+  options?: NativeAutomationStoreOptions,
+): Promise<ThreadAutomationRecord> {
   const threadId = input.threadId?.trim() || null
+  const explicitId = input.id?.trim() || null
   const name = input.name.trim()
   const prompt = input.prompt.trim()
   const rrule = input.rrule.trim()
@@ -546,9 +576,13 @@ export async function writeThreadHeartbeatAutomation(
   const automationRoot = getCodexAutomationsDir(options)
   await mkdir(automationRoot, { recursive: true })
   const existing = threadId ? await readThreadHeartbeatAutomationEntry(threadId, options) : null
-  const generatedId = threadId
-    ? slugifyAutomationId(threadId, name)
-    : `${slugifyAutomationId('', name)}-${randomBytes(4).toString('hex')}`
+  const generatedId = explicitId && isSafeAutomationBasename(explicitId)
+    ? explicitId
+    : threadId
+      ? slugifyAutomationId(threadId, name)
+      : input.kind === 'cron'
+        ? slugifyAutomationId('', name)
+        : `${slugifyAutomationId('', name)}-${randomBytes(4).toString('hex')}`
   const id = safeAutomationId(existing?.record.id, existing?.sourceDirName, generatedId)
   const sourceDirName = existing?.sourceDirName && isSafeAutomationBasename(existing.sourceDirName)
     ? existing.sourceDirName
@@ -565,19 +599,19 @@ export async function writeThreadHeartbeatAutomation(
   const now = Date.now()
   const record: ThreadAutomationRecord = {
     id,
-    kind: 'heartbeat',
+    kind: input.kind,
     name,
     prompt,
     rrule,
-    rrulePrefix: null,
+    rrulePrefix: existing?.record.rrulePrefix ?? (input.kind === 'cron' ? 'RRULE:' : null),
     status: input.status,
     targetThreadId: threadId,
-    model: existing?.record.model ?? null,
-    reasoningEffort: existing?.record.reasoningEffort ?? null,
-    executionEnvironment: existing?.record.executionEnvironment ?? null,
-    runMode: existing?.record.runMode ?? null,
-    cwd: existing?.record.cwd ?? null,
-    cwds: existing?.record.cwds ?? [],
+    model: input.model ?? existing?.record.model ?? null,
+    reasoningEffort: input.reasoningEffort ?? existing?.record.reasoningEffort ?? null,
+    executionEnvironment: input.runMode ?? existing?.record.executionEnvironment ?? null,
+    runMode: input.runMode ?? existing?.record.runMode ?? null,
+    cwd: input.cwd ?? input.cwds?.[0] ?? existing?.record.cwd ?? null,
+    cwds: input.cwds ?? (input.cwd ? [input.cwd] : existing?.record.cwds ?? []),
     createdAtMs: existing?.record.createdAtMs ?? now,
     updatedAtMs: now,
     nextRunAtMs: null,
@@ -594,7 +628,7 @@ export async function writeThreadHeartbeatAutomation(
   return record
 }
 
-export async function writeNativeHeartbeatAutomationBySourceDir(
+export async function writeNativeAutomationBySourceDir(
   sourceDirName: string,
   record: ThreadAutomationRecord,
   options?: NativeAutomationStoreOptions,
@@ -621,6 +655,8 @@ export async function writeNativeHeartbeatAutomationBySourceDir(
   }
   return record
 }
+
+export const writeNativeHeartbeatAutomationBySourceDir = writeNativeAutomationBySourceDir
 
 export async function deleteThreadHeartbeatAutomation(
   threadId: string,

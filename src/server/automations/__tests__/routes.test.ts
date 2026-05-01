@@ -751,6 +751,11 @@ describe('createAutomationsMiddleware', () => {
     })
     await expect(readFile(created.body.data.storage.sidecarPath, 'utf8')).resolves.toContain('"runMode": null')
     await expect(readFile(created.body.data.storage.sidecarPath, 'utf8')).resolves.toContain('"notes": "operator note"')
+    const createdTomlPath = join(codexHomeDir, 'automations', created.body.data.storage.nativeDirName, 'automation.toml')
+    const createdToml = await readFile(createdTomlPath, 'utf8')
+    expect(createdToml).toContain('model = "gpt-5"')
+    expect(createdToml).toContain('reasoning_effort = "medium"')
+    expect(createdToml).toContain('cwds = ["/tmp"]')
 
     const patched = await requestJson<{ data: { id: string; targetThreadId: null; status: string; cwd: string; runMode: 'local'; notes: string; nextRunAtIso: string | null; storage: { sidecarPath: string } } }>(
       `${baseUrl}/codex-api/automations/${created.body.data.id}`,
@@ -775,6 +780,10 @@ describe('createAutomationsMiddleware', () => {
     expect(patchedScheduler.scheduleHash).not.toBe(createdScheduler.scheduleHash)
     expect(patchedScheduler.nextDueAtIso).toBe(patched.body.data.nextRunAtIso)
     await expect(readFile(patched.body.data.storage.sidecarPath, 'utf8')).resolves.toContain('"runMode": "local"')
+    const patchedToml = await readFile(createdTomlPath, 'utf8')
+    expect(patchedToml).toContain('execution_environment = "local"')
+    expect(patchedToml).toContain('cwds = ["/var/tmp"]')
+    expect(patchedToml).toContain('model = "gpt-5"')
 
     const getDetached = await requestJson<{ data: { id: string; targetThreadId: null; nextRunAtIso: string | null } }>(`${baseUrl}/codex-api/automations/${created.body.data.id}`)
     expect(getDetached.status).toBe(200)
@@ -966,6 +975,63 @@ describe('createAutomationsMiddleware', () => {
     expect(local.body.data).toMatchObject({ targetThreadId: null, cwd: '/tmp', runMode: 'local' })
     expect(worktree.status).toBe(201)
     expect(worktree.body.data).toMatchObject({ targetThreadId: null, cwd: '/var/tmp', runMode: 'worktree' })
+  })
+
+  it('creates Desktop-compatible cron automation TOML for worktree scheduled runs', async () => {
+    const { baseUrl, codexHomeDir } = await createHarness()
+    const csrfHeaders = await readCsrfHeaders(baseUrl)
+
+    const created = await requestJson<{
+      data: {
+        id: string
+        kind: string
+        targetThreadId: string | null
+        cwd: string | null
+        runMode: string | null
+        model: string | null
+        reasoningEffort: string | null
+        storage: { nativeDirName: string; nativePath: string }
+      }
+    }>(
+      `${baseUrl}/codex-api/automations`,
+      {
+        method: 'POST',
+        headers: csrfHeaders,
+        body: JSON.stringify({
+          kind: 'cron',
+          name: 'hourly fixture',
+          prompt: 'Run',
+          schedule: { type: 'rrule', rrule: 'FREQ=HOURLY;INTERVAL=1;BYMINUTE=0' },
+          targetThreadId: null,
+          cwd: '/mnt/c/Users/projects/apollo',
+          runMode: 'worktree',
+          model: 'gpt-5.5',
+          reasoningEffort: 'low',
+          kanbanProjection: { mode: 'off' },
+          notes: '',
+        }),
+      },
+    )
+
+    expect(created.status).toBe(201)
+    expect(created.body.data).toMatchObject({
+      id: 'hourly-fixture',
+      kind: 'cron',
+      targetThreadId: null,
+      cwd: '/mnt/c/Users/projects/apollo',
+      runMode: 'worktree',
+      model: 'gpt-5.5',
+      reasoningEffort: 'low',
+      storage: { nativeDirName: 'hourly-fixture' },
+    })
+    const raw = await readFile(join(codexHomeDir, 'automations', 'hourly-fixture', 'automation.toml'), 'utf8')
+    expect(raw).toContain('kind = "cron"')
+    expect(raw).toContain('rrule = "RRULE:FREQ=HOURLY;INTERVAL=1;BYMINUTE=0"')
+    expect(raw).toContain('model = "gpt-5.5"')
+    expect(raw).toContain('reasoning_effort = "low"')
+    expect(raw).toContain('execution_environment = "worktree"')
+    expect(raw).toContain('cwds = ["/mnt/c/Users/projects/apollo"]')
+    expect(raw).not.toContain('target_thread_id = ""')
   })
 
   it('persists kanban projection settings while preserving omitted patch values and legacy defaults', async () => {

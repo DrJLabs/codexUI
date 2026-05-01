@@ -22,7 +22,7 @@ import {
   getNativeAutomationsRoot,
   listNativeAutomationEntries,
   writeNativeHeartbeatAutomationBySourceDir,
-  writeThreadHeartbeatAutomation,
+  writeNativeAutomation,
   type NativeAutomationEntry,
   type NativeAutomationStoreOptions,
   type ThreadAutomationRecord,
@@ -164,12 +164,18 @@ export class AutomationsService {
     await this.assertKanbanProjectionTarget(input.kanbanProjection)
     assertAutomationRunTarget(input.runMode, input.cwd, input.targetThreadId)
 
-    const record = await writeThreadHeartbeatAutomation({
+    const record = await writeNativeAutomation({
+      kind: input.kind,
       threadId: input.targetThreadId,
       name: input.name,
       prompt: input.prompt,
       rrule: input.schedule.rrule,
       status: 'ACTIVE',
+      model: input.model,
+      reasoningEffort: input.reasoningEffort,
+      runMode: input.runMode,
+      cwd: input.cwd,
+      cwds: input.cwd ? [input.cwd] : [],
     }, this.options)
     const entry = await this.findEntry(record.id)
     if (!entry) throw new AutomationNotFoundError(record.id)
@@ -204,6 +210,12 @@ export class AutomationsService {
       prompt: patch.prompt ?? entry.record.prompt,
       rrule: patch.schedule?.rrule ?? entry.record.rrule,
       targetThreadId: hasOwn(patch, 'targetThreadId') ? patch.targetThreadId ?? null : entry.record.targetThreadId,
+      model: hasOwn(patch, 'model') ? patch.model ?? null : entry.record.model,
+      reasoningEffort: hasOwn(patch, 'reasoningEffort') ? patch.reasoningEffort ?? null : entry.record.reasoningEffort,
+      runMode: hasOwn(patch, 'runMode') ? patch.runMode ?? null : entry.record.runMode,
+      executionEnvironment: hasOwn(patch, 'runMode') ? patch.runMode ?? null : entry.record.executionEnvironment,
+      cwd: hasOwn(patch, 'cwd') ? patch.cwd ?? null : entry.record.cwd,
+      cwds: hasOwn(patch, 'cwd') ? patch.cwd ? [patch.cwd] : [] : entry.record.cwds,
       updatedAtMs: now,
     }
     let nextSidecar = {
@@ -217,7 +229,7 @@ export class AutomationsService {
       kanbanProjection: hasOwn(patch, 'kanbanProjection') ? patch.kanbanProjection ?? { mode: 'off' } : sidecarResult.sidecar.kanbanProjection,
       notes: hasOwn(patch, 'notes') ? patch.notes ?? '' : sidecarResult.sidecar.notes,
     }
-    assertAutomationRunTarget(nextSidecar.runMode, nextSidecar.cwd, nextRecord.targetThreadId)
+    assertAutomationRunTarget(nextRecord.runMode ?? nextSidecar.runMode, nextRecord.cwd ?? nextSidecar.cwd, nextRecord.targetThreadId)
     await writeNativeHeartbeatAutomationBySourceDir(entry.sourceDirName, nextRecord, this.options)
     await writeSidecar(entry, nextSidecar)
     nextSidecar = await this.projectDefinitionSidecar({ ...entry, record: nextRecord }, nextSidecar)
