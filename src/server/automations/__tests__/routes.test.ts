@@ -966,6 +966,36 @@ describe('createAutomationsMiddleware', () => {
     expect(raw).not.toContain('execution_environment = "chat"')
   })
 
+  it('preserves additional Desktop cwds when patch cwd matches the primary path', async () => {
+    const { baseUrl, codexHomeDir } = await createHarness()
+    const csrfHeaders = await readCsrfHeaders(baseUrl)
+    await writeNative(codexHomeDir, 'multi-cwd-cron', {
+      ...nativeRecord,
+      id: 'multi-cwd-cron',
+      kind: 'cron',
+      targetThreadId: null,
+      executionEnvironment: 'worktree',
+      runMode: 'worktree',
+      cwd: '/repo/one',
+      cwds: ['/repo/one', '/repo/two'],
+    })
+
+    const patched = await requestJson<{ data: { id: string; name: string; cwd: string; cwds: string[] } }>(
+      `${baseUrl}/codex-api/automations/multi-cwd-cron`,
+      { method: 'PATCH', headers: csrfHeaders, body: JSON.stringify({ name: 'Renamed Multi Cwd', runMode: 'worktree', cwd: '/repo/one' }) },
+    )
+    const raw = await readFile(join(codexHomeDir, 'automations', 'multi-cwd-cron', 'automation.toml'), 'utf8')
+
+    expect(patched.status).toBe(200)
+    expect(patched.body.data).toMatchObject({
+      id: 'multi-cwd-cron',
+      name: 'Renamed Multi Cwd',
+      cwd: '/repo/one',
+      cwds: ['/repo/one', '/repo/two'],
+    })
+    expect(raw).toContain('cwds = ["/repo/one", "/repo/two"]')
+  })
+
   it('creates local and worktree automations without an attached thread id', async () => {
     const { baseUrl } = await createHarness()
     const csrfHeaders = await readCsrfHeaders(baseUrl)

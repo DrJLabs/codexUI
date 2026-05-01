@@ -122,30 +122,59 @@ function readTomlStringArray(value: string): string[] | null {
   const values: string[] = []
   let index = 0
   while (index < body.length) {
-    while (/\s|,/u.test(body[index] ?? '')) index += 1
+    index = skipTomlArrayIgnored(body, index, true)
     if (index >= body.length) break
-    const quote = body[index]
-    if (quote !== '"' && quote !== "'") return null
-    let end = index + 1
-    let escaped = false
-    while (end < body.length) {
-      const char = body[end]
-      if (quote === '"' && !escaped && char === '\\') {
-        escaped = true
-        end += 1
-        continue
-      }
-      if (!escaped && char === quote) break
-      escaped = false
-      end += 1
-    }
-    if (end >= body.length) return null
+    const end = findTomlArrayStringEndIndex(body, index)
+    if (end < 0) return null
     values.push(readTomlString(body.slice(index, end + 1)))
     index = end + 1
-    while (/\s/u.test(body[index] ?? '')) index += 1
+    index = skipTomlArrayIgnored(body, index, false)
     if (index < body.length && body[index] !== ',') return null
   }
   return values
+}
+
+function skipTomlArrayIgnored(value: string, index: number, allowComma: boolean): number {
+  let next = index
+  while (next < value.length) {
+    const char = value[next]
+    if (/\s/u.test(char) || (allowComma && char === ',')) {
+      next += 1
+      continue
+    }
+    if (char === '#') {
+      const lineEnd = value.indexOf('\n', next + 1)
+      next = lineEnd >= 0 ? lineEnd + 1 : value.length
+      continue
+    }
+    break
+  }
+  return next
+}
+
+function findTomlArrayStringEndIndex(value: string, startIndex: number): number {
+  const delimiter = value.startsWith('"""', startIndex) ? '"""' : value.startsWith("'''", startIndex) ? "'''" : null
+  if (delimiter) {
+    const closingIndex = findTomlMultilineCloseIndex(value, delimiter, startIndex + delimiter.length)
+    return closingIndex >= 0 ? closingIndex + delimiter.length - 1 : -1
+  }
+
+  const quote = value[startIndex]
+  if (quote !== '"' && quote !== "'") return -1
+  let end = startIndex + 1
+  let escaped = false
+  while (end < value.length) {
+    const char = value[end]
+    if (quote === '"' && !escaped && char === '\\') {
+      escaped = true
+      end += 1
+      continue
+    }
+    if (!escaped && char === quote) break
+    escaped = false
+    end += 1
+  }
+  return end < value.length ? end : -1
 }
 
 function serializeTomlStringArray(values: string[]): string {
@@ -278,6 +307,27 @@ function findTomlMultilineCloseIndex(line: string, delimiter: '"""' | "'''", fro
   return -1
 }
 
+function findTomlArrayCloseIndex(value: string): number {
+  let index = 0
+  while (index < value.length) {
+    const char = value[index]
+    if (char === '#') {
+      const lineEnd = value.indexOf('\n', index + 1)
+      index = lineEnd >= 0 ? lineEnd + 1 : value.length
+      continue
+    }
+    if (char === '"' || char === "'") {
+      const stringEnd = findTomlArrayStringEndIndex(value, index)
+      if (stringEnd < 0) return -1
+      index = stringEnd + 1
+      continue
+    }
+    if (char === ']') return index
+    index += 1
+  }
+  return -1
+}
+
 function isEscapedBasicStringQuote(line: string, quoteIndex: number): boolean {
   let backslashCount = 0
   for (let index = quoteIndex - 1; index >= 0 && line[index] === '\\'; index -= 1) {
@@ -295,10 +345,10 @@ export function parseAutomationToml(raw: string): ThreadAutomationRecord | null 
   let multilineArrayLines: string[] = []
   for (const line of raw.split(/\r?\n/u)) {
     if (multilineArrayKey) {
-      const arrayLine = stripTomlLineComment(line).trim()
-      multilineArrayLines.push(arrayLine)
-      if (arrayLine.includes(']')) {
-        values[multilineArrayKey] = multilineArrayLines.join('\n')
+      multilineArrayLines.push(line)
+      const arrayValue = multilineArrayLines.join('\n')
+      if (findTomlArrayCloseIndex(arrayValue) >= 0) {
+        values[multilineArrayKey] = arrayValue
         multilineArrayKey = null
         multilineArrayLines = []
       }
@@ -323,7 +373,7 @@ export function parseAutomationToml(raw: string): ThreadAutomationRecord | null 
     const assignment = readTopLevelTomlAssignment(line)
     if (!assignment) continue
     const trimmedValue = assignment.value.trim()
-    if (trimmedValue.startsWith('[') && !trimmedValue.endsWith(']')) {
+    if (trimmedValue.startsWith('[') && findTomlArrayCloseIndex(trimmedValue) < 0) {
       multilineArrayKey = assignment.key
       multilineArrayLines = [trimmedValue]
       continue

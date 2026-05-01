@@ -205,6 +205,11 @@ export class AutomationsService {
     }
     const now = Date.now()
     const preserveUnknownExecutionEnvironment = Boolean(entry.record.executionEnvironment && !entry.record.runMode)
+    const existingPrimaryCwd = entry.record.cwd ?? entry.record.cwds[0] ?? null
+    const patchedCwd = hasOwn(patch, 'cwd') ? patch.cwd ?? null : entry.record.cwd
+    const patchedCwds = hasOwn(patch, 'cwd')
+      ? patchedCwd === existingPrimaryCwd ? entry.record.cwds : patchedCwd ? [patchedCwd] : []
+      : entry.record.cwds
     const nextRecord: ThreadAutomationRecord = {
       ...entry.record,
       name: patch.name ?? entry.record.name,
@@ -215,8 +220,8 @@ export class AutomationsService {
       reasoningEffort: hasOwn(patch, 'reasoningEffort') ? patch.reasoningEffort ?? null : entry.record.reasoningEffort,
       runMode: preserveUnknownExecutionEnvironment ? entry.record.runMode : hasOwn(patch, 'runMode') ? patch.runMode ?? null : entry.record.runMode,
       executionEnvironment: preserveUnknownExecutionEnvironment ? entry.record.executionEnvironment : hasOwn(patch, 'runMode') ? patch.runMode ?? null : entry.record.executionEnvironment,
-      cwd: hasOwn(patch, 'cwd') ? patch.cwd ?? null : entry.record.cwd,
-      cwds: hasOwn(patch, 'cwd') ? patch.cwd ? [patch.cwd] : [] : entry.record.cwds,
+      cwd: patchedCwd,
+      cwds: patchedCwds,
       updatedAtMs: now,
     }
     let nextSidecar = {

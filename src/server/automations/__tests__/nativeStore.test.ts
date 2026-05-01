@@ -119,7 +119,7 @@ describe('native automation store TOML compatibility', () => {
     })
   })
 
-  it('parses multiline Desktop cwds arrays with comments', () => {
+  it('parses multiline Desktop cwds arrays with comments, brackets, and multiline strings', () => {
     const raw = [
       'version = 1',
       'id = "multi-line-cwds"',
@@ -130,7 +130,9 @@ describe('native automation store TOML compatibility', () => {
       'rrule = "RRULE:FREQ=DAILY"',
       'execution_environment = "worktree"',
       'cwds = [',
-      '  "/repo/one", # primary',
+      '  """',
+      '/repo/[one]',
+      '""", # primary',
       '  "/repo/two",',
       ']',
       'created_at = 1777654085276',
@@ -139,8 +141,8 @@ describe('native automation store TOML compatibility', () => {
     ].join('\n')
 
     expect(parseAutomationToml(raw)).toMatchObject({
-      cwd: '/repo/one',
-      cwds: ['/repo/one', '/repo/two'],
+      cwd: '/repo/[one]',
+      cwds: ['/repo/[one]', '/repo/two'],
     })
   })
 
