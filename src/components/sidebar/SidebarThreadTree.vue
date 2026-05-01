@@ -35,8 +35,15 @@
             <template #left>
               <span class="thread-left-stack">
                 <span v-if="shouldShowThreadIndicator(thread)" class="thread-status-indicator" :data-state="getThreadState(thread)" />
-                <button class="thread-pin-button" type="button" title="pin" @click.stop="togglePin(thread.id)">
-                  <IconTablerPin class="thread-icon" />
+                <button
+                  class="thread-delete-button"
+                  type="button"
+                  :data-confirming="isInlineDeleteConfirming(thread.id)"
+                  :title="isInlineDeleteConfirming(thread.id) ? 'Confirm delete' : t('Delete thread')"
+                  @click.stop="onInlineDeleteClick(thread.id)"
+                >
+                  <span v-if="isInlineDeleteConfirming(thread.id)" class="thread-delete-confirm-label">Confirm</span>
+                  <IconTablerTrash v-else class="thread-icon" />
                 </button>
               </span>
             </template>
@@ -191,8 +198,15 @@
                 class="thread-status-indicator"
                 :data-state="getThreadState(thread)"
               />
-              <button class="thread-pin-button" type="button" title="pin" @click.stop="togglePin(thread.id)">
-                <IconTablerPin class="thread-icon" />
+              <button
+                class="thread-delete-button"
+                type="button"
+                :data-confirming="isInlineDeleteConfirming(thread.id)"
+                :title="isInlineDeleteConfirming(thread.id) ? 'Confirm delete' : t('Delete thread')"
+                @click.stop="onInlineDeleteClick(thread.id)"
+              >
+                <span v-if="isInlineDeleteConfirming(thread.id)" class="thread-delete-confirm-label">Confirm</span>
+                <IconTablerTrash v-else class="thread-icon" />
               </button>
             </span>
           </template>
@@ -254,6 +268,7 @@
             role="button"
             tabindex="0"
             @click="toggleProjectCollapse(group.projectName)"
+            @contextmenu.prevent="openProjectContextMenu(group.projectName)"
             @keydown="onProjectHeaderKeyDown($event, group.projectName)"
             @keydown.enter.prevent="toggleProjectCollapse(group.projectName)"
             @keydown.space.prevent="toggleProjectCollapse(group.projectName)"
@@ -275,7 +290,9 @@
               :data-dragging-handle="isDraggingProject(group.projectName)"
               @mousedown.left="onProjectHandleMouseDown($event, group.projectName)"
             >
-              <span class="project-title">{{ getProjectDisplayName(group.projectName) }}</span>
+              <span class="project-title" :title="getProjectDisplayName(group.projectName)">
+                {{ getProjectVisibleName(group) }}
+              </span>
             </span>
             <template #right>
               <div class="project-hover-controls">
@@ -296,8 +313,19 @@
                     @click.stop
                   >
                     <template v-if="projectMenuMode === 'actions'">
-                      <button class="project-menu-item" type="button" @click="openRenameProjectMenu(group.projectName)">
-                        Edit name
+                      <button class="project-menu-item" type="button" @click="onBrowseProjectFiles(group.projectName)">
+                        Browse files
+                      </button>
+                      <button
+                        v-if="projectGitRepoByName[group.projectName]"
+                        class="project-menu-item"
+                        type="button"
+                        @click="onCreateProjectWorktree(group.projectName)"
+                      >
+                        New worktree
+                      </button>
+                      <button class="project-menu-item" type="button" @click="openRenameProjectMenu(group)">
+                        Rename project
                       </button>
                       <button
                         class="project-menu-item project-menu-item-danger"
@@ -356,8 +384,15 @@
                       class="thread-status-indicator"
                       :data-state="getThreadState(thread)"
                     />
-                    <button class="thread-pin-button" type="button" title="pin" @click.stop="togglePin(thread.id)">
-                      <IconTablerPin class="thread-icon" />
+                    <button
+                      class="thread-delete-button"
+                      type="button"
+                      :data-confirming="isInlineDeleteConfirming(thread.id)"
+                      :title="isInlineDeleteConfirming(thread.id) ? 'Confirm delete' : t('Delete thread')"
+                      @click.stop="onInlineDeleteClick(thread.id)"
+                    >
+                      <span v-if="isInlineDeleteConfirming(thread.id)" class="thread-delete-confirm-label">Confirm</span>
+                      <IconTablerTrash v-else class="thread-icon" />
                     </button>
                   </span>
                 </template>
@@ -485,8 +520,15 @@
                   class="thread-status-indicator"
                   :data-state="getThreadState(thread)"
                 />
-                <button class="thread-pin-button" type="button" title="pin" @click.stop="togglePin(thread.id)">
-                  <IconTablerPin class="thread-icon" />
+                <button
+                  class="thread-delete-button"
+                  type="button"
+                  :data-confirming="isInlineDeleteConfirming(thread.id)"
+                  :title="isInlineDeleteConfirming(thread.id) ? 'Confirm delete' : t('Delete thread')"
+                  @click.stop="onInlineDeleteClick(thread.id)"
+                >
+                  <span v-if="isInlineDeleteConfirming(thread.id)" class="thread-delete-confirm-label">Confirm</span>
+                  <IconTablerTrash v-else class="thread-icon" />
                 </button>
               </span>
             </template>
@@ -558,6 +600,9 @@
         </button>
         <button class="thread-menu-item" type="button" @click="onForkThread(openThreadMenuThread.id)">
           Create chat fork
+        </button>
+        <button class="thread-menu-item" type="button" @click="onTogglePinFromMenu(openThreadMenuThread.id)">
+          {{ isPinned(openThreadMenuThread.id) ? 'Unpin thread' : 'Pin thread' }}
         </button>
         <button class="thread-menu-item" type="button" @click="openRenameThreadDialog(openThreadMenuThread.id, openThreadMenuThread.title)">
           {{ t('Rename thread') }}
@@ -690,14 +735,15 @@ import IconTablerFolder from '../icons/IconTablerFolder.vue'
 import IconTablerFolderOpen from '../icons/IconTablerFolderOpen.vue'
 import IconTablerGitFork from '../icons/IconTablerGitFork.vue'
 import IconTablerFilter from '../icons/IconTablerFilter.vue'
-import IconTablerPin from '../icons/IconTablerPin.vue'
+import IconTablerTrash from '../icons/IconTablerTrash.vue'
 import { useUiLanguage } from '../../composables/useUiLanguage'
-import { isProjectlessChatPath } from '../../pathUtils.js'
+import { getPathLeafName, getPathParent, isProjectlessChatPath } from '../../pathUtils.js'
 import SidebarMenuRow from './SidebarMenuRow.vue'
 
 const props = defineProps<{
   groups: UiProjectGroup[]
   projectDisplayNameById: Record<string, string>
+  projectGitRepoByName: Record<string, boolean>
   selectedThreadId: string
   isLoading: boolean
   searchQuery: string
@@ -712,6 +758,8 @@ const emit = defineEmits<{
   archive: [threadId: string]
   'start-new-thread': [projectName: string]
   'browse-thread-files': [threadId: string]
+  'browse-project-files': [projectName: string]
+  'create-project-worktree': [projectName: string]
   'rename-project': [payload: { projectName: string; displayName: string }]
   'rename-thread': [payload: { threadId: string; title: string }]
   'remove-project': [projectName: string]
@@ -769,6 +817,8 @@ const showChatsFirst = ref(loadBooleanStorage(CHATS_FIRST_STORAGE_KEY, false))
 const chatSortMode = ref<ChatSortMode>(loadChatSortMode())
 let hasLoadedPinnedThreadState = false
 const pinnedThreadIds = ref<string[]>([])
+const inlineDeleteConfirmThreadId = ref('')
+const optimisticallyArchivedThreadIds = ref<string[]>([])
 const openProjectMenuId = ref('')
 const openThreadMenuId = ref('')
 const projectMenuDirectionById = ref<Record<string, MenuDirection>>({})
@@ -930,8 +980,10 @@ const matchedThreadIdSet = computed(() => {
   return new Set(props.searchMatchedThreadIds)
 })
 const pinnedThreadIdSet = computed(() => new Set(pinnedThreadIds.value))
+const optimisticallyArchivedThreadIdSet = computed(() => new Set(optimisticallyArchivedThreadIds.value))
 
 function threadMatchesSearch(thread: UiThread): boolean {
+  if (optimisticallyArchivedThreadIdSet.value.has(thread.id)) return false
   if (!isSearchActive.value) return true
   if (matchedThreadIdSet.value) {
     return matchedThreadIdSet.value.has(thread.id)
@@ -941,12 +993,11 @@ function threadMatchesSearch(thread: UiThread): boolean {
 }
 
 const filteredGroups = computed<UiProjectGroup[]>(() => {
-  return props.groups
-    .map((group) => ({
-      ...group,
-      threads: group.threads.filter((thread) => !isProjectlessChatPath(thread.cwd) && threadMatchesSearch(thread)),
-    }))
-    .filter((group) => group.threads.length > 0)
+  return props.groups.flatMap((group) => {
+    const threads = group.threads.filter((thread) => !isProjectlessChatPath(thread.cwd) && threadMatchesSearch(thread))
+    if (threads.length > 0) return [{ ...group, threads }]
+    return !isSearchActive.value && group.threads.length === 0 ? [{ ...group, threads }] : []
+  })
 })
 
 const isChronologicalView = computed(() => threadViewMode.value === 'chronological')
@@ -986,6 +1037,7 @@ const threadById = computed(() => {
 
   for (const group of props.groups) {
     for (const thread of group.threads) {
+      if (optimisticallyArchivedThreadIdSet.value.has(thread.id)) continue
       map.set(thread.id, thread)
     }
   }
@@ -1041,7 +1093,7 @@ const threadProjectNameById = computed(() => {
 const unpinnedThreadsByProjectName = computed(() => {
   const map = new Map<string, UiThread[]>()
   for (const group of props.groups) {
-    const rows = group.threads.filter((thread) => !pinnedThreadIdSet.value.has(thread.id))
+    const rows = group.threads.filter((thread) => !pinnedThreadIdSet.value.has(thread.id) && !optimisticallyArchivedThreadIdSet.value.has(thread.id))
     map.set(group.projectName, rows)
   }
   return map
@@ -1170,7 +1222,13 @@ function togglePin(threadId: string): void {
   pinnedThreadIds.value = [threadId, ...pinnedThreadIds.value]
 }
 
+function onTogglePinFromMenu(threadId: string): void {
+  togglePin(threadId)
+  closeThreadMenu()
+}
+
 function onSelect(threadId: string): void {
+  inlineDeleteConfirmThreadId.value = ''
   emit('select', threadId)
 }
 
@@ -1243,6 +1301,7 @@ function closeThreadMenu(): void {
 }
 
 function toggleThreadMenu(threadId: string): void {
+  inlineDeleteConfirmThreadId.value = ''
   if (openThreadMenuId.value === threadId) {
     closeThreadMenu()
     return
@@ -1258,6 +1317,7 @@ function toggleThreadMenu(threadId: string): void {
 
 function onThreadRowContextMenu(event: MouseEvent, threadId: string): void {
   event.preventDefault()
+  inlineDeleteConfirmThreadId.value = ''
   openThreadMenuId.value = threadId
 }
 
@@ -1287,6 +1347,7 @@ function submitRenameThread(): void {
 }
 
 function openDeleteThreadDialog(threadId: string, currentTitle: string): void {
+  inlineDeleteConfirmThreadId.value = ''
   deleteThreadDialogThreadId.value = threadId
   deleteThreadTitle.value = currentTitle
   deleteThreadDialogVisible.value = true
@@ -1302,19 +1363,40 @@ function closeDeleteThreadDialog(): void {
 async function submitDeleteThread(): Promise<void> {
   const threadId = deleteThreadDialogThreadId.value
   if (!threadId) return
+  deleteThreadById(threadId)
+  closeDeleteThreadDialog()
+}
+
+function isInlineDeleteConfirming(threadId: string): boolean {
+  return inlineDeleteConfirmThreadId.value === threadId
+}
+
+function onInlineDeleteClick(threadId: string): void {
+  if (inlineDeleteConfirmThreadId.value !== threadId) {
+    inlineDeleteConfirmThreadId.value = threadId
+    closeThreadMenu()
+    return
+  }
+
+  deleteThreadById(threadId)
+  inlineDeleteConfirmThreadId.value = ''
+}
+
+function deleteThreadById(threadId: string): void {
+  if (!optimisticallyArchivedThreadIdSet.value.has(threadId)) {
+    optimisticallyArchivedThreadIds.value = [threadId, ...optimisticallyArchivedThreadIds.value]
+  }
+  inlineDeleteConfirmThreadId.value = ''
+  closeThreadMenu()
+  pinnedThreadIds.value = pinnedThreadIds.value.filter((id) => id !== threadId)
+  emit('archive', threadId)
+
   if (threadHasAutomation(threadId)) {
-    try {
-      await deleteThreadAutomation(threadId)
-    } catch {
-      // Keep thread archive usable even if automation cleanup fails.
-    }
+    void deleteThreadAutomation(threadId).catch(() => undefined)
     automationByThreadId.value = Object.fromEntries(
       Object.entries(automationByThreadId.value).filter(([id]) => id !== threadId),
     )
   }
-  pinnedThreadIds.value = pinnedThreadIds.value.filter((id) => id !== threadId)
-  emit('archive', threadId)
-  closeDeleteThreadDialog()
 }
 
 function openAutomationDialog(threadId: string): void {
@@ -1389,6 +1471,45 @@ function getProjectDisplayName(projectName: string): string {
   return props.projectDisplayNameById[projectName] ?? projectName
 }
 
+function isPathLikeProjectName(value: string): boolean {
+  return value.includes('/') || value.includes('\\')
+}
+
+function isDuplicatePathLeafName(value: string): boolean {
+  const leafName = getPathLeafName(value)
+  if (!leafName) return false
+  let matchingCount = 0
+  for (const group of props.groups) {
+    if (!isPathLikeProjectName(group.projectName)) continue
+    if (getPathLeafName(group.projectName) !== leafName) continue
+    matchingCount += 1
+    if (matchingCount > 1) return true
+  }
+  return false
+}
+
+function getProjectVisibleName(group: UiProjectGroup): string {
+  const customDisplayName = props.projectDisplayNameById[group.projectName]
+  const displayName = getProjectDisplayName(group.projectName)
+  const projectName = group.projectName
+  if (customDisplayName && !isPathLikeProjectName(projectName) && projectName !== displayName) {
+    if (displayName.includes(projectName) || /^[0-9a-f]{8}-[0-9a-f-]{27,}$/iu.test(projectName)) return displayName
+    return `${displayName} ${projectName}`
+  }
+  if (customDisplayName && isPathLikeProjectName(projectName)) {
+    const leafName = getPathLeafName(projectName)
+    const parentLeafName = getPathLeafName(getPathParent(projectName))
+    const contextName = isDuplicatePathLeafName(projectName) ? parentLeafName : leafName
+    return contextName && contextName !== displayName ? `${displayName} ${contextName}` : displayName
+  }
+  if (!displayName.includes('/') && !displayName.includes('\\')) return displayName
+  const leafName = getPathLeafName(displayName) || displayName
+  const parentLeafName = getPathLeafName(getPathParent(displayName))
+  if (parentLeafName.startsWith('.') && parentLeafName !== leafName) return `${leafName} ${parentLeafName}`
+  if (group.threads.length > 0 || !isDuplicatePathLeafName(projectName)) return leafName
+  return parentLeafName ? `${leafName} ${parentLeafName}` : leafName
+}
+
 function isProjectMenuOpen(projectName: string): boolean {
   return openProjectMenuId.value === projectName
 }
@@ -1437,14 +1558,40 @@ function toggleProjectMenu(projectName: string): void {
   })
 }
 
-function openRenameProjectMenu(projectName: string): void {
+function openProjectContextMenu(projectName: string): void {
   closeThreadMenu()
+  isOrganizeMenuOpen.value = false
   openProjectMenuId.value = projectName
-  projectMenuMode.value = 'rename'
+  projectMenuMode.value = 'actions'
   projectRenameDraft.value = getProjectDisplayName(projectName)
   nextTick(() => {
     updateProjectMenuDirection(projectName)
   })
+}
+
+function getProjectRenameDraftName(group: UiProjectGroup): string {
+  return props.projectDisplayNameById[group.projectName] ?? getProjectVisibleName(group)
+}
+
+function openRenameProjectMenu(group: UiProjectGroup): void {
+  closeThreadMenu()
+  const projectName = group.projectName
+  openProjectMenuId.value = projectName
+  projectMenuMode.value = 'rename'
+  projectRenameDraft.value = getProjectRenameDraftName(group)
+  nextTick(() => {
+    updateProjectMenuDirection(projectName)
+  })
+}
+
+function onBrowseProjectFiles(projectName: string): void {
+  emit('browse-project-files', projectName)
+  closeProjectMenu()
+}
+
+function onCreateProjectWorktree(projectName: string): void {
+  emit('create-project-worktree', projectName)
+  closeProjectMenu()
 }
 
 function onProjectNameInput(projectName: string): void {
@@ -1594,7 +1741,7 @@ function updateProjectMenuDirection(projectName: string): void {
 
   projectMenuDirectionById.value = {
     ...projectMenuDirectionById.value,
-    [projectName]: resolveMenuDirection(menuWrapElement, 112),
+    [projectName]: resolveMenuDirection(menuWrapElement, 176),
   }
 }
 
@@ -2306,8 +2453,16 @@ onBeforeUnmount(() => {
   @apply relative w-4 h-4 flex items-center justify-center;
 }
 
-.thread-pin-button {
-  @apply absolute inset-0 w-4 h-4 rounded text-zinc-500 opacity-0 pointer-events-none transition flex items-center justify-center;
+.thread-delete-button {
+  @apply absolute left-0 top-1/2 -translate-y-1/2 h-4 min-w-4 rounded text-zinc-500 opacity-0 pointer-events-none transition flex items-center justify-center;
+}
+
+.thread-delete-button[data-confirming='true'] {
+  @apply z-10 h-5 min-w-16 px-1.5 bg-rose-600 text-white opacity-100 pointer-events-auto shadow-sm;
+}
+
+.thread-delete-confirm-label {
+  @apply text-[11px] font-medium leading-none;
 }
 
 .thread-main-button {
@@ -2412,8 +2567,9 @@ onBeforeUnmount(() => {
   @apply bg-zinc-200;
 }
 
-.thread-row:hover .thread-pin-button,
-.thread-row:focus-within .thread-pin-button {
+.thread-row:hover .thread-delete-button,
+.thread-row:focus-within .thread-delete-button,
+.thread-delete-button[data-confirming='true'] {
   @apply opacity-100 pointer-events-auto;
 }
 

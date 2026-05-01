@@ -76,7 +76,7 @@
 - Do not treat dark theme as optional polish; dark-theme support is part of the feature being complete.
 - When a user asks to "test it" for UI work and a local dev server is available, prefer actually loading the changed route and checking the rendered result instead of stopping at static analysis.
 - If a dark-theme screenshot shows light-theme surfaces on a dark page, fix the actual CSS/theme wiring first; do not treat "text is visible" as sufficient.
-- Run Playwright verification only when the user explicitly asks for Playwright/browser automation testing.
+- Run Browser Use or Playwright verification only when the user explicitly asks for browser automation testing.
 - If a change affects package/runtime/module loading behavior, also run a CJS smoke test before completion.
 - CJS smoke test requirement:
   1. Build the project/artifact first (if needed).
@@ -101,13 +101,14 @@
 - If the dev server fails to start due to pre-existing errors, fix them first or work around them before testing.
 - If requested Playwright assertions fail, do not report completion; fix and re-run until passing.
 
-## Browser Automation: Prefer Playwright CLI Over Cursor Browser Tool
+## Browser Automation: Prefer Browser Use, Fallback To Playwright CLI
 
-- For all browser interactions (navigation, clicking, typing, screenshots, snapshots), prefer the Playwright CLI skill in headless mode over the Cursor IDE browser MCP tool.
-- Do not run Playwright for routine task completion unless the user explicitly asks for it.
-- Playwright CLI is faster, more reliable, and works in headless environments without a desktop.
-- Use headless mode by default; only add `--headed` when a live visual check is explicitly needed.
-- Skill location: `~/.codex/skills/playwright/SKILL.md` (wrapper script: `~/.codex/skills/playwright/scripts/playwright_cli.sh`).
+- For browser interactions (navigation, clicking, typing, screenshots, snapshots), prefer the Browser Use plugin first when it is available.
+- Use Browser Use through its in-app browser backend for local UI testing, screenshots, and visible-route checks so evidence matches what the user can see in Codex.
+- Fall back to the previous Playwright CLI approach when Browser Use is unavailable, blocked, cannot reach the target, or when the user explicitly asks for Playwright CLI/headless evidence.
+- Do not run Browser Use or Playwright for routine task completion unless the user explicitly asks for browser automation testing.
+- In the Playwright CLI fallback path, use headless mode by default; only add `--headed` when a live visual check is explicitly needed.
+- Playwright fallback skill location: `~/.codex/skills/playwright/SKILL.md` (wrapper script: `~/.codex/skills/playwright/scripts/playwright_cli.sh`).
 - Minimum reporting format in completion messages:
   - tested URL
   - viewport(s)
@@ -120,6 +121,8 @@
 - When working in a git worktree, prefer reusing an existing compatible `node_modules` tree when it is already available instead of triggering a fresh install by default.
 - If `node_modules` is symlinked to a shared dependency directory, avoid workflows that prompt to remove and recreate that shared directory just to run `npm run dev` or `pnpm run dev`.
 - For dev-server fixes, verify the exact user-requested command afterwards (for example `npm run dev`), not only a fallback Vite invocation.
+- Never kill or stop the tmux-managed dev server bound to port `5173`.
+- Treat the `5173` tmux dev process as persistent infrastructure; restart it only when the user explicitly requests a restart.
 
 ## Dark Theme CSS Rule
 
