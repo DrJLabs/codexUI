@@ -272,7 +272,7 @@ Production-readiness pass for the Automations route.
 4. Open `http://127.0.0.1:<vite-port>/#/automations` in light theme at `1440x1000`.
 5. Confirm the summary shows `Total automations`, `Active`, `Needs attention`, and `Next scheduled run`.
 6. Confirm automation cards show human schedule labels, target labels, health labels, and status without raw RRULE/source/kind/path fields in the first viewport.
-7. Confirm the editor shows schedule frequency/time controls, user-facing `Thread` and `Project folder` labels, and the manual-run disabled explanation when manual runs are disabled.
+7. Confirm the editor shows schedule frequency/time controls, user-facing `Thread` and `Project folder` labels, up-front `Model` and `Reasoning effort` selects, and the manual-run disabled explanation when manual runs are disabled.
 8. Click `New` and confirm the create draft shows starting-point buttons for `Thread heartbeat`, `Project cron`, and `Worktree check`.
 9. Open `Advanced details` and confirm native storage root, native path, sidecar path, source, kind, run profile id, model, and reasoning effort remain available there.
 10. Repeat steps 4-9 in dark theme.
@@ -281,7 +281,9 @@ Production-readiness pass for the Automations route.
 #### Expected Results
 - The default route reads like an app surface, not a developer console.
 - Users can create daily and weekly schedules through controls without typing RRULE syntax.
+- Users can choose model and reasoning effort from main-form selects without opening `Advanced details`.
 - Raw technical fields are hidden from the first viewport and reachable from `Advanced details`.
+- Mobile form controls use a non-zooming touch font size so focusing model/reasoning controls does not force browser zoom or reset the pane to the top.
 - `Run now` is disabled with clear copy when the API reports manual runs are disabled.
 - Desktop and mobile layouts have no page-level horizontal overflow.
 - Light and dark themes keep cards, editor fields, advanced details, and action buttons readable.
@@ -289,6 +291,7 @@ Production-readiness pass for the Automations route.
 #### Observed Results
 - 2026-05-01: `pnpm exec vitest run src/utils/automationDisplay.test.ts src/composables/useAutomations.test.ts src/api/automationsGateway.test.ts` passed with 3 files and 43 tests.
 - 2026-05-01: `pnpm run build:frontend` passed.
+- 2026-05-01: `pnpm run build:frontend` passed after moving model/reasoning effort to main-form selects and adding mobile-safe form-control sizing.
 - 2026-05-01: Headless Playwright against `http://127.0.0.1:5174/#/automations` with temporary `CODEX_HOME=/tmp/codexui-automation-prod-ui-8Pcn17` passed:
   - desktop light screenshot: `output/playwright/automation-production-desktop-light-final.png`
   - desktop dark screenshot: `output/playwright/automation-production-desktop-dark-final.png`

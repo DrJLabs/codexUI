@@ -152,6 +152,24 @@
               />
             </label>
 
+            <label class="automations-field">
+              <span>Model</span>
+              <select v-model="draft.model">
+                <option v-for="option in modelSelectOptions" :key="option.value" :value="option.value">
+                  {{ option.label }}
+                </option>
+              </select>
+            </label>
+
+            <label class="automations-field">
+              <span>Reasoning effort</span>
+              <select v-model="draft.reasoningEffort">
+                <option v-for="option in reasoningEffortSelectOptions" :key="option.value" :value="option.value">
+                  {{ option.label }}
+                </option>
+              </select>
+            </label>
+
             <label class="automations-field automations-field-wide">
               <span>Prompt</span>
               <textarea v-model="draft.prompt" rows="8" required />
@@ -214,22 +232,10 @@
                 </div>
               </dl>
 
-              <div class="automations-field-grid automations-advanced-fields">
-                <label class="automations-field">
-                  <span>Run profile id</span>
-                  <input v-model="draft.runProfileId" type="text" />
-                </label>
-
-                <label class="automations-field">
-                  <span>Model</span>
-                  <input v-model="draft.model" type="text" />
-                </label>
-
-                <label class="automations-field">
-                  <span>Reasoning effort</span>
-                  <input v-model="draft.reasoningEffort" type="text" />
-                </label>
-              </div>
+              <label class="automations-field automations-advanced-run-profile">
+                <span>Run profile id</span>
+                <input v-model="draft.runProfileId" type="text" />
+              </label>
             </div>
           </details>
 
@@ -433,6 +439,23 @@ const scheduleTemplates = [
   { id: 'project-cron', label: 'Project cron' },
   { id: 'worktree-check', label: 'Worktree check' },
 ] as const
+const baseModelOptions = [
+  { value: '', label: 'Default model' },
+  { value: 'gpt-5.5', label: 'GPT-5.5' },
+  { value: 'gpt-5.4', label: 'GPT-5.4' },
+  { value: 'gpt-5.4-mini', label: 'GPT-5.4 Mini' },
+  { value: 'gpt-5.3-codex', label: 'GPT-5.3 Codex' },
+  { value: 'gpt-5.3-codex-spark', label: 'GPT-5.3 Codex Spark' },
+  { value: 'gpt-5.2', label: 'GPT-5.2' },
+  { value: 'gpt-5.2-codex', label: 'GPT-5.2 Codex' },
+] as const
+const baseReasoningEffortOptions = [
+  { value: '', label: 'Default reasoning' },
+  { value: 'low', label: 'Low' },
+  { value: 'medium', label: 'Medium' },
+  { value: 'high', label: 'High' },
+  { value: 'xhigh', label: 'Extra high' },
+] as const
 
 const scheduleFrequency = ref<ScheduleFrequency>('daily')
 const scheduleTime = ref('09:00')
@@ -486,6 +509,10 @@ const nextScheduledRunLabel = computed(() => {
 })
 const currentRruleClassification = computed(() => classifyRrule(draft.value.rrule))
 const showRawRrule = computed(() => scheduleFrequency.value === 'custom' || currentRruleClassification.value.frequency === 'custom')
+const modelSelectOptions = computed(() => ensureOption(baseModelOptions, draft.value.model, 'Current model'))
+const reasoningEffortSelectOptions = computed(() =>
+  ensureOption(baseReasoningEffortOptions, draft.value.reasoningEffort, 'Current reasoning effort'),
+)
 const advancedDetails = computed(() => [
   { label: 'Native storage root', value: state.value.storageRoot || 'Unavailable', mono: true },
   { label: 'Feature flags', value: featureFlagSummary.value || 'Unavailable', mono: false },
@@ -669,6 +696,15 @@ function parseInteger(value: string | undefined): number | null {
 function hasOnlyRruleKeys(parts: Record<string, string>, expectedKeys: string[]): boolean {
   const keys = Object.keys(parts).sort()
   return keys.length === expectedKeys.length && keys.every((key, index) => key === expectedKeys[index])
+}
+
+function ensureOption<T extends readonly { value: string; label: string }[]>(
+  options: T,
+  value: string,
+  fallbackLabel: string,
+): Array<{ value: string; label: string }> {
+  if (!value || options.some((option) => option.value === value)) return [...options]
+  return [...options, { value, label: `${fallbackLabel}: ${value}` }]
 }
 
 function formatTimestamp(value: string | null): string {
@@ -1046,12 +1082,14 @@ function shouldShowReadAction(run: AutomationRun): boolean {
 }
 
 .automations-advanced-content {
+  display: grid;
+  gap: 12px;
   min-width: 0;
   padding: 0 12px 12px;
 }
 
-.automations-advanced-fields {
-  margin-top: 12px;
+.automations-advanced-run-profile {
+  margin-top: 0;
 }
 
 .automations-storage {
@@ -1340,6 +1378,13 @@ function shouldShowReadAction(run: AutomationRun): boolean {
 
   .automations-field-grid {
     grid-template-columns: 1fr;
+  }
+
+  .automations-field input,
+  .automations-field textarea,
+  .automations-field select {
+    font-size: 16px;
+    line-height: 1.4;
   }
 
   .automations-storage div,
