@@ -411,6 +411,21 @@ describe('AutomationRunner', () => {
     expect(rpcCalls.map((call) => call.method)).toEqual(['thread/resume', 'turn/start', 'thread/read', 'thread/resume', 'turn/start'])
   })
 
+  it('accepts nested thread ids in completion notifications', async () => {
+    const { codexHomeDir, service, notificationListeners } = await createHarness()
+    await writeNative(codexHomeDir, 'daily-check-dir', nativeRecord, { runMode: 'chat' })
+    const first = await service.runNow('daily-check')
+
+    await Promise.resolve(notificationListeners[0]!({
+      method: 'turn/completed',
+      params: { thread: { threadId: 'thread-1' }, turn: { id: 'turn_1' } },
+      atIso: new Date().toISOString(),
+    }))
+    const completed = (await service.listRuns('daily-check'))[0]!
+
+    expect(completed).toMatchObject({ id: first.id, state: 'completed_no_findings' })
+  })
+
   it('marks completed turns with findings as unread completed_with_findings', async () => {
     const { codexHomeDir, service, notificationListeners } = await createHarness({
       readThreadResponse: {
@@ -1205,6 +1220,34 @@ describe('AutomationRunner', () => {
     })).rejects.toThrow('already has an active scheduled run')
     await expect(service.runNow('daily-check')).rejects.toThrow('already has an active scheduled run')
     expect((await service.listRuns('daily-check'))[0]).toMatchObject({ id: first.id, state: 'running' })
+  })
+
+  it('recovers stale scheduled runs for the same automation before a manual start', async () => {
+    const { codexHomeDir, service, bridge } = await createHarness()
+    const automationDir = await writeNative(codexHomeDir, 'daily-check-dir', nativeRecord, { runMode: 'chat' })
+    await writeScheduler(automationDir)
+    const stale = await service.runScheduled('daily-check', {
+      dueAtIso: '2026-04-30T09:00:00.000Z',
+      nextDueAtIso: '2026-05-01T09:00:00.000Z',
+    })
+    const restartedService = new AutomationsService({
+      codexHomeDir,
+      bridge,
+      policy: enabledPolicy,
+    })
+
+    try {
+      const next = await restartedService.runNow('daily-check')
+      const runs = await restartedService.listRuns('daily-check')
+
+      expect(next.id).not.toBe(stale.id)
+      expect(runs.find((run) => run.id === stale.id)).toMatchObject({
+        state: 'failed',
+        errorMessage: 'Automation run was interrupted by a previous server session',
+      })
+    } finally {
+      restartedService.dispose()
+    }
   })
 
   it('recovers interrupted active runs and reconciles stale scheduler state from scheduled run snapshots', async () => {

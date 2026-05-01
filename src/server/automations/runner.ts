@@ -552,7 +552,7 @@ function extractThreadId(params: unknown): string {
   if (direct) return direct
   const thread = asRecord(record.thread)
   if (thread) {
-    const threadId = readString(thread.id)
+    const threadId = readString(thread.id) || readString(thread.threadId) || readString(thread.thread_id)
     if (threadId) return threadId
   }
   const turn = asRecord(record.turn)
@@ -588,6 +588,8 @@ function extractStartedThreadId(params: unknown): string {
     || readString(record.thread_id)
     || readString(record.id)
     || readString(asRecord(record.thread)?.id)
+    || readString(asRecord(record.thread)?.threadId)
+    || readString(asRecord(record.thread)?.thread_id)
 }
 
 function extractTurnId(params: unknown): string {

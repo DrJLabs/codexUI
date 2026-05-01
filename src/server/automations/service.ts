@@ -450,7 +450,11 @@ export class AutomationsService {
       return
     }
     const activeRuns = await this.listPersistedActiveRuns()
-    if (!activeRuns.some((activeRun) => activeRun.automationId !== automationId)) {
+    const needsRecovery = activeRuns.some((activeRun) => (
+      activeRun.automationId !== automationId ||
+      activeRun.run.trigger === 'schedule'
+    ))
+    if (!needsRecovery) {
       await this.waitForRecovery()
       return
     }

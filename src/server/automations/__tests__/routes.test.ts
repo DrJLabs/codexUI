@@ -20,6 +20,7 @@ import {
 } from '../schema'
 import { AutomationValidationError } from '../errors'
 import { serializeAutomationToml, type ThreadAutomationRecord } from '../nativeStore'
+import { AutomationsService } from '../service'
 
 const servers: Server[] = []
 const codexHomeDirs: string[] = []
@@ -285,6 +286,24 @@ describe('createAutomationsMiddleware', () => {
     middleware.dispose?.()
 
     expect(unsubscribe).toHaveBeenCalledOnce()
+  })
+
+  it('does not dispose a caller-owned automation service during middleware teardown', () => {
+    const { bridge, unsubscribe } = createBridge()
+    const service = new AutomationsService({
+      bridge,
+      policy: enabledPolicy,
+    })
+    const middleware = createAutomationsMiddleware({
+      service,
+      bridge,
+      policy: enabledPolicy,
+    })
+
+    middleware.dispose?.()
+
+    expect(unsubscribe).not.toHaveBeenCalled()
+    service.dispose()
   })
 
   it('serves health, templates, state, list, and get with data-wrapped first-class definitions', async () => {

@@ -315,6 +315,14 @@ describe('native automation store filesystem behavior', () => {
     await expect(listThreadHeartbeatAutomations({ codexHomeDir })).rejects.toThrow()
   })
 
+  it('surfaces unreadable automation.toml failures instead of reporting invalid records', async () => {
+    const codexHomeDir = await createCodexHome()
+    const sourceDir = join(codexHomeDir, 'automations', 'unreadable')
+    await mkdir(join(sourceDir, 'automation.toml'), { recursive: true })
+
+    await expect(listNativeAutomationEntries({ codexHomeDir })).rejects.toThrow()
+  })
+
   it('updates an existing automation in its source directory when the parsed id differs', async () => {
     const codexHomeDir = await createCodexHome()
     const automationRoot = join(codexHomeDir, 'automations')

@@ -325,7 +325,8 @@ function safeAutomationId(recordId: string | null | undefined, sourceDirName: st
 async function readAutomationRecordFromFile(filePath: string): Promise<ThreadAutomationRecord | null> {
   try {
     return parseAutomationToml(await readFile(filePath, 'utf8'))
-  } catch {
+  } catch (error) {
+    if (!isMissingFileError(error)) throw error
     return null
   }
 }

@@ -103,6 +103,14 @@ describe('createAutomationRunStore', () => {
     expect(runs.map((run) => run.id)).toEqual(['automation_run_2000_new'])
   })
 
+  it('surfaces non-missing run directory read failures instead of reporting empty history', async () => {
+    const automationDir = await mkdtemp(join(tmpdir(), 'codexui-automation-run-store-'))
+    tempDirs.push(automationDir)
+    await writeFile(join(automationDir, 'runs'), 'not a directory', 'utf8')
+
+    await expect(createAutomationRunStore(automationDir).listRuns()).rejects.toThrow()
+  })
+
   it('checks whether a run exists without listing all runs', async () => {
     const automationDir = await mkdtemp(join(tmpdir(), 'codexui-automation-run-store-'))
     tempDirs.push(automationDir)

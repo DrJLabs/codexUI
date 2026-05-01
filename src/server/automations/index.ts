@@ -13,6 +13,7 @@ export type CreateAutomationsMiddlewareOptions = CreateAutomationsRouterOptions 
 }
 
 export function createAutomationsMiddleware(options: CreateAutomationsMiddlewareOptions = {}): AutomationsRequestHandler {
+  const ownsService = !options.service
   const service = options.service ?? new AutomationsService({
     ...options,
     enableScheduler: options.enableScheduler === true,
@@ -31,7 +32,7 @@ export function createAutomationsMiddleware(options: CreateAutomationsMiddleware
   scheduler?.start()
   router.dispose = () => {
     scheduler?.stop()
-    service.dispose()
+    if (ownsService) service.dispose()
   }
   return router
 }

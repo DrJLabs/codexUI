@@ -5851,3 +5851,35 @@ Review-cycle hardening for active-run index crash recovery, stale lock reclamati
 
 #### Rollback/Cleanup
 - Delete disposable automation directories, run records, and lock directories created only for this check.
+
+---
+
+### Automations PR review cycle 12 fixes
+
+#### Feature/Change Name
+Review-cycle hardening for middleware service ownership, storage error propagation, nested completion notifications, and same-automation recovery.
+
+#### Prerequisites/Setup
+1. Use `${WORKTREE_ROOT}` on `feat/automations`.
+2. Reuse an existing compatible dependency install if this worktree does not already have dependencies.
+3. Use disposable automation directories and run records only.
+
+#### Steps
+1. Run `pnpm exec vitest run src/server/automations/__tests__/nativeStore.test.ts src/server/automations/__tests__/runStore.test.ts src/server/automations/__tests__/runner.test.ts src/server/automations/__tests__/routes.test.ts`.
+2. Run `pnpm test:unit`.
+3. Run `pnpm run build`.
+4. Run `git diff --check`.
+5. Create middleware with a caller-owned `AutomationsService`, dispose the middleware, and then dispose the service explicitly.
+6. Create a listed automation directory whose `automation.toml` path is unreadable and list native automation entries.
+7. Create an automation `runs` path that is not a directory and list runs.
+8. Complete a run with notification payload `{ thread: { threadId }, turn: { id } }`.
+9. Restart the service after a scheduled run remains active for the same automation, then start a manual run.
+
+#### Expected Results
+- Middleware teardown does not dispose caller-owned automation services.
+- Non-missing `automation.toml` and `runs` filesystem failures are surfaced instead of being reported as invalid or empty storage.
+- Nested thread IDs in completion notifications match active runs and allow completion.
+- Same-automation stale scheduled runs recover before manual starts when startup recovery has not run.
+
+#### Rollback/Cleanup
+- Delete disposable automation directories and run records created only for this check.

@@ -28,7 +28,8 @@ export function createAutomationRunStore(automationDirPath: string): AutomationR
     let entries
     try {
       entries = await readdir(runsRoot, { withFileTypes: true })
-    } catch {
+    } catch (error) {
+      if (!isErrorCode(error, 'ENOENT')) throw error
       return []
     }
     const limit = normalizeListLimit(options.limit)
