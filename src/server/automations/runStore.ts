@@ -1,10 +1,12 @@
 import { setTimeout as sleep } from 'node:timers/promises'
-import { appendFile, mkdir, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises'
+import { appendFile, mkdir, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import type { AutomationRun } from '../../types/automations'
 
 const ACTIVE_RUN_INDEX_LOCK_TIMEOUT_MS = 5000
 const ACTIVE_RUN_INDEX_LOCK_POLL_MS = 10
+const ACTIVE_RUN_INDEX_STALE_LOCK_MS = 30_000
+const ACTIVE_RUN_INDEX_LOCK_OWNER_FILENAME = 'owner.json'
 
 export type AutomationRunStore = {
   createRun(run: AutomationRun): Promise<AutomationRun>
@@ -69,7 +71,7 @@ export function createAutomationRunStore(automationDirPath: string): AutomationR
 
     async listActiveRuns() {
       const indexedRunIds = await readActiveRunIndex(runsRoot)
-      if (indexedRunIds) {
+      if (indexedRunIds && indexedRunIds.length > 0) {
         const activeRuns: AutomationRun[] = []
         for (const runId of indexedRunIds) {
           try {
@@ -84,7 +86,7 @@ export function createAutomationRunStore(automationDirPath: string): AutomationR
       const activeRuns = (await listRuns()).filter((run) => isActiveAutomationRunState(run.state))
       await withActiveRunIndexLock(runsRoot, async () => {
         const current = await readActiveRunIndex(runsRoot)
-        if (!current) await writeActiveRunIndex(runsRoot, activeRuns.map((run) => run.id))
+        if (!current || current.length === 0) await writeActiveRunIndex(runsRoot, activeRuns.map((run) => run.id))
       })
       return activeRuns
     },
@@ -196,9 +198,11 @@ async function withActiveRunIndexLock<T>(runsRoot: string, fn: () => Promise<T>)
   for (;;) {
     try {
       await mkdir(lockPath)
+      await writeActiveRunIndexLockOwner(lockPath)
       break
     } catch (error) {
       if (!isErrorCode(error, 'EEXIST')) throw error
+      if (await reclaimStaleActiveRunIndexLock(lockPath)) continue
       if (Date.now() - startedAt >= ACTIVE_RUN_INDEX_LOCK_TIMEOUT_MS) {
         throw new Error(`Timed out waiting for automation active run index lock at ${lockPath}`)
       }
@@ -209,6 +213,61 @@ async function withActiveRunIndexLock<T>(runsRoot: string, fn: () => Promise<T>)
     return await fn()
   } finally {
     await rm(lockPath, { recursive: true, force: true })
+  }
+}
+
+async function writeActiveRunIndexLockOwner(lockPath: string): Promise<void> {
+  try {
+    await writeFile(join(lockPath, ACTIVE_RUN_INDEX_LOCK_OWNER_FILENAME), `${JSON.stringify({
+      pid: process.pid,
+      startedAtMs: Date.now(),
+    }, null, 2)}\n`, 'utf8')
+  } catch (error) {
+    await rm(lockPath, { recursive: true, force: true }).catch(() => {})
+    throw error
+  }
+}
+
+async function reclaimStaleActiveRunIndexLock(lockPath: string): Promise<boolean> {
+  const owner = await readActiveRunIndexLockOwner(lockPath)
+  if (owner && !isProcessAlive(owner.pid)) {
+    await rm(lockPath, { recursive: true, force: true })
+    return true
+  }
+  if (!owner) {
+    try {
+      const lockStat = await stat(lockPath)
+      if (Date.now() - lockStat.mtimeMs >= ACTIVE_RUN_INDEX_STALE_LOCK_MS) {
+        await rm(lockPath, { recursive: true, force: true })
+        return true
+      }
+    } catch {
+      return true
+    }
+  }
+  return false
+}
+
+async function readActiveRunIndexLockOwner(lockPath: string): Promise<{ pid: number; startedAtMs: number } | null> {
+  try {
+    const parsed = JSON.parse(await readFile(join(lockPath, ACTIVE_RUN_INDEX_LOCK_OWNER_FILENAME), 'utf8')) as unknown
+    if (!parsed || typeof parsed !== 'object') return null
+    const pid = (parsed as { pid?: unknown }).pid
+    const startedAtMs = (parsed as { startedAtMs?: unknown }).startedAtMs
+    if (!Number.isInteger(pid) || Number(pid) <= 0 || typeof startedAtMs !== 'number') return null
+    return { pid: Number(pid), startedAtMs }
+  } catch {
+    return null
+  }
+}
+
+function isProcessAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch (error) {
+    if (isErrorCode(error, 'ESRCH')) return false
+    return true
   }
 }
 

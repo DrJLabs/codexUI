@@ -25,6 +25,26 @@ export type KanbanTaskQueueEnqueueResult =
 
 const KANBAN_TASK_OWNER_PREFIX = 'kanban:task:'
 
+export class KanbanDuplicateRunError extends Error {
+  readonly runId: string
+
+  constructor(runId: string, message = `Kanban run ${runId} is already queued`) {
+    super(message)
+    this.name = 'KanbanDuplicateRunError'
+    this.runId = runId
+  }
+}
+
+export class KanbanDuplicateTaskError extends Error {
+  readonly taskId: string
+
+  constructor(taskId: string, message = `Kanban task ${taskId} already has a queued run`) {
+    super(message)
+    this.name = 'KanbanDuplicateTaskError'
+    this.taskId = taskId
+  }
+}
+
 export class KanbanTaskQueue {
   private readonly queue: ExecutionRunQueue
 
@@ -103,10 +123,10 @@ function fromKanbanOwnerKey(ownerKey: string): string {
 
 function toKanbanQueueError(error: unknown, item: KanbanTaskQueueItem): Error {
   if (error instanceof ExecutionRunQueueDuplicateRunError) {
-    return new Error(`Kanban run ${item.runId} is already queued`)
+    return new KanbanDuplicateRunError(item.runId)
   }
   if (error instanceof ExecutionRunQueueDuplicateOwnerError) {
-    return new Error(`Kanban task ${item.taskId} already has a queued run`)
+    return new KanbanDuplicateTaskError(item.taskId)
   }
   const message = error instanceof Error ? error.message : String(error)
   return error instanceof Error ? error : new Error(message)

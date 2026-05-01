@@ -5821,3 +5821,33 @@ Review-cycle hardening for stale manual-run recovery, middleware teardown, servi
 
 #### Rollback/Cleanup
 - Delete disposable automation records and run folders created only for this check.
+
+---
+
+### Automations PR review cycle 11 fixes
+
+#### Feature/Change Name
+Review-cycle hardening for active-run index crash recovery, stale lock reclamation, and typed Kanban queue errors.
+
+#### Prerequisites/Setup
+1. Use `${WORKTREE_ROOT}` on `feat/automations`.
+2. Reuse an existing compatible dependency install if this worktree does not already have dependencies.
+3. Use disposable automation directories and run records only.
+
+#### Steps
+1. Run `pnpm exec vitest run src/server/automations/__tests__/runStore.test.ts src/server/kanban/__tests__/taskQueue.test.ts`.
+2. Run `pnpm test:unit`.
+3. Run `pnpm run build`.
+4. Run `git diff --check`.
+5. Create a running automation `run.json` manually while `.active-runs.json` exists as an empty array, then list active runs.
+6. Create a `.active-runs.json.lock/owner.json` with a dead PID, then create a new active run.
+7. Enqueue duplicate Kanban runs and duplicate queued tasks and inspect the thrown error classes and messages.
+
+#### Expected Results
+- Empty active-run indexes do not hide persisted active runs after a crash between run creation and index sync.
+- Listing active runs repairs an empty index by scanning persisted run directories.
+- Dead-owner active-run index locks are reclaimed before new active-run writes time out.
+- Kanban duplicate run/task cases throw typed errors while preserving legacy error messages.
+
+#### Rollback/Cleanup
+- Delete disposable automation directories, run records, and lock directories created only for this check.

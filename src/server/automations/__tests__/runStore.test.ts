@@ -137,6 +137,21 @@ describe('createAutomationRunStore', () => {
     expect(activeRuns.map((run) => run.id)).toEqual(['automation_run_1000_active'])
   })
 
+  it('falls back to scanning run directories when the active-run index is empty', async () => {
+    const automationDir = await mkdtemp(join(tmpdir(), 'codexui-automation-run-store-'))
+    tempDirs.push(automationDir)
+    const runId = 'automation_run_unindexed_active'
+    const runDir = join(automationDir, 'runs', runId)
+    await mkdir(runDir, { recursive: true })
+    await writeFile(join(runDir, 'run.json'), `${JSON.stringify(automationRunFixture({ id: runId, state: 'running' }), null, 2)}\n`, 'utf8')
+    await writeFile(join(automationDir, '.active-runs.json'), '[]\n', 'utf8')
+
+    const activeRuns = await createAutomationRunStore(automationDir).listActiveRuns()
+
+    expect(activeRuns.map((run) => run.id)).toEqual([runId])
+    await expect(readFile(join(automationDir, '.active-runs.json'), 'utf8')).resolves.toContain(runId)
+  })
+
   it('preserves all active run ids when concurrent writes update the active index', async () => {
     const automationDir = await mkdtemp(join(tmpdir(), 'codexui-automation-run-store-'))
     tempDirs.push(automationDir)
@@ -154,6 +169,20 @@ describe('createAutomationRunStore', () => {
     const activeRuns = await store.listActiveRuns()
 
     expect(activeRuns.map((run) => run.id).sort()).toEqual(runIds.sort())
+  })
+
+  it('reclaims a stale active-run index lock owned by a dead process', async () => {
+    const automationDir = await mkdtemp(join(tmpdir(), 'codexui-automation-run-store-'))
+    tempDirs.push(automationDir)
+    const lockDir = join(automationDir, '.active-runs.json.lock')
+    await mkdir(lockDir, { recursive: true })
+    await writeFile(join(lockDir, 'owner.json'), `${JSON.stringify({ pid: 99999999, startedAtMs: Date.now() - 60_000 })}\n`, 'utf8')
+    const store = createAutomationRunStore(automationDir)
+
+    const run = await store.createRun(automationRunFixture({ id: 'automation_run_after_stale_lock', state: 'running' }))
+
+    expect(run.id).toBe('automation_run_after_stale_lock')
+    await expect(readFile(join(automationDir, '.active-runs.json'), 'utf8')).resolves.toContain('automation_run_after_stale_lock')
   })
 })
 
