@@ -85,6 +85,7 @@ function createDefinition(overrides: Partial<AutomationDefinition> = {}): Automa
     targetThreadId: 'thread-1',
     projectRoot: null,
     cwd: null,
+    cwds: [],
     runMode: 'chat',
     runProfileId: null,
     model: null,

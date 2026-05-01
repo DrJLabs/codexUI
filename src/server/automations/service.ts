@@ -158,10 +158,7 @@ export class AutomationsService {
   async createDefinition(input: AutomationCreateInput): Promise<AutomationDefinition> {
     const entries = await listNativeAutomationEntries(this.options)
     if (input.targetThreadId !== null) {
-      const existing = entries.records.find((entry) => (
-        entry.record.kind === 'heartbeat' &&
-        entry.record.targetThreadId === input.targetThreadId
-      ))
+      const existing = entries.records.find((entry) => entry.record.targetThreadId === input.targetThreadId)
       if (existing) throw new AutomationConflictError('Automation already exists for targetThreadId')
     }
     await this.assertKanbanProjectionTarget(input.kanbanProjection)
@@ -191,7 +188,6 @@ export class AutomationsService {
     if (hasOwn(patch, 'targetThreadId') && patch.targetThreadId !== null) {
       const entries = await listNativeAutomationEntries(this.options)
       const duplicate = entries.records.find((candidate) => (
-        candidate.record.kind === 'heartbeat' &&
         candidate.record.targetThreadId === patch.targetThreadId &&
         candidate.record.id !== entry.record.id &&
         candidate.sourceDirName !== entry.sourceDirName
@@ -300,7 +296,6 @@ export class AutomationsService {
     const entries = await listNativeAutomationEntries(this.options)
     const schedulerEntries: AutomationSchedulerEntry[] = []
     for (const entry of entries.records) {
-      if (entry.record.kind !== 'heartbeat') continue
       const sidecarResult = await readSidecar(entry)
       const mapped = await mapDefinition(entry, sidecarResult.sidecar, { includeRecentRuns: false })
       const schedulerState = await readSchedulerStateForTick(entry)
@@ -348,7 +343,6 @@ export class AutomationsService {
     const entries = await listNativeAutomationEntries(this.options)
     const activeRuns: PersistedAutomationActiveRun[] = []
     for (const entry of entries.records) {
-      if (entry.record.kind !== 'heartbeat') continue
       for (const run of await createAutomationRunStore(entry.automationDirPath).listActiveRuns()) {
         if (isActiveAutomationRunState(run.state)) activeRuns.push({ automationId: entry.record.id, run })
       }
@@ -420,7 +414,6 @@ export class AutomationsService {
     const entries = await listNativeAutomationEntries(this.options)
     let recovered = 0
     for (const entry of entries.records) {
-      if (entry.record.kind !== 'heartbeat') continue
       const store = createAutomationRunStore(entry.automationDirPath)
       const activeRuns = await store.listActiveRuns()
       const sidecarResult = activeRuns.length > 0 ? await readSidecar(entry) : null
@@ -573,9 +566,8 @@ export class AutomationsService {
 
   private async findEntry(automationId: string): Promise<NativeAutomationEntry | null> {
     const entries = await listNativeAutomationEntries(this.options)
-    const heartbeatEntries = entries.records.filter((entry) => entry.record.kind === 'heartbeat')
-    return heartbeatEntries.find((entry) => entry.record.id === automationId)
-      ?? heartbeatEntries.find((entry) => entry.sourceDirName === automationId)
+    return entries.records.find((entry) => entry.record.id === automationId)
+      ?? entries.records.find((entry) => entry.sourceDirName === automationId)
       ?? null
   }
 
@@ -588,7 +580,6 @@ export class AutomationsService {
     const definitions: AutomationDefinition[] = []
     const diagnostics = [...entries.diagnostics]
     for (const entry of entries.records) {
-      if (entry.record.kind !== 'heartbeat') continue
       const sidecarResult = await readSidecar(entry)
       if (sidecarResult.diagnostic) diagnostics.push(sidecarResult.diagnostic)
       const mapped = await mapDefinition(entry, sidecarResult.sidecar)
@@ -663,11 +654,20 @@ async function mapDefinition(
     ? await createAutomationRunStore(entry.automationDirPath).listRuns({ limit: 5 })
     : []
   const nextRun = await readDefinitionNextRunAtIso(entry, createdAtIso, updatedAtIso)
+  const executionEnvironmentDiagnostic: AutomationDiagnostic | null = entry.record.executionEnvironment && !entry.record.runMode
+    ? {
+        automationId: entry.record.id,
+        sourceDirName: entry.sourceDirName,
+        path: entry.automationTomlPath,
+        severity: 'warning',
+        message: `Unsupported automation execution_environment: ${entry.record.executionEnvironment}`,
+      }
+    : null
   return {
-    diagnostic: nextRun.diagnostic,
+    diagnostic: nextRun.diagnostic ?? executionEnvironmentDiagnostic,
     definition: {
       id: entry.record.id,
-      kind: 'heartbeat',
+      kind: entry.record.kind,
       source: 'native',
       nativeId: entry.record.id,
       name: entry.record.name,
@@ -678,11 +678,12 @@ async function mapDefinition(
       schedule: { type: 'rrule', rrule: entry.record.rrule },
       targetThreadId: entry.record.targetThreadId,
       projectRoot: null,
-      cwd: sidecar.cwd,
-      runMode: sidecar.runMode,
+      cwd: entry.record.cwd ?? sidecar.cwd,
+      cwds: entry.record.cwds.length > 0 ? entry.record.cwds : sidecar.cwd ? [sidecar.cwd] : [],
+      runMode: entry.record.runMode ?? sidecar.runMode,
       runProfileId: sidecar.runProfileId,
-      model: sidecar.model,
-      reasoningEffort: sidecar.reasoningEffort,
+      model: entry.record.model ?? sidecar.model,
+      reasoningEffort: entry.record.reasoningEffort ?? sidecar.reasoningEffort,
       autoArchiveNoFindings: false,
       notifyOnFindings: false,
       kanbanProjection: sidecar.kanbanProjection,

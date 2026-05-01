@@ -218,6 +218,34 @@ function readRecord(params: unknown): { threadId: string } {
 }
 
 describe('AutomationScheduler', () => {
+  it('includes Desktop cron automations as scheduler candidates', async () => {
+    const { codexHomeDir, service } = await createHarness()
+    await writeNative(codexHomeDir, 'cron-check-dir', {
+      ...nativeRecord,
+      id: 'cron-check',
+      kind: 'cron',
+      rrule: 'FREQ=HOURLY;INTERVAL=1',
+      rrulePrefix: 'RRULE:',
+      targetThreadId: null,
+      executionEnvironment: 'worktree',
+      runMode: 'worktree',
+      cwd: '/tmp/project',
+      cwds: ['/tmp/project'],
+    })
+
+    const entries = await service.listSchedulerEntries()
+
+    expect(entries).toHaveLength(1)
+    expect(entries[0].definition).toMatchObject({
+      id: 'cron-check',
+      kind: 'cron',
+      runMode: 'worktree',
+      cwd: '/tmp/project',
+      cwds: ['/tmp/project'],
+      schedule: { type: 'rrule', rrule: 'FREQ=HOURLY;INTERVAL=1' },
+    })
+  })
+
   it('scans persisted active definitions and starts one due scheduled run', async () => {
     const now = new Date('2026-04-30T10:00:00.000Z')
     const { codexHomeDir, service, rpcCalls } = await createHarness()

@@ -419,6 +419,49 @@ describe('createAutomationsMiddleware', () => {
     expect(get.body.data).toMatchObject({ id: 'detached-check', targetThreadId: null, status: 'paused', nextRunAtIso: expect.any(String) })
   })
 
+  it('lists Desktop cron fixture fields from native TOML', async () => {
+    const { baseUrl, codexHomeDir } = await createHarness()
+    const automationDir = join(codexHomeDir, 'automations', 'hourly-fixture')
+    await mkdir(automationDir, { recursive: true })
+    await writeFile(
+      join(automationDir, 'automation.toml'),
+      await readFile('fixtures/desktop-automations/hourly-fixture/automation.toml', 'utf8'),
+      'utf8',
+    )
+
+    const state = await requestJson<{
+      data: {
+        definitions: Array<{
+          id: string
+          kind: string
+          targetThreadId: string | null
+          cwd: string | null
+          cwds: string[]
+          runMode: string | null
+          model: string | null
+          reasoningEffort: string | null
+          schedule: { type: 'rrule'; rrule: string }
+        }>
+      }
+    }>(`${baseUrl}/codex-api/automations/state`)
+
+    expect(state.status).toBe(200)
+    expect(state.body.data.definitions).toContainEqual(expect.objectContaining({
+      id: 'hourly-fixture',
+      kind: 'cron',
+      targetThreadId: null,
+      cwd: '/mnt/c/Users/projects/apollo',
+      cwds: ['/mnt/c/Users/projects/apollo'],
+      runMode: 'worktree',
+      model: 'gpt-5.5',
+      reasoningEffort: 'low',
+      schedule: {
+        type: 'rrule',
+        rrule: 'FREQ=HOURLY;INTERVAL=1;BYMINUTE=0;BYDAY=SU,MO,TU,WE,TH,FR,SA',
+      },
+    }))
+  })
+
   it('reports scheduler support in state when enabled for the service', async () => {
     const { bridge } = createBridge()
     const { baseUrl } = await createHarness({ bridge, policy: enabledPolicy, enableScheduler: true })
@@ -853,7 +896,7 @@ describe('createAutomationsMiddleware', () => {
     expect(validChat.body.data).toMatchObject({ runMode: 'chat', targetThreadId: 'thread-patch-target-return' })
   })
 
-  it('does not expose native cron automations through heartbeat API lookups', async () => {
+  it('exposes native cron automations through first-class API lookups', async () => {
     const { baseUrl, codexHomeDir } = await createHarness()
     const csrfHeaders = await readCsrfHeaders(baseUrl)
     const cronDir = await writeNative(codexHomeDir, 'cron-source-dir', {
@@ -863,24 +906,24 @@ describe('createAutomationsMiddleware', () => {
       targetThreadId: 'thread-cron',
     })
 
-    const list = await requestJson<{ data: Array<{ id: string }> }>(`${baseUrl}/codex-api/automations`)
-    const getById = await requestJson<{ error: string }>(`${baseUrl}/codex-api/automations/cron-check`)
-    const getByDir = await requestJson<{ error: string }>(`${baseUrl}/codex-api/automations/cron-source-dir`)
-    const patchById = await requestJson<{ error: string }>(
+    const list = await requestJson<{ data: Array<{ id: string; kind: string }> }>(`${baseUrl}/codex-api/automations`)
+    const getById = await requestJson<{ data: { id: string; kind: string } }>(`${baseUrl}/codex-api/automations/cron-check`)
+    const getByDir = await requestJson<{ data: { id: string; storage: { nativeDirName: string } } }>(`${baseUrl}/codex-api/automations/cron-source-dir`)
+    const patchById = await requestJson<{ data: { id: string; name: string } }>(
       `${baseUrl}/codex-api/automations/cron-check`,
       { method: 'PATCH', headers: csrfHeaders, body: JSON.stringify({ name: 'Mutated Cron' }) },
     )
-    const deleteByDir = await requestJson<{ error: string }>(
+    const deleteByDir = await requestJson<{ data: { removedNative: boolean } }>(
       `${baseUrl}/codex-api/automations/cron-source-dir?removeNative=true`,
       { method: 'DELETE', headers: csrfHeaders },
     )
 
-    expect(list.body.data.map((definition) => definition.id)).not.toContain('cron-check')
-    expect(getById.status).toBe(404)
-    expect(getByDir.status).toBe(404)
-    expect(patchById.status).toBe(404)
-    expect(deleteByDir.status).toBe(404)
-    await expect(stat(join(cronDir, 'automation.toml'))).resolves.toBeTruthy()
+    expect(list.body.data).toContainEqual(expect.objectContaining({ id: 'cron-check', kind: 'cron' }))
+    expect(getById.body.data).toMatchObject({ id: 'cron-check', kind: 'cron' })
+    expect(getByDir.body.data).toMatchObject({ id: 'cron-check', storage: { nativeDirName: 'cron-source-dir' } })
+    expect(patchById.body.data).toMatchObject({ id: 'cron-check', name: 'Mutated Cron' })
+    expect(deleteByDir.body.data.removedNative).toBe(true)
+    await expect(stat(join(cronDir, 'automation.toml'))).rejects.toThrow()
   })
 
   it('creates local and worktree automations without an attached thread id', async () => {

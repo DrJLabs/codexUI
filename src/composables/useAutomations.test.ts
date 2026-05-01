@@ -391,6 +391,7 @@ function automationFixture(overrides: Partial<AutomationDefinition> = {}): Autom
     targetThreadId: 'thread_1',
     projectRoot: null,
     cwd: null,
+    cwds: [],
     runMode: null,
     runProfileId: null,
     model: null,
