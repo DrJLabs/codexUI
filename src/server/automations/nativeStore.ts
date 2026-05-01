@@ -122,7 +122,7 @@ function stripTomlLineComment(value: string): string {
   let escaped = false
   for (let index = 0; index < value.length; index += 1) {
     if (multilineDelimiter) {
-      if (value.startsWith(multilineDelimiter, index)) {
+      if (findTomlMultilineCloseIndex(value, multilineDelimiter, index) === index) {
         index += multilineDelimiter.length - 1
         multilineDelimiter = null
       }

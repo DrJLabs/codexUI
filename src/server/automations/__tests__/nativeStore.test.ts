@@ -165,6 +165,30 @@ describe('native automation store TOML compatibility', () => {
     })
   })
 
+  it('does not strip comment-like text after escaped triple quotes inside multiline basic strings', () => {
+    const raw = [
+      'version = 1',
+      'id = "daily-check"',
+      'kind = "heartbeat"',
+      'name = "Daily Check"',
+      'prompt = """',
+      'Say \\""" literally # not a comment',
+      'and continue',
+      '""" # real comment',
+      'status = "PAUSED"',
+      'rrule = "FREQ=DAILY;INTERVAL=1"',
+      'target_thread_id = "thread-123"',
+      'created_at = 1710000000000',
+      'updated_at = 1710000005000',
+      '',
+    ].join('\n')
+
+    expect(parseAutomationToml(raw)).toEqual({
+      ...pausedRecord,
+      prompt: 'Say """ literally # not a comment\nand continue',
+    })
+  })
+
   it('returns null for invalid or partial records', () => {
     expect(parseAutomationToml('id = "missing-required-fields"\n')).toBeNull()
     expect(parseAutomationToml(`${serializeAutomationToml(pausedRecord)}kind = "timer"\n`)).toBeNull()

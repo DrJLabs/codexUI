@@ -31,6 +31,7 @@ export function createAutomationsMiddleware(options: CreateAutomationsMiddleware
   scheduler?.start()
   router.dispose = () => {
     scheduler?.stop()
+    service.dispose()
   }
   return router
 }

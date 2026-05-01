@@ -5789,3 +5789,35 @@ Review-cycle hardening for automation runner ownership cleanup and notification 
 
 #### Rollback/Cleanup
 - Delete disposable automation records and run folders created only for this check.
+
+---
+
+### Automations PR review cycle 10 fixes
+
+#### Feature/Change Name
+Review-cycle hardening for stale manual-run recovery, middleware teardown, service-level cwd validation, and multiline TOML comments.
+
+#### Prerequisites/Setup
+1. Use `${WORKTREE_ROOT}` on `feat/automations`.
+2. Reuse an existing compatible dependency install if this worktree does not already have dependencies.
+3. Use disposable automation records and run folders only.
+
+#### Steps
+1. Run `pnpm exec vitest run src/server/automations/__tests__/nativeStore.test.ts src/server/automations/__tests__/runner.test.ts src/server/automations/__tests__/routes.test.ts`.
+2. Run `pnpm test:unit`.
+3. Run `pnpm run build`.
+4. Run `git diff --check`.
+5. Start one automation run, recreate the automation service without scheduler startup recovery, then start a second automation while the global active-run limit is `1`.
+6. Construct automation middleware with a bridge, dispose the middleware, and verify the bridge notification subscription is unsubscribed.
+7. Parse multiline basic TOML where escaped triple quotes are followed by `#` text inside the body and a real trailing comment after the closing delimiter.
+8. Attempt to save or run local/worktree automations whose effective `cwd` is missing or relative.
+
+#### Expected Results
+- Manual starts recover stale active runs from other automations before global-capacity checks when startup recovery has not run.
+- Same-automation orphan recovery keeps its manual-run recovery path and diagnostics.
+- Middleware teardown stops the scheduler and disposes the automation service subscription.
+- Escaped triple quotes inside multiline TOML do not make following `#` body text look like a comment.
+- Local and worktree automation targets require an absolute `cwd` at the service boundary.
+
+#### Rollback/Cleanup
+- Delete disposable automation records and run folders created only for this check.

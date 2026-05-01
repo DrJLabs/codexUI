@@ -111,6 +111,7 @@ async function createHarness(options: {
 function createBridge() {
   const rpcCalls: Array<{ method: string; params: unknown }> = []
   const notificationListeners: Array<(notification: CodexBridgeNotification) => void> = []
+  const unsubscribe = vi.fn()
   let turnStartCount = 0
   const bridge: CodexBridgeRuntime = {
     rpc: async <T = unknown>(method: string, params?: unknown) => {
@@ -136,11 +137,11 @@ function createBridge() {
     },
     subscribeNotifications: vi.fn((listener) => {
       notificationListeners.push(listener)
-      return () => {}
+      return unsubscribe
     }),
     dispose: vi.fn(),
   }
-  return { bridge, rpcCalls, notificationListeners }
+  return { bridge, rpcCalls, notificationListeners, unsubscribe }
 }
 
 async function requestJson<T>(url: string, init?: RequestInit): Promise<{ status: number; body: T }> {
@@ -272,6 +273,18 @@ describe('createAutomationsMiddleware', () => {
     } finally {
       vi.useRealTimers()
     }
+  })
+
+  it('disposes the automation service bridge subscription during middleware teardown', () => {
+    const { bridge, unsubscribe } = createBridge()
+    const middleware = createAutomationsMiddleware({
+      bridge,
+      policy: enabledPolicy,
+    })
+
+    middleware.dispose?.()
+
+    expect(unsubscribe).toHaveBeenCalledOnce()
   })
 
   it('serves health, templates, state, list, and get with data-wrapped first-class definitions', async () => {

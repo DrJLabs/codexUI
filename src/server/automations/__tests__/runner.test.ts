@@ -957,6 +957,37 @@ describe('AutomationRunner', () => {
     expect(rpcCalls.filter((call) => call.method === 'turn/start')).toHaveLength(1)
   })
 
+  it('recovers stale active runs before manual global-capacity checks when startup recovery has not run', async () => {
+    const { codexHomeDir, service, bridge } = await createHarness()
+    const firstAutomationDir = await writeNative(codexHomeDir, 'daily-check-dir', nativeRecord, { runMode: 'chat' })
+    await writeNative(codexHomeDir, 'second-check-dir', {
+      ...nativeRecord,
+      id: 'second-check',
+      name: 'Second Check',
+      targetThreadId: 'thread-2',
+    }, { runMode: 'chat' })
+    const stale = await service.runNow('daily-check')
+    const restartedService = new AutomationsService({
+      codexHomeDir,
+      bridge,
+      policy: enabledPolicy,
+    })
+
+    try {
+      const second = await restartedService.runNow('second-check')
+      const failedStale = JSON.parse(await readFile(join(firstAutomationDir, 'runs', stale.id, 'run.json'), 'utf8')) as AutomationRun
+
+      expect(second).toMatchObject({ automationId: 'second-check', state: 'running' })
+      expect(failedStale).toMatchObject({
+        id: stale.id,
+        state: 'failed',
+        errorMessage: 'Automation run was interrupted by a previous server session',
+      })
+    } finally {
+      restartedService.dispose()
+    }
+  })
+
   it('serializes concurrent manual starts across automations before checking global capacity', async () => {
     const { codexHomeDir, service, rpcCalls } = await createHarness({ turnStartDelayMs: 20 })
     await writeNative(codexHomeDir, 'daily-check-dir', nativeRecord, { runMode: 'chat' })

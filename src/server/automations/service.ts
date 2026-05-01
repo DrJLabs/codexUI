@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto'
 import { readFile, rm, writeFile } from 'node:fs/promises'
-import { join } from 'node:path'
+import { isAbsolute, join } from 'node:path'
 import type {
   AutomationDefinition,
   AutomationDiagnostic,
@@ -71,6 +71,7 @@ export class AutomationsService {
   private readonly kanbanProjection: AutomationKanbanProjectionService | null
   private readonly kanbanProjectionTaskValidator: KanbanProjectionTaskValidator | null
   private recoveryPromise: Promise<{ recovered: number }> | null = null
+  private hasRecoveredInterruptedRuns = false
   private runStartLock: Promise<void> = Promise.resolve()
 
   constructor(private readonly options: AutomationsServiceOptions = {}) {
@@ -345,12 +346,12 @@ export class AutomationsService {
 
   async runNow(automationId: string, options: { runProfiles?: CodexRunProfile[]; runProfileId?: string | null } = {}): Promise<AutomationRun> {
     return await this.withRunStartLock(async () => {
-      await this.waitForRecovery()
       const entry = await this.findEntry(automationId)
       if (!entry) throw new AutomationNotFoundError(automationId)
       if (!this.runner) throw createServiceError(503, 'Codex bridge is not available for automation manual runs')
       const sidecarResult = await readSidecar(entry)
       const definition = (await mapDefinition(entry, sidecarResult.sidecar)).definition
+      await this.ensureInterruptedRunRecoveryBeforeCapacity(definition.id)
       await this.assertRunStartCapacity(definition)
       return await this.runner.runNow({
         definition,
@@ -371,12 +372,12 @@ export class AutomationsService {
     },
   ): Promise<AutomationRun> {
     return await this.withRunStartLock(async () => {
-      await this.waitForRecovery()
       const entry = await this.findEntry(automationId)
       if (!entry) throw new AutomationNotFoundError(automationId)
       if (!this.runner) throw createServiceError(503, 'Codex bridge is not available for automation scheduled runs')
       const sidecarResult = await readSidecar(entry)
       const definition = (await mapDefinition(entry, sidecarResult.sidecar)).definition
+      await this.ensureInterruptedRunRecoveryBeforeCapacity(definition.id)
       await this.assertRunStartCapacity(definition)
       return await this.runner.runScheduled({
         definition,
@@ -395,7 +396,9 @@ export class AutomationsService {
     const recoveryPromise = this.recoverInterruptedRunsNow()
     this.recoveryPromise = recoveryPromise
     try {
-      return await recoveryPromise
+      const result = await recoveryPromise
+      this.hasRecoveredInterruptedRuns = true
+      return result
     } finally {
       if (this.recoveryPromise === recoveryPromise) this.recoveryPromise = null
     }
@@ -439,6 +442,19 @@ export class AutomationsService {
   private async waitForRecovery(): Promise<void> {
     const recoveryPromise = this.recoveryPromise
     if (recoveryPromise) await recoveryPromise
+  }
+
+  private async ensureInterruptedRunRecoveryBeforeCapacity(automationId: string): Promise<void> {
+    if (this.hasRecoveredInterruptedRuns) {
+      await this.waitForRecovery()
+      return
+    }
+    const activeRuns = await this.listPersistedActiveRuns()
+    if (!activeRuns.some((activeRun) => activeRun.automationId !== automationId)) {
+      await this.waitForRecovery()
+      return
+    }
+    await this.recoverInterruptedRuns()
   }
 
   private async withRunStartLock<T>(fn: () => Promise<T>): Promise<T> {
@@ -755,6 +771,9 @@ function assertAutomationRunTarget(runMode: AutomationRunMode | null, cwd: strin
   const effectiveRunMode = runMode ?? 'chat'
   if ((effectiveRunMode === 'local' || effectiveRunMode === 'worktree') && !cwd) {
     throw createServiceError(400, 'cwd is required for local and worktree automations')
+  }
+  if ((effectiveRunMode === 'local' || effectiveRunMode === 'worktree') && cwd && !isAbsolute(cwd)) {
+    throw createServiceError(400, 'cwd must be an absolute path for local and worktree automations')
   }
   if (effectiveRunMode === 'chat' && !targetThreadId) {
     throw createServiceError(400, 'targetThreadId is required for chat automations')
