@@ -5973,3 +5973,30 @@ Review-cycle hardening for sidecar read errors and persisted run record normaliz
 
 #### Rollback/Cleanup
 - Delete disposable automation directories and run records created only for this check.
+
+---
+
+### Automations PR review cycle 16 fixes
+
+#### Feature/Change Name
+Review-cycle hardening for fast turn-completion notifications.
+
+#### Prerequisites/Setup
+1. Use `${WORKTREE_ROOT}` on `feat/automations`.
+2. Reuse an existing compatible dependency install if this worktree does not already have dependencies.
+3. Use disposable automation directories and run records only.
+
+#### Steps
+1. Run `pnpm exec vitest run src/server/automations/__tests__/runner.test.ts`.
+2. Run `pnpm test:unit`.
+3. Run `pnpm run build`.
+4. Run `git diff --check`.
+5. Start a chat automation run and deliver a matching `turn/completed` notification immediately after `turn/start` returns while run-state persistence is still catching up.
+
+#### Expected Results
+- The runner indexes the started turn before awaiting persistence that marks the run as `running`.
+- Completion handling waits for the running record to be durable before reading and completing the run.
+- The fast completion notification is not dropped, the run becomes `completed_no_findings`, and later runs for the automation are not blocked.
+
+#### Rollback/Cleanup
+- Delete disposable automation directories and run records created only for this check.

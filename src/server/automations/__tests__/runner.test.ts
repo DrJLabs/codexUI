@@ -67,6 +67,11 @@ async function createHarness(options: {
   readThreadResponse?: unknown
   readThreadError?: Error
   beforeRpc?: (method: string) => Promise<void> | void
+  afterTurnStart?: (turn: {
+    threadId: string
+    turnId: string
+    notifyCompleted: () => Promise<void> | void
+  }) => Promise<void> | void
   kanbanProjection?: AutomationKanbanProjectionService
 } = {}) {
   const codexHomeDir = await mkdtemp(join(tmpdir(), 'codexui-automation-runner-'))
@@ -91,7 +96,18 @@ async function createHarness(options: {
         }
         if (options.turnStartError) throw options.turnStartError
         turnStartCount += 1
-        return { turn: { id: `turn_${turnStartCount}` } } as T
+        const turnId = `turn_${turnStartCount}`
+        const threadId = String(readRecord(params).threadId ?? '')
+        await options.afterTurnStart?.({
+          threadId,
+          turnId,
+          notifyCompleted: () => notificationListeners[0]?.({
+            method: 'turn/completed',
+            params: { threadId, turnId },
+            atIso: new Date().toISOString(),
+          }),
+        })
+        return { turn: { id: turnId } } as T
       }
       if (method === 'thread/read') {
         if (options.readThreadError) throw options.readThreadError
@@ -418,6 +434,44 @@ describe('AutomationRunner', () => {
     })
     expect(second.id).not.toBe(first.id)
     expect(rpcCalls.map((call) => call.method)).toEqual(['thread/resume', 'turn/start', 'thread/read', 'thread/resume', 'turn/start'])
+  })
+
+  it('indexes a started turn before awaiting run-state persistence', async () => {
+    let automationDir = ''
+    let notificationProcessed!: () => void
+    let notificationFailed!: (error: unknown) => void
+    const completedNotification = new Promise<void>((resolve, reject) => {
+      notificationProcessed = resolve
+      notificationFailed = reject
+    })
+    const { codexHomeDir, service } = await createHarness({
+      afterTurnStart: async ({ notifyCompleted }) => {
+        const lockPath = join(automationDir, '.active-runs.json.lock')
+        await mkdir(lockPath, { recursive: true })
+        await writeFile(join(lockPath, 'owner.json'), `${JSON.stringify({
+          pid: process.pid,
+          startedAtMs: Date.now(),
+        })}\n`, 'utf8')
+        setTimeout(() => {
+          Promise.resolve(notifyCompleted()).then(notificationProcessed, notificationFailed)
+          setTimeout(() => {
+            void rm(lockPath, { recursive: true, force: true })
+          }, 20)
+        }, 0)
+      },
+    })
+    automationDir = await writeNative(codexHomeDir, 'daily-check-dir', nativeRecord, { runMode: 'chat' })
+
+    const run = await service.runNow('daily-check')
+    await completedNotification
+    const completed = (await service.listRuns('daily-check'))[0]!
+
+    expect(completed).toMatchObject({
+      id: run.id,
+      state: 'completed_no_findings',
+      threadId: 'thread-1',
+      turnId: 'turn_1',
+    })
   })
 
   it('accepts nested thread ids in completion notifications', async () => {

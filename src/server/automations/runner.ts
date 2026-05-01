@@ -39,6 +39,7 @@ let automationRunSequence = 0
 type IndexedActiveRun = {
   entry: NativeAutomationEntry
   runId: string
+  runningRecordReady: Promise<boolean>
 }
 
 export class AutomationRunner {
@@ -164,6 +165,8 @@ export class AutomationRunner {
     }
     await store.createRun(run)
     this.ownedActiveRunIds.add(run.id)
+    let activeTurnKeyForRun: string | null = null
+    let markRunningRecordReady: (ready: boolean) => void = () => {}
     try {
       if (input.trigger === 'schedule') {
         await store.appendEvent(run, {
@@ -208,19 +211,27 @@ export class AutomationRunner {
       }
       const threadId = await this.startThread(definition, run)
       const turnId = await this.startTurn(definition, run, threadId, runProfileSnapshot)
+      const runningRecordReady = new Promise<boolean>((resolve) => {
+        markRunningRecordReady = resolve
+      })
+      activeTurnKeyForRun = activeRunTurnKey(threadId, turnId)
+      this.activeRunsByTurn.set(activeTurnKeyForRun, {
+        entry: createNativeEntryForRun(definition, input.automationDirPath, input.sourceDirName),
+        runId: run.id,
+        runningRecordReady,
+      })
       run = await store.updateRun(run.id, {
         state: 'running',
         threadId,
         turnId,
       })
-      this.activeRunsByTurn.set(activeRunTurnKey(threadId, turnId), {
-        entry: createNativeEntryForRun(definition, input.automationDirPath, input.sourceDirName),
-        runId: run.id,
-      })
       await store.appendEvent(run, { type: `${eventPrefix}.turn_started`, threadId, turnId })
       await store.appendLog(run, `Turn started: ${turnId}`)
+      markRunningRecordReady(true)
       return run
     } catch (error) {
+      markRunningRecordReady(false)
+      if (activeTurnKeyForRun) this.activeRunsByTurn.delete(activeTurnKeyForRun)
       const message = error instanceof Error ? error.message : `Automation ${input.trigger} run failed`
       const classification = classifyAutomationRunFailure(message)
       try {
@@ -439,6 +450,10 @@ export class AutomationRunner {
     const key = activeRunTurnKey(threadId, turnId)
     const indexed = this.activeRunsByTurn.get(key)
     if (!indexed) return null
+    if (!await indexed.runningRecordReady || this.activeRunsByTurn.get(key) !== indexed) {
+      this.activeRunsByTurn.delete(key)
+      return null
+    }
     const store = createAutomationRunStore(indexed.entry.automationDirPath)
     try {
       const run = await store.readRun(indexed.runId)
