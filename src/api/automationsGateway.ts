@@ -1,7 +1,7 @@
 import type { AutomationDefinition, AutomationRun, AutomationsState, AutomationTemplate, AutomationRunMode } from '../types/automations'
 
 export type CreateAutomationInput = {
-  kind: 'heartbeat'
+  kind: 'heartbeat' | 'cron'
   name: string
   prompt: string
   schedule: { type: 'rrule'; rrule: string }

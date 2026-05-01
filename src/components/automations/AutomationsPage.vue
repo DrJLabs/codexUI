@@ -52,15 +52,15 @@
     </section>
 
     <section class="automations-workspace">
-      <aside class="automations-list" aria-label="Heartbeat automations">
+      <aside class="automations-list" aria-label="Automations">
         <div class="automations-list-header">
-          <h2>Heartbeats</h2>
+          <h2>Automations</h2>
           <button type="button" :disabled="isLoading || isSaving" @click="startCreate()">New</button>
         </div>
 
         <p v-if="isLoading" class="automations-status">Loading automations...</p>
         <p v-else-if="definitions.length === 0" class="automations-empty">
-          No heartbeat automations configured.
+          No automations configured.
         </p>
 
         <div v-else class="automations-table-wrap">
@@ -68,6 +68,7 @@
             <thead>
               <tr>
                 <th>Name</th>
+                <th>Kind</th>
                 <th>Status</th>
                 <th>Thread</th>
                 <th>RRULE</th>
@@ -91,6 +92,7 @@
                     {{ definition.name }}
                   </button>
                 </td>
+                <td><code>{{ definition.kind }}</code></td>
                 <td><span class="automations-status-pill" :data-status="definition.status">{{ definition.status }}</span></td>
                 <td><code>{{ definition.targetThreadId || 'No thread' }}</code></td>
                 <td><code>{{ definition.schedule.rrule }}</code></td>
@@ -199,6 +201,14 @@
           <div>
             <dt>Sidecar path</dt>
             <dd><code>{{ selectedAutomation?.storage.sidecarPath || 'Created on save' }}</code></dd>
+          </div>
+          <div>
+            <dt>Kind</dt>
+            <dd><code>{{ selectedAutomation?.kind || 'Created on save' }}</code></dd>
+          </div>
+          <div>
+            <dt>Cwd</dt>
+            <dd><code>{{ selectedAutomation?.cwd || selectedAutomation?.cwds?.[0] || 'n/a' }}</code></dd>
           </div>
           <div>
             <dt>Next run</dt>

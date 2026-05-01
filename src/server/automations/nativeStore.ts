@@ -1,7 +1,7 @@
 import { randomBytes } from 'node:crypto'
 import { mkdir, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
-import type { AutomationDiagnostic } from '../../types/automations'
+import type { AutomationDiagnostic, AutomationRunMode } from '../../types/automations'
 import { resolveCodexHomeDir } from './paths'
 
 export type ThreadAutomationStatus = 'ACTIVE' | 'PAUSED'
@@ -12,8 +12,15 @@ export type ThreadAutomationRecord = {
   name: string
   prompt: string
   rrule: string
+  rrulePrefix: 'RRULE:' | null
   status: ThreadAutomationStatus
   targetThreadId: string | null
+  model: string | null
+  reasoningEffort: string | null
+  executionEnvironment: string | null
+  runMode: AutomationRunMode | null
+  cwd: string | null
+  cwds: string[]
   createdAtMs: number | null
   updatedAtMs: number | null
   nextRunAtMs: number | null
@@ -21,6 +28,21 @@ export type ThreadAutomationRecord = {
 
 export type NativeAutomationStoreOptions = {
   codexHomeDir?: string
+}
+
+export type NativeAutomationWriteInput = {
+  id?: string | null
+  kind: 'heartbeat' | 'cron'
+  threadId: string | null
+  name: string
+  prompt: string
+  rrule: string
+  status: ThreadAutomationStatus
+  model?: string | null
+  reasoningEffort?: string | null
+  runMode?: AutomationRunMode | null
+  cwd?: string | null
+  cwds?: string[]
 }
 
 type ThreadAutomationStoreEntry = {
@@ -92,19 +114,133 @@ function serializeTomlString(value: string): string {
   return JSON.stringify(value)
 }
 
-function buildAutomationTomlFields(record: ThreadAutomationRecord): Record<string, string> {
-  return {
+function readTomlStringArray(value: string): string[] | null {
+  const trimmed = value.trim()
+  if (!trimmed.startsWith('[') || !trimmed.endsWith(']')) return null
+  const body = trimmed.slice(1, -1).trim()
+  if (!body) return []
+  const values: string[] = []
+  let index = 0
+  while (index < body.length) {
+    index = skipTomlArrayIgnored(body, index, true)
+    if (index >= body.length) break
+    const end = findTomlArrayStringEndIndex(body, index)
+    if (end < 0) return null
+    values.push(readTomlString(body.slice(index, end + 1)))
+    index = end + 1
+    index = skipTomlArrayIgnored(body, index, false)
+    if (index < body.length && body[index] !== ',') return null
+  }
+  return values
+}
+
+function skipTomlArrayIgnored(value: string, index: number, allowComma: boolean): number {
+  let next = index
+  while (next < value.length) {
+    const char = value[next]
+    if (/\s/u.test(char) || (allowComma && char === ',')) {
+      next += 1
+      continue
+    }
+    if (char === '#') {
+      const lineEnd = value.indexOf('\n', next + 1)
+      next = lineEnd >= 0 ? lineEnd + 1 : value.length
+      continue
+    }
+    break
+  }
+  return next
+}
+
+function findTomlArrayStringEndIndex(value: string, startIndex: number): number {
+  const delimiter = value.startsWith('"""', startIndex) ? '"""' : value.startsWith("'''", startIndex) ? "'''" : null
+  if (delimiter) {
+    const closingIndex = findTomlMultilineCloseIndex(value, delimiter, startIndex + delimiter.length)
+    return closingIndex >= 0 ? closingIndex + delimiter.length - 1 : -1
+  }
+
+  const quote = value[startIndex]
+  if (quote !== '"' && quote !== "'") return -1
+  let end = startIndex + 1
+  let escaped = false
+  while (end < value.length) {
+    const char = value[end]
+    if (quote === '"' && !escaped && char === '\\') {
+      escaped = true
+      end += 1
+      continue
+    }
+    if (!escaped && char === quote) break
+    escaped = false
+    end += 1
+  }
+  return end < value.length ? end : -1
+}
+
+function serializeTomlStringArray(values: string[]): string {
+  return `[${values.map((value) => serializeTomlString(value)).join(', ')}]`
+}
+
+function normalizeAutomationRruleForRead(value: string): { rrule: string; rrulePrefix: 'RRULE:' | null } {
+  const trimmed = value.trim()
+  if (trimmed.startsWith('RRULE:')) return { rrule: trimmed.slice('RRULE:'.length), rrulePrefix: 'RRULE:' }
+  return { rrule: trimmed, rrulePrefix: null }
+}
+
+function runModeFromExecutionEnvironment(value: string | null): AutomationRunMode | null {
+  if (value === 'chat' || value === 'local' || value === 'worktree') return value
+  return null
+}
+
+function previousRawHasTopLevelKey(previousRaw: string | undefined, key: string): boolean {
+  if (typeof previousRaw !== 'string') return false
+  let multilineStringDelimiter: '"""' | "'''" | null = null
+  let multilineArrayValue: string | null = null
+  for (const line of previousRaw.split(/\r?\n/u)) {
+    if (multilineArrayValue !== null) {
+      multilineArrayValue += `\n${line}`
+      if (findTomlArrayCloseIndex(multilineArrayValue) >= 0) multilineArrayValue = null
+      continue
+    }
+
+    if (multilineStringDelimiter) {
+      if (findTomlMultilineCloseIndex(line, multilineStringDelimiter) >= 0) multilineStringDelimiter = null
+      continue
+    }
+    const assignment = readTopLevelTomlAssignment(line)
+    if (!assignment) continue
+    if (assignment.key === key) return true
+    const trimmedValue = assignment.value.trim()
+    if (trimmedValue.startsWith('[') && findTomlArrayCloseIndex(trimmedValue) < 0) {
+      multilineArrayValue = trimmedValue
+      continue
+    }
+    multilineStringDelimiter = getOpenMultilineTomlStringDelimiter(assignment.value)
+  }
+  return false
+}
+
+function buildAutomationTomlFields(record: ThreadAutomationRecord, previousRaw?: string): Record<string, string> {
+  const fields: Record<string, string> = {
     version: '1',
     id: serializeTomlString(record.id),
     kind: serializeTomlString(record.kind),
     name: serializeTomlString(record.name),
     prompt: serializeTomlString(record.prompt),
     status: serializeTomlString(record.status),
-    rrule: serializeTomlString(record.rrule),
-    target_thread_id: serializeTomlString(record.targetThreadId ?? ''),
-    created_at: String(record.createdAtMs ?? Date.now()),
-    updated_at: String(record.updatedAtMs ?? Date.now()),
+    rrule: serializeTomlString(`${record.rrulePrefix ?? (record.kind === 'cron' ? 'RRULE:' : '')}${record.rrule}`),
   }
+  if (record.cwd) fields.cwd = serializeTomlString(record.cwd)
+  if (record.model) fields.model = serializeTomlString(record.model)
+  if (record.reasoningEffort) fields.reasoning_effort = serializeTomlString(record.reasoningEffort)
+  if (record.executionEnvironment) fields.execution_environment = serializeTomlString(record.executionEnvironment)
+  if (record.cwds.length > 0) fields.cwds = serializeTomlStringArray(record.cwds)
+  if (record.targetThreadId || previousRawHasTopLevelKey(previousRaw, 'target_thread_id')) {
+    fields.target_thread_id = serializeTomlString(record.targetThreadId ?? '')
+  }
+  fields.created_at = String(record.createdAtMs ?? Date.now())
+  fields.updated_at = String(record.updatedAtMs ?? Date.now())
+  return fields
 }
 
 function readTopLevelTomlAssignment(line: string): { key: string, value: string } | null {
@@ -183,6 +319,38 @@ function findTomlMultilineCloseIndex(line: string, delimiter: '"""' | "'''", fro
   return -1
 }
 
+function findTomlArrayCloseIndex(value: string): number {
+  let index = 0
+  let depth = 0
+  while (index < value.length) {
+    const char = value[index]
+    if (char === '#') {
+      const lineEnd = value.indexOf('\n', index + 1)
+      index = lineEnd >= 0 ? lineEnd + 1 : value.length
+      continue
+    }
+    if (char === '"' || char === "'") {
+      const stringEnd = findTomlArrayStringEndIndex(value, index)
+      if (stringEnd < 0) return -1
+      index = stringEnd + 1
+      continue
+    }
+    if (char === '[') {
+      depth += 1
+      index += 1
+      continue
+    }
+    if (char === ']') {
+      if (depth <= 1) return index
+      depth -= 1
+      index += 1
+      continue
+    }
+    index += 1
+  }
+  return -1
+}
+
 function isEscapedBasicStringQuote(line: string, quoteIndex: number): boolean {
   let backslashCount = 0
   for (let index = quoteIndex - 1; index >= 0 && line[index] === '\\'; index -= 1) {
@@ -196,7 +364,20 @@ export function parseAutomationToml(raw: string): ThreadAutomationRecord | null 
   let multilineStringKey: string | null = null
   let multilineStringDelimiter: '"""' | "'''" | null = null
   let multilineStringLines: string[] = []
+  let multilineArrayKey: string | null = null
+  let multilineArrayLines: string[] = []
   for (const line of raw.split(/\r?\n/u)) {
+    if (multilineArrayKey) {
+      multilineArrayLines.push(line)
+      const arrayValue = multilineArrayLines.join('\n')
+      if (findTomlArrayCloseIndex(arrayValue) >= 0) {
+        values[multilineArrayKey] = arrayValue
+        multilineArrayKey = null
+        multilineArrayLines = []
+      }
+      continue
+    }
+
     if (multilineStringDelimiter) {
       const closingIndex = findTomlMultilineCloseIndex(line, multilineStringDelimiter)
       const nextLine = closingIndex >= 0
@@ -214,6 +395,12 @@ export function parseAutomationToml(raw: string): ThreadAutomationRecord | null 
 
     const assignment = readTopLevelTomlAssignment(line)
     if (!assignment) continue
+    const trimmedValue = assignment.value.trim()
+    if (trimmedValue.startsWith('[') && findTomlArrayCloseIndex(trimmedValue) < 0) {
+      multilineArrayKey = assignment.key
+      multilineArrayLines = [trimmedValue]
+      continue
+    }
     multilineStringDelimiter = getOpenMultilineTomlStringDelimiter(assignment.value)
     if (multilineStringDelimiter) {
       multilineStringKey = assignment.key
@@ -227,13 +414,21 @@ export function parseAutomationToml(raw: string): ThreadAutomationRecord | null 
   const kindValue = readTomlString(values.kind ?? 'heartbeat')
   const name = readTomlString(values.name ?? '')
   const prompt = readTomlString(values.prompt ?? '')
-  const rrule = readTomlString(values.rrule ?? '')
+  const normalizedRrule = normalizeAutomationRruleForRead(readTomlString(values.rrule ?? ''))
   const statusValue = readTomlString(values.status ?? 'ACTIVE')
   const targetThreadId = readTomlString(values.target_thread_id ?? '') || null
+  const model = readTomlString(values.model ?? '') || null
+  const reasoningEffort = readTomlString(values.reasoning_effort ?? '') || null
+  const executionEnvironment = readTomlString(values.execution_environment ?? '') || null
+  const cwdValue = readTomlString(values.cwd ?? '') || null
+  const parsedCwds = readTomlStringArray(values.cwds ?? '') ?? []
+  const cwd = cwdValue ?? parsedCwds[0] ?? null
+  const cwds = parsedCwds.length > 0 ? parsedCwds : (cwdValue ? [cwdValue] : [])
+  const runMode = runModeFromExecutionEnvironment(executionEnvironment)
   const createdAtMs = Number.parseInt(values.created_at ?? '', 10)
   const updatedAtMs = Number.parseInt(values.updated_at ?? '', 10)
 
-  if (!id || !name || !prompt || !rrule) return null
+  if (!id || !name || !prompt || !normalizedRrule.rrule) return null
   if (kindValue !== 'heartbeat' && kindValue !== 'cron') return null
   if (statusValue !== 'ACTIVE' && statusValue !== 'PAUSED') return null
 
@@ -242,9 +437,16 @@ export function parseAutomationToml(raw: string): ThreadAutomationRecord | null 
     kind: kindValue,
     name,
     prompt,
-    rrule,
+    rrule: normalizedRrule.rrule,
+    rrulePrefix: normalizedRrule.rrulePrefix,
     status: statusValue,
     targetThreadId,
+    model,
+    reasoningEffort,
+    executionEnvironment,
+    runMode,
+    cwd,
+    cwds,
     createdAtMs: Number.isFinite(createdAtMs) ? createdAtMs : null,
     updatedAtMs: Number.isFinite(updatedAtMs) ? updatedAtMs : null,
     nextRunAtMs: null,
@@ -252,9 +454,17 @@ export function parseAutomationToml(raw: string): ThreadAutomationRecord | null 
 }
 
 export function serializeAutomationToml(record: ThreadAutomationRecord, previousRaw?: string): string {
-  const fields = buildAutomationTomlFields(record)
+  const fields = buildAutomationTomlFields(record, previousRaw)
   const orderedKeys = Object.keys(fields)
-  const knownKeys = new Set(orderedKeys)
+  const knownKeys = new Set([
+    ...orderedKeys,
+    'cwd',
+    'model',
+    'reasoning_effort',
+    'execution_environment',
+    'cwds',
+    'target_thread_id',
+  ])
 
   if (typeof previousRaw !== 'string') {
     return `${orderedKeys.map((key) => `${key} = ${fields[key]}`).join('\n')}\n`
@@ -265,9 +475,16 @@ export function serializeAutomationToml(record: ThreadAutomationRecord, previous
   const merged: string[] = []
   let multilineStringDelimiter: '"""' | "'''" | null = null
   let skipMultilineString = false
+  let skippedArrayValue: string | null = null
 
   for (const [index, line] of lines.entries()) {
     if (index === lines.length - 1 && line.length === 0) continue
+
+    if (skippedArrayValue !== null) {
+      skippedArrayValue += `\n${line}`
+      if (findTomlArrayCloseIndex(skippedArrayValue) >= 0) skippedArrayValue = null
+      continue
+    }
 
     if (multilineStringDelimiter) {
       if (!skipMultilineString) merged.push(line)
@@ -286,10 +503,14 @@ export function serializeAutomationToml(record: ThreadAutomationRecord, previous
     }
 
     const nextDelimiter = getOpenMultilineTomlStringDelimiter(assignment.value)
+    const skipFollowingArrayLines = assignment.value.trim().startsWith('[') && findTomlArrayCloseIndex(assignment.value) < 0
     if (!seen.has(assignment.key)) {
       seen.add(assignment.key)
-      merged.push(`${assignment.key} = ${fields[assignment.key]}`)
+      if (Object.prototype.hasOwnProperty.call(fields, assignment.key)) {
+        merged.push(`${assignment.key} = ${fields[assignment.key]}`)
+      }
     }
+    if (skipFollowingArrayLines) skippedArrayValue = assignment.value
     if (nextDelimiter) {
       multilineStringDelimiter = nextDelimiter
       skipMultilineString = true
@@ -320,6 +541,24 @@ function safeAutomationId(recordId: string | null | undefined, sourceDirName: st
   if (isSafeAutomationBasename(recordId)) return recordId
   if (isSafeAutomationBasename(sourceDirName)) return sourceDirName
   return isSafeAutomationBasename(fallback) ? fallback : randomBytes(8).toString('hex')
+}
+
+async function chooseAvailableAutomationBasename(automationRoot: string, basename: string): Promise<string> {
+  const safeBase = isSafeAutomationBasename(basename) ? basename : randomBytes(8).toString('hex')
+  let candidate = safeBase
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    try {
+      await mkdir(join(automationRoot, candidate))
+      return candidate
+    } catch (error) {
+      if (error instanceof Error && 'code' in error && error.code === 'EEXIST') {
+        candidate = `${safeBase}-${randomBytes(4).toString('hex')}`
+        continue
+      }
+      throw error
+    }
+  }
+  throw new Error(`Unable to allocate automation directory for ${safeBase}`)
 }
 
 async function readAutomationRecordFromFile(filePath: string): Promise<ThreadAutomationRecord | null> {
@@ -434,7 +673,22 @@ export async function writeThreadHeartbeatAutomation(
   },
   options?: NativeAutomationStoreOptions,
 ): Promise<ThreadAutomationRecord> {
+  return await writeNativeAutomation({
+    kind: 'heartbeat',
+    threadId: input.threadId,
+    name: input.name,
+    prompt: input.prompt,
+    rrule: input.rrule,
+    status: input.status,
+  }, options)
+}
+
+export async function writeNativeAutomation(
+  input: NativeAutomationWriteInput,
+  options?: NativeAutomationStoreOptions,
+): Promise<ThreadAutomationRecord> {
   const threadId = input.threadId?.trim() || null
+  const explicitId = input.id?.trim() || null
   const name = input.name.trim()
   const prompt = input.prompt.trim()
   const rrule = input.rrule.trim()
@@ -445,9 +699,14 @@ export async function writeThreadHeartbeatAutomation(
   const automationRoot = getCodexAutomationsDir(options)
   await mkdir(automationRoot, { recursive: true })
   const existing = threadId ? await readThreadHeartbeatAutomationEntry(threadId, options) : null
-  const generatedId = threadId
-    ? slugifyAutomationId(threadId, name)
-    : `${slugifyAutomationId('', name)}-${randomBytes(4).toString('hex')}`
+  const generatedIdBase = explicitId && isSafeAutomationBasename(explicitId)
+    ? explicitId
+    : threadId
+      ? slugifyAutomationId(threadId, name)
+      : input.kind === 'cron'
+        ? slugifyAutomationId('', name)
+        : `${slugifyAutomationId('', name)}-${randomBytes(4).toString('hex')}`
+  const generatedId = existing ? generatedIdBase : await chooseAvailableAutomationBasename(automationRoot, generatedIdBase)
   const id = safeAutomationId(existing?.record.id, existing?.sourceDirName, generatedId)
   const sourceDirName = existing?.sourceDirName && isSafeAutomationBasename(existing.sourceDirName)
     ? existing.sourceDirName
@@ -464,12 +723,19 @@ export async function writeThreadHeartbeatAutomation(
   const now = Date.now()
   const record: ThreadAutomationRecord = {
     id,
-    kind: 'heartbeat',
+    kind: input.kind,
     name,
     prompt,
     rrule,
+    rrulePrefix: existing?.record.rrulePrefix ?? (input.kind === 'cron' ? 'RRULE:' : null),
     status: input.status,
     targetThreadId: threadId,
+    model: input.model ?? existing?.record.model ?? null,
+    reasoningEffort: input.reasoningEffort ?? existing?.record.reasoningEffort ?? null,
+    executionEnvironment: input.runMode ?? existing?.record.executionEnvironment ?? null,
+    runMode: input.runMode ?? existing?.record.runMode ?? null,
+    cwd: input.cwd ?? input.cwds?.[0] ?? existing?.record.cwd ?? null,
+    cwds: input.cwds ?? (input.cwd ? [input.cwd] : existing?.record.cwds ?? []),
     createdAtMs: existing?.record.createdAtMs ?? now,
     updatedAtMs: now,
     nextRunAtMs: null,
@@ -486,7 +752,7 @@ export async function writeThreadHeartbeatAutomation(
   return record
 }
 
-export async function writeNativeHeartbeatAutomationBySourceDir(
+export async function writeNativeAutomationBySourceDir(
   sourceDirName: string,
   record: ThreadAutomationRecord,
   options?: NativeAutomationStoreOptions,
@@ -513,6 +779,8 @@ export async function writeNativeHeartbeatAutomationBySourceDir(
   }
   return record
 }
+
+export const writeNativeHeartbeatAutomationBySourceDir = writeNativeAutomationBySourceDir
 
 export async function deleteThreadHeartbeatAutomation(
   threadId: string,

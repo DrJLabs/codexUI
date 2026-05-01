@@ -54,8 +54,15 @@ const nativeRecord: ThreadAutomationRecord = {
   name: 'Daily Check',
   prompt: 'Review the thread',
   rrule: 'FREQ=DAILY;INTERVAL=1',
+  rrulePrefix: null,
   status: 'ACTIVE',
   targetThreadId: 'thread-1',
+  model: null,
+  reasoningEffort: null,
+  executionEnvironment: null,
+  runMode: null,
+  cwd: null,
+  cwds: [],
   createdAtMs: Date.parse('2026-04-28T09:00:00.000Z'),
   updatedAtMs: Date.parse('2026-04-28T09:00:00.000Z'),
   nextRunAtMs: null,
@@ -211,6 +218,107 @@ function readRecord(params: unknown): { threadId: string } {
 }
 
 describe('AutomationScheduler', () => {
+  it('includes Desktop cron automations as scheduler candidates', async () => {
+    const { codexHomeDir, service } = await createHarness()
+    await writeNative(codexHomeDir, 'cron-check-dir', {
+      ...nativeRecord,
+      id: 'cron-check',
+      kind: 'cron',
+      rrule: 'FREQ=HOURLY;INTERVAL=1',
+      rrulePrefix: 'RRULE:',
+      targetThreadId: null,
+      executionEnvironment: 'worktree',
+      runMode: 'worktree',
+      cwd: '/tmp/project',
+      cwds: ['/tmp/project'],
+    })
+
+    const entries = await service.listSchedulerEntries()
+
+    expect(entries).toHaveLength(1)
+    expect(entries[0].definition).toMatchObject({
+      id: 'cron-check',
+      kind: 'cron',
+      runMode: 'worktree',
+      cwd: '/tmp/project',
+      cwds: ['/tmp/project'],
+      schedule: { type: 'rrule', rrule: 'FREQ=HOURLY;INTERVAL=1' },
+    })
+  })
+
+  it('excludes Desktop cron automations with unsupported execution environments from scheduler candidates', async () => {
+    const { codexHomeDir, service } = await createHarness()
+    const automationDir = await writeNative(codexHomeDir, 'desktop-special-dir', {
+      ...nativeRecord,
+      id: 'desktop-special',
+      kind: 'cron',
+      rrule: 'FREQ=HOURLY;INTERVAL=1',
+      rrulePrefix: 'RRULE:',
+      targetThreadId: null,
+      executionEnvironment: 'desktop-special',
+      runMode: null,
+      cwd: '/tmp/project',
+      cwds: ['/tmp/project'],
+    })
+
+    const entries = await service.listSchedulerEntries()
+
+    expect(entries).toHaveLength(0)
+    const schedulerState = JSON.parse(await readFile(join(automationDir, 'scheduler.json'), 'utf8')) as AutomationSchedulerState
+    expect(schedulerState).toMatchObject({
+      automationId: 'desktop-special',
+      sourceDirName: 'desktop-special-dir',
+      nextDueAtIso: null,
+      lastEvaluatedAtIso: expect.any(String),
+      unsupportedReason: 'Unsupported automation execution_environment: desktop-special',
+    })
+
+    const refreshed = await service.refreshSchedulerState('desktop-special', '2026-04-30T10:00:00.000Z')
+    expect(refreshed).toMatchObject({
+      nextDueAtIso: null,
+      lastEvaluatedAtIso: '2026-04-30T10:00:00.000Z',
+      unsupportedReason: 'Unsupported automation execution_environment: desktop-special',
+    })
+  })
+
+  it('recomputes scheduler state when Desktop execution environment support changes', async () => {
+    const { codexHomeDir, service } = await createHarness()
+    const automationDir = await writeNative(codexHomeDir, 'desktop-special-dir', {
+      ...nativeRecord,
+      id: 'desktop-special',
+      kind: 'cron',
+      rrule: 'FREQ=HOURLY;INTERVAL=1',
+      rrulePrefix: 'RRULE:',
+      targetThreadId: null,
+      executionEnvironment: 'desktop-special',
+      runMode: null,
+      cwd: '/tmp/project',
+      cwds: ['/tmp/project'],
+    })
+    await service.listSchedulerEntries()
+
+    await writeFile(join(automationDir, 'automation.toml'), serializeAutomationToml({
+      ...nativeRecord,
+      id: 'desktop-special',
+      kind: 'cron',
+      rrule: 'FREQ=HOURLY;INTERVAL=1',
+      rrulePrefix: 'RRULE:',
+      targetThreadId: null,
+      executionEnvironment: 'worktree',
+      runMode: 'worktree',
+      cwd: '/tmp/project',
+      cwds: ['/tmp/project'],
+    }), 'utf8')
+
+    const entries = await service.listSchedulerEntries()
+
+    expect(entries).toHaveLength(1)
+    expect(entries[0]?.schedulerState).toMatchObject({
+      unsupportedReason: null,
+    })
+    expect(entries[0]?.schedulerState?.nextDueAtIso).toEqual(expect.any(String))
+  })
+
   it('scans persisted active definitions and starts one due scheduled run', async () => {
     const now = new Date('2026-04-30T10:00:00.000Z')
     const { codexHomeDir, service, rpcCalls } = await createHarness()

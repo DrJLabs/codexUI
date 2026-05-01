@@ -1,6 +1,6 @@
 import type { CodexRunProfile } from './execution'
 
-export type AutomationKind = 'heartbeat'
+export type AutomationKind = 'heartbeat' | 'cron'
 
 export type AutomationSource = 'native' | 'codexui'
 
@@ -36,6 +36,7 @@ export type AutomationTarget = {
 
 export type AutomationExecution = {
   cwd: string | null
+  cwds: string[]
   runMode: AutomationRunMode | null
   runProfileId: string | null
   model: string | null

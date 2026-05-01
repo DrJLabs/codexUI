@@ -9,6 +9,7 @@ import {
   parseAutomationToml,
   readThreadHeartbeatAutomation,
   serializeAutomationToml,
+  writeNativeAutomation,
   writeThreadHeartbeatAutomation,
   type ThreadAutomationRecord,
 } from '../nativeStore'
@@ -37,14 +38,239 @@ const pausedRecord: ThreadAutomationRecord = {
   name: 'Daily Check',
   prompt: 'Check the thread',
   rrule: 'FREQ=DAILY;INTERVAL=1',
+  rrulePrefix: null,
   status: 'PAUSED',
   targetThreadId: 'thread-123',
+  model: null,
+  reasoningEffort: null,
+  executionEnvironment: null,
+  runMode: null,
+  cwd: null,
+  cwds: [],
   createdAtMs: 1710000000000,
   updatedAtMs: 1710000005000,
   nextRunAtMs: null,
 }
 
 describe('native automation store TOML compatibility', () => {
+  it('parses Desktop cron automation fields from the canonical fixture', async () => {
+    const raw = await readFile('fixtures/desktop-automations/hourly-fixture/automation.toml', 'utf8')
+
+    expect(parseAutomationToml(raw)).toMatchObject({
+      id: 'hourly-fixture',
+      kind: 'cron',
+      name: 'hourly fixture',
+      status: 'ACTIVE',
+      rrule: 'FREQ=HOURLY;INTERVAL=1;BYMINUTE=0;BYDAY=SU,MO,TU,WE,TH,FR,SA',
+      rrulePrefix: 'RRULE:',
+      model: 'gpt-5.5',
+      reasoningEffort: 'low',
+      executionEnvironment: 'worktree',
+      runMode: 'worktree',
+      cwd: '/mnt/c/Users/projects/apollo',
+      cwds: ['/mnt/c/Users/projects/apollo'],
+      targetThreadId: null,
+      createdAtMs: 1777654085276,
+      updatedAtMs: 1777654085276,
+    })
+  })
+
+  it('parses TOML string arrays for cwds without dropping additional paths', () => {
+    const raw = [
+      'version = 1',
+      'id = "multi-cwd"',
+      'kind = "cron"',
+      'name = "Multi cwd"',
+      'prompt = "Run"',
+      'status = "ACTIVE"',
+      'rrule = "RRULE:FREQ=DAILY"',
+      'execution_environment = "worktree"',
+      'cwds = ["/repo/one", "/repo/two"]',
+      'created_at = 1777654085276',
+      'updated_at = 1777654085276',
+      '',
+    ].join('\n')
+
+    expect(parseAutomationToml(raw)).toMatchObject({
+      cwd: '/repo/one',
+      cwds: ['/repo/one', '/repo/two'],
+    })
+  })
+
+  it('parses a top-level Desktop cwd when cwds is absent', () => {
+    const raw = [
+      'version = 1',
+      'id = "single-cwd"',
+      'kind = "cron"',
+      'name = "Single cwd"',
+      'prompt = "Run"',
+      'status = "ACTIVE"',
+      'rrule = "RRULE:FREQ=DAILY"',
+      'execution_environment = "worktree"',
+      'cwd = "/repo/single"',
+      'created_at = 1777654085276',
+      'updated_at = 1777654085276',
+      '',
+    ].join('\n')
+
+    expect(parseAutomationToml(raw)).toMatchObject({
+      cwd: '/repo/single',
+      cwds: ['/repo/single'],
+    })
+  })
+
+  it('parses multiline Desktop cwds arrays with comments, brackets, and multiline strings', () => {
+    const raw = [
+      'version = 1',
+      'id = "multi-line-cwds"',
+      'kind = "cron"',
+      'name = "Multiline cwds"',
+      'prompt = "Run"',
+      'status = "ACTIVE"',
+      'rrule = "RRULE:FREQ=DAILY"',
+      'execution_environment = "worktree"',
+      'cwds = [',
+      '  """',
+      '/repo/[one]',
+      '""", # primary',
+      '  "/repo/two",',
+      ']',
+      'created_at = 1777654085276',
+      'updated_at = 1777654085276',
+      '',
+    ].join('\n')
+
+    expect(parseAutomationToml(raw)).toMatchObject({
+      cwd: '/repo/[one]',
+      cwds: ['/repo/[one]', '/repo/two'],
+    })
+  })
+
+  it('preserves Desktop cron fields and omits empty target_thread_id on no-op writeback', async () => {
+    const previousRaw = await readFile('fixtures/desktop-automations/hourly-fixture/automation.toml', 'utf8')
+    const record = parseAutomationToml(previousRaw)
+    expect(record).not.toBeNull()
+
+    const nextRaw = serializeAutomationToml(record!, previousRaw)
+
+    expect(nextRaw).toContain('kind = "cron"')
+    expect(nextRaw).toContain('rrule = "RRULE:FREQ=HOURLY;INTERVAL=1;BYMINUTE=0;BYDAY=SU,MO,TU,WE,TH,FR,SA"')
+    expect(nextRaw).toContain('model = "gpt-5.5"')
+    expect(nextRaw).toContain('reasoning_effort = "low"')
+    expect(nextRaw).toContain('execution_environment = "worktree"')
+    expect(nextRaw).toContain('cwd = "/mnt/c/Users/projects/apollo"')
+    expect(nextRaw).toContain('cwds = ["/mnt/c/Users/projects/apollo"]')
+    expect(nextRaw).not.toContain('target_thread_id = ""')
+  })
+
+  it('updates or removes top-level cwd during TOML writeback', () => {
+    const previousRaw = `${serializeAutomationToml({
+      ...pausedRecord,
+      kind: 'cron',
+      targetThreadId: null,
+      cwd: '/old/repo',
+      cwds: ['/old/repo'],
+    })}desktop_only = "keep"\n`
+
+    const nextRaw = serializeAutomationToml({
+      ...pausedRecord,
+      kind: 'cron',
+      targetThreadId: null,
+      cwd: null,
+      cwds: [],
+    }, previousRaw)
+
+    expect(nextRaw).not.toContain('cwd = "/old/repo"')
+    expect(nextRaw).not.toContain('cwds = ["/old/repo"]')
+    expect(nextRaw).toContain('desktop_only = "keep"')
+  })
+
+  it('replaces the full multiline cwds array during TOML writeback', () => {
+    const previousRaw = [
+      'version = 1',
+      'id = "daily-check"',
+      'kind = "cron"',
+      'name = "Daily Check"',
+      'prompt = "Check the thread"',
+      'status = "PAUSED"',
+      'rrule = "FREQ=DAILY;INTERVAL=1"',
+      'cwd = "/old/repo"',
+      'cwds = [',
+      '  """',
+      '/old/repo]inside',
+      '""",',
+      '  "/old/[two]",',
+      ']',
+      'created_at = 1710000000000',
+      'updated_at = 1710000005000',
+      'desktop_only = "keep"',
+      '',
+    ].join('\n')
+
+    const nextRaw = serializeAutomationToml({
+      ...pausedRecord,
+      kind: 'cron',
+      targetThreadId: null,
+      cwd: '/new/repo',
+      cwds: ['/new/repo'],
+    }, previousRaw)
+
+    expect(nextRaw).toContain('cwd = "/new/repo"')
+    expect(nextRaw).toContain('cwds = ["/new/repo"]')
+    expect(nextRaw).not.toContain('/old/repo')
+    expect(nextRaw).not.toContain('/old/repo]inside')
+    expect(nextRaw).not.toContain('/old/[two]')
+    expect(nextRaw).toContain('desktop_only = "keep"')
+    expect(parseAutomationToml(nextRaw)).toMatchObject({
+      cwd: '/new/repo',
+      cwds: ['/new/repo'],
+    })
+  })
+
+  it('does not preserve target_thread_id from key-like text inside multiline arrays', () => {
+    const previousRaw = [
+      'version = 1',
+      'id = "daily-check"',
+      'kind = "cron"',
+      'name = "Daily Check"',
+      'prompt = "Check the thread"',
+      'status = "PAUSED"',
+      'rrule = "FREQ=DAILY;INTERVAL=1"',
+      'cwds = [',
+      '  """',
+      'target_thread_id = "not-a-real-key"',
+      '""",',
+      ']',
+      'created_at = 1710000000000',
+      'updated_at = 1710000005000',
+      '',
+    ].join('\n')
+
+    const nextRaw = serializeAutomationToml({
+      ...pausedRecord,
+      kind: 'cron',
+      targetThreadId: null,
+      cwd: null,
+      cwds: [],
+    }, previousRaw)
+
+    expect(nextRaw).not.toContain('target_thread_id')
+  })
+
+  it('keeps an existing empty target_thread_id key when preserving a legacy file that already had one', () => {
+    const previousRaw = `${serializeAutomationToml({
+      ...pausedRecord,
+      targetThreadId: null,
+    })}target_thread_id = ""\ndesktop_only = "keep"\n`
+    const record = parseAutomationToml(previousRaw)
+    expect(record).not.toBeNull()
+
+    const nextRaw = serializeAutomationToml(record!, previousRaw)
+
+    expect(nextRaw).toContain('target_thread_id = ""')
+    expect(nextRaw).toContain('desktop_only = "keep"')
+  })
+
   it('round trips CodexUI TOML records with uppercase PAUSED status', () => {
     const raw = serializeAutomationToml(pausedRecord)
 
@@ -277,6 +503,37 @@ describe('native automation store filesystem behavior', () => {
     expect(first.id).not.toBe(second.id)
     await expect(readThreadHeartbeatAutomation('thread-alpha', { codexHomeDir })).resolves.toMatchObject({ prompt: 'Alpha' })
     await expect(readThreadHeartbeatAutomation('thread-beta', { codexHomeDir })).resolves.toMatchObject({ prompt: 'Beta' })
+  })
+
+  it('keeps the first detached cron name as the folder and suffixes duplicate names', async () => {
+    const codexHomeDir = await createCodexHome()
+    const automationRoot = join(codexHomeDir, 'automations')
+
+    const first = await writeNativeAutomation({
+      kind: 'cron',
+      threadId: null,
+      name: 'Same Name',
+      prompt: 'First',
+      rrule: 'FREQ=DAILY',
+      status: 'ACTIVE',
+      runMode: 'worktree',
+      cwd: '/repo/one',
+    }, { codexHomeDir })
+    const second = await writeNativeAutomation({
+      kind: 'cron',
+      threadId: null,
+      name: 'Same Name',
+      prompt: 'Second',
+      rrule: 'FREQ=DAILY',
+      status: 'ACTIVE',
+      runMode: 'worktree',
+      cwd: '/repo/two',
+    }, { codexHomeDir })
+
+    expect(first.id).toBe('same-name')
+    expect(second.id).toMatch(/^same-name-[a-f0-9]{8}$/u)
+    await expect(readFile(join(automationRoot, first.id, 'automation.toml'), 'utf8')).resolves.toContain('prompt = "First"')
+    await expect(readFile(join(automationRoot, second.id, 'automation.toml'), 'utf8')).resolves.toContain('prompt = "Second"')
   })
 
   it('preserves unknown top-level TOML fields when updating an existing thread heartbeat automation', async () => {

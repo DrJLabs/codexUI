@@ -51,8 +51,15 @@ const nativeRecord: ThreadAutomationRecord = {
   name: 'Daily Check',
   prompt: 'Review the thread',
   rrule: 'FREQ=DAILY;INTERVAL=1',
+  rrulePrefix: null,
   status: 'ACTIVE',
   targetThreadId: 'thread-1',
+  model: null,
+  reasoningEffort: null,
+  executionEnvironment: null,
+  runMode: null,
+  cwd: null,
+  cwds: [],
   createdAtMs: 1710000000000,
   updatedAtMs: 1710000005000,
   nextRunAtMs: null,
@@ -177,7 +184,7 @@ async function writeNative(codexHomeDir: string, dirName: string, record: Thread
 
 describe('automation request schema', () => {
   it('rejects invalid create, patch, delete, and route inputs', () => {
-    expect(() => parseAutomationCreateInput({ kind: 'cron' })).toThrow(/kind/)
+    expect(() => parseAutomationCreateInput({ kind: 'scheduled_chat' })).toThrow(/kind/)
     expect(() => parseAutomationCreateInput({ kind: 'heartbeat', name: '', prompt: 'p', schedule: { type: 'rrule', rrule: 'FREQ=DAILY' }, targetThreadId: 'thread' })).toThrow(/name/)
     expect(() => parseAutomationCreateInput({ kind: 'heartbeat', name: 'n', prompt: '', schedule: { type: 'rrule', rrule: 'FREQ=DAILY' }, targetThreadId: 'thread' })).toThrow(/prompt/)
     expect(() => parseAutomationCreateInput({ kind: 'heartbeat', name: 'n', prompt: 'p', schedule: { type: 'rrule', rrule: 'FREQ=DAILY;FREQ=HOURLY' }, targetThreadId: 'thread' })).toThrow(/RRULE/)
@@ -194,6 +201,24 @@ describe('automation request schema', () => {
     expect(() => parseAutomationRouteParams({ automationId: '.' })).toThrow(/automationId/)
     expect(parseAutomationDeleteOptions({ removeNative: 'true' }, {})).toEqual({ removeNative: true })
     expect(() => parseAutomationDeleteOptions({}, { removeNative: 'yes' })).toThrow(/removeNative/)
+  })
+
+  it('accepts Desktop cron create payloads and normalizes RRULE prefixes', () => {
+    expect(parseAutomationCreateInput({
+      kind: 'cron',
+      name: 'Hourly',
+      prompt: 'Run',
+      schedule: { type: 'rrule', rrule: 'RRULE:FREQ=HOURLY;INTERVAL=1;BYMINUTE=0' },
+      targetThreadId: null,
+      cwd: '/tmp',
+      runMode: 'worktree',
+    })).toMatchObject({
+      kind: 'cron',
+      schedule: { type: 'rrule', rrule: 'FREQ=HOURLY;INTERVAL=1;BYMINUTE=0' },
+      targetThreadId: null,
+      cwd: '/tmp',
+      runMode: 'worktree',
+    })
   })
 
   it('parses valid kanban projection settings and rejects malformed inputs', () => {
@@ -392,6 +417,49 @@ describe('createAutomationsMiddleware', () => {
     ]))
     expect(get.status).toBe(200)
     expect(get.body.data).toMatchObject({ id: 'detached-check', targetThreadId: null, status: 'paused', nextRunAtIso: expect.any(String) })
+  })
+
+  it('lists Desktop cron fixture fields from native TOML', async () => {
+    const { baseUrl, codexHomeDir } = await createHarness()
+    const automationDir = join(codexHomeDir, 'automations', 'hourly-fixture')
+    await mkdir(automationDir, { recursive: true })
+    await writeFile(
+      join(automationDir, 'automation.toml'),
+      await readFile('fixtures/desktop-automations/hourly-fixture/automation.toml', 'utf8'),
+      'utf8',
+    )
+
+    const state = await requestJson<{
+      data: {
+        definitions: Array<{
+          id: string
+          kind: string
+          targetThreadId: string | null
+          cwd: string | null
+          cwds: string[]
+          runMode: string | null
+          model: string | null
+          reasoningEffort: string | null
+          schedule: { type: 'rrule'; rrule: string }
+        }>
+      }
+    }>(`${baseUrl}/codex-api/automations/state`)
+
+    expect(state.status).toBe(200)
+    expect(state.body.data.definitions).toContainEqual(expect.objectContaining({
+      id: 'hourly-fixture',
+      kind: 'cron',
+      targetThreadId: null,
+      cwd: '/mnt/c/Users/projects/apollo',
+      cwds: ['/mnt/c/Users/projects/apollo'],
+      runMode: 'worktree',
+      model: 'gpt-5.5',
+      reasoningEffort: 'low',
+      schedule: {
+        type: 'rrule',
+        rrule: 'FREQ=HOURLY;INTERVAL=1;BYMINUTE=0;BYDAY=SU,MO,TU,WE,TH,FR,SA',
+      },
+    }))
   })
 
   it('reports scheduler support in state when enabled for the service', async () => {
@@ -683,6 +751,11 @@ describe('createAutomationsMiddleware', () => {
     })
     await expect(readFile(created.body.data.storage.sidecarPath, 'utf8')).resolves.toContain('"runMode": null')
     await expect(readFile(created.body.data.storage.sidecarPath, 'utf8')).resolves.toContain('"notes": "operator note"')
+    const createdTomlPath = join(codexHomeDir, 'automations', created.body.data.storage.nativeDirName, 'automation.toml')
+    const createdToml = await readFile(createdTomlPath, 'utf8')
+    expect(createdToml).toContain('model = "gpt-5"')
+    expect(createdToml).toContain('reasoning_effort = "medium"')
+    expect(createdToml).toContain('cwds = ["/tmp"]')
 
     const patched = await requestJson<{ data: { id: string; targetThreadId: null; status: string; cwd: string; runMode: 'local'; notes: string; nextRunAtIso: string | null; storage: { sidecarPath: string } } }>(
       `${baseUrl}/codex-api/automations/${created.body.data.id}`,
@@ -707,6 +780,10 @@ describe('createAutomationsMiddleware', () => {
     expect(patchedScheduler.scheduleHash).not.toBe(createdScheduler.scheduleHash)
     expect(patchedScheduler.nextDueAtIso).toBe(patched.body.data.nextRunAtIso)
     await expect(readFile(patched.body.data.storage.sidecarPath, 'utf8')).resolves.toContain('"runMode": "local"')
+    const patchedToml = await readFile(createdTomlPath, 'utf8')
+    expect(patchedToml).toContain('execution_environment = "local"')
+    expect(patchedToml).toContain('cwds = ["/var/tmp"]')
+    expect(patchedToml).toContain('model = "gpt-5"')
 
     const getDetached = await requestJson<{ data: { id: string; targetThreadId: null; nextRunAtIso: string | null } }>(`${baseUrl}/codex-api/automations/${created.body.data.id}`)
     expect(getDetached.status).toBe(200)
@@ -828,7 +905,7 @@ describe('createAutomationsMiddleware', () => {
     expect(validChat.body.data).toMatchObject({ runMode: 'chat', targetThreadId: 'thread-patch-target-return' })
   })
 
-  it('does not expose native cron automations through heartbeat API lookups', async () => {
+  it('exposes native cron automations through first-class API lookups', async () => {
     const { baseUrl, codexHomeDir } = await createHarness()
     const csrfHeaders = await readCsrfHeaders(baseUrl)
     const cronDir = await writeNative(codexHomeDir, 'cron-source-dir', {
@@ -838,24 +915,85 @@ describe('createAutomationsMiddleware', () => {
       targetThreadId: 'thread-cron',
     })
 
-    const list = await requestJson<{ data: Array<{ id: string }> }>(`${baseUrl}/codex-api/automations`)
-    const getById = await requestJson<{ error: string }>(`${baseUrl}/codex-api/automations/cron-check`)
-    const getByDir = await requestJson<{ error: string }>(`${baseUrl}/codex-api/automations/cron-source-dir`)
-    const patchById = await requestJson<{ error: string }>(
+    const list = await requestJson<{ data: Array<{ id: string; kind: string }> }>(`${baseUrl}/codex-api/automations`)
+    const getById = await requestJson<{ data: { id: string; kind: string } }>(`${baseUrl}/codex-api/automations/cron-check`)
+    const getByDir = await requestJson<{ data: { id: string; storage: { nativeDirName: string } } }>(`${baseUrl}/codex-api/automations/cron-source-dir`)
+    const patchById = await requestJson<{ data: { id: string; name: string } }>(
       `${baseUrl}/codex-api/automations/cron-check`,
       { method: 'PATCH', headers: csrfHeaders, body: JSON.stringify({ name: 'Mutated Cron' }) },
     )
-    const deleteByDir = await requestJson<{ error: string }>(
+    const deleteByDir = await requestJson<{ data: { removedNative: boolean } }>(
       `${baseUrl}/codex-api/automations/cron-source-dir?removeNative=true`,
       { method: 'DELETE', headers: csrfHeaders },
     )
 
-    expect(list.body.data.map((definition) => definition.id)).not.toContain('cron-check')
-    expect(getById.status).toBe(404)
-    expect(getByDir.status).toBe(404)
-    expect(patchById.status).toBe(404)
-    expect(deleteByDir.status).toBe(404)
-    await expect(stat(join(cronDir, 'automation.toml'))).resolves.toBeTruthy()
+    expect(list.body.data).toContainEqual(expect.objectContaining({ id: 'cron-check', kind: 'cron' }))
+    expect(getById.body.data).toMatchObject({ id: 'cron-check', kind: 'cron' })
+    expect(getByDir.body.data).toMatchObject({ id: 'cron-check', storage: { nativeDirName: 'cron-source-dir' } })
+    expect(patchById.body.data).toMatchObject({ id: 'cron-check', name: 'Mutated Cron' })
+    expect(deleteByDir.body.data.removedNative).toBe(true)
+    await expect(stat(join(cronDir, 'automation.toml'))).rejects.toThrow()
+  })
+
+  it('preserves unknown Desktop execution_environment values during metadata patches', async () => {
+    const { baseUrl, codexHomeDir } = await createHarness()
+    const csrfHeaders = await readCsrfHeaders(baseUrl)
+    await writeNative(codexHomeDir, 'desktop-runner', {
+      ...nativeRecord,
+      id: 'desktop-runner',
+      kind: 'cron',
+      targetThreadId: null,
+      executionEnvironment: 'desktop-special',
+      runMode: null,
+      cwd: '/repo/desktop',
+      cwds: ['/repo/desktop'],
+    })
+
+    const patched = await requestJson<{ data: { id: string; name: string; runMode: null; targetThreadId: null } }>(
+      `${baseUrl}/codex-api/automations/desktop-runner`,
+      { method: 'PATCH', headers: csrfHeaders, body: JSON.stringify({ name: 'Renamed Desktop Runner', runMode: 'chat' }) },
+    )
+    const raw = await readFile(join(codexHomeDir, 'automations', 'desktop-runner', 'automation.toml'), 'utf8')
+
+    expect(patched.status).toBe(200)
+    expect(patched.body.data).toMatchObject({
+      id: 'desktop-runner',
+      name: 'Renamed Desktop Runner',
+      runMode: null,
+      targetThreadId: null,
+    })
+    expect(raw).toContain('execution_environment = "desktop-special"')
+    expect(raw).not.toContain('execution_environment = "chat"')
+  })
+
+  it('preserves additional Desktop cwds when patch cwd matches the primary path', async () => {
+    const { baseUrl, codexHomeDir } = await createHarness()
+    const csrfHeaders = await readCsrfHeaders(baseUrl)
+    await writeNative(codexHomeDir, 'multi-cwd-cron', {
+      ...nativeRecord,
+      id: 'multi-cwd-cron',
+      kind: 'cron',
+      targetThreadId: null,
+      executionEnvironment: 'worktree',
+      runMode: 'worktree',
+      cwd: '/repo/one',
+      cwds: ['/repo/one', '/repo/two'],
+    })
+
+    const patched = await requestJson<{ data: { id: string; name: string; cwd: string; cwds: string[] } }>(
+      `${baseUrl}/codex-api/automations/multi-cwd-cron`,
+      { method: 'PATCH', headers: csrfHeaders, body: JSON.stringify({ name: 'Renamed Multi Cwd', runMode: 'worktree', cwd: '/repo/one' }) },
+    )
+    const raw = await readFile(join(codexHomeDir, 'automations', 'multi-cwd-cron', 'automation.toml'), 'utf8')
+
+    expect(patched.status).toBe(200)
+    expect(patched.body.data).toMatchObject({
+      id: 'multi-cwd-cron',
+      name: 'Renamed Multi Cwd',
+      cwd: '/repo/one',
+      cwds: ['/repo/one', '/repo/two'],
+    })
+    expect(raw).toContain('cwds = ["/repo/one", "/repo/two"]')
   })
 
   it('creates local and worktree automations without an attached thread id', async () => {
@@ -898,6 +1036,63 @@ describe('createAutomationsMiddleware', () => {
     expect(local.body.data).toMatchObject({ targetThreadId: null, cwd: '/tmp', runMode: 'local' })
     expect(worktree.status).toBe(201)
     expect(worktree.body.data).toMatchObject({ targetThreadId: null, cwd: '/var/tmp', runMode: 'worktree' })
+  })
+
+  it('creates Desktop-compatible cron automation TOML for worktree scheduled runs', async () => {
+    const { baseUrl, codexHomeDir } = await createHarness()
+    const csrfHeaders = await readCsrfHeaders(baseUrl)
+
+    const created = await requestJson<{
+      data: {
+        id: string
+        kind: string
+        targetThreadId: string | null
+        cwd: string | null
+        runMode: string | null
+        model: string | null
+        reasoningEffort: string | null
+        storage: { nativeDirName: string; nativePath: string }
+      }
+    }>(
+      `${baseUrl}/codex-api/automations`,
+      {
+        method: 'POST',
+        headers: csrfHeaders,
+        body: JSON.stringify({
+          kind: 'cron',
+          name: 'hourly fixture',
+          prompt: 'Run',
+          schedule: { type: 'rrule', rrule: 'FREQ=HOURLY;INTERVAL=1;BYMINUTE=0' },
+          targetThreadId: null,
+          cwd: '/mnt/c/Users/projects/apollo',
+          runMode: 'worktree',
+          model: 'gpt-5.5',
+          reasoningEffort: 'low',
+          kanbanProjection: { mode: 'off' },
+          notes: '',
+        }),
+      },
+    )
+
+    expect(created.status).toBe(201)
+    expect(created.body.data).toMatchObject({
+      id: 'hourly-fixture',
+      kind: 'cron',
+      targetThreadId: null,
+      cwd: '/mnt/c/Users/projects/apollo',
+      runMode: 'worktree',
+      model: 'gpt-5.5',
+      reasoningEffort: 'low',
+      storage: { nativeDirName: 'hourly-fixture' },
+    })
+    const raw = await readFile(join(codexHomeDir, 'automations', 'hourly-fixture', 'automation.toml'), 'utf8')
+    expect(raw).toContain('kind = "cron"')
+    expect(raw).toContain('rrule = "RRULE:FREQ=HOURLY;INTERVAL=1;BYMINUTE=0"')
+    expect(raw).toContain('model = "gpt-5.5"')
+    expect(raw).toContain('reasoning_effort = "low"')
+    expect(raw).toContain('execution_environment = "worktree"')
+    expect(raw).toContain('cwds = ["/mnt/c/Users/projects/apollo"]')
+    expect(raw).not.toContain('target_thread_id = ""')
   })
 
   it('persists kanban projection settings while preserving omitted patch values and legacy defaults', async () => {

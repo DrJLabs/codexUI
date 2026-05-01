@@ -58,6 +58,7 @@ it('normalizes optional blank draft fields before save', async () => {
   automations.draft.value.rrule = 'FREQ=DAILY;BYHOUR=9;BYMINUTE=0'
   await automations.saveDraft()
   expect(gateway.createAutomation).toHaveBeenCalledWith(expect.objectContaining({
+    kind: 'heartbeat',
     description: null,
     cwd: null,
     runMode: 'chat',
@@ -79,6 +80,26 @@ it('serializes run mode and cwd draft fields before save', async () => {
   await automations.saveDraft()
 
   expect(gateway.createAutomation).toHaveBeenCalledWith(expect.objectContaining({
+    kind: 'heartbeat',
+    runMode: 'worktree',
+    cwd: '/tmp/project',
+  }))
+})
+
+it('creates detached scheduled worktree drafts as cron automations', async () => {
+  const gateway = createGatewayFixture([])
+  const automations = useAutomations({ gateway })
+  automations.startCreate()
+  automations.draft.value.name = 'Worktree cron'
+  automations.draft.value.prompt = 'Check in a worktree'
+  automations.draft.value.runMode = 'worktree'
+  automations.draft.value.cwd = '/tmp/project'
+
+  await automations.saveDraft()
+
+  expect(gateway.createAutomation).toHaveBeenCalledWith(expect.objectContaining({
+    kind: 'cron',
+    targetThreadId: null,
     runMode: 'worktree',
     cwd: '/tmp/project',
   }))
@@ -263,12 +284,14 @@ function createGatewayFixture(
     createAutomation: vi.fn(async (input) => {
       const created = automationFixture({
         id: 'auto_created',
+        kind: input.kind,
         name: input.name,
         prompt: input.prompt,
         targetThreadId: input.targetThreadId,
         schedule: input.schedule,
         description: input.description ?? null,
         cwd: input.cwd ?? null,
+        cwds: input.cwd ? [input.cwd] : [],
         runMode: input.runMode ?? null,
         runProfileId: input.runProfileId ?? null,
         model: input.model ?? null,
@@ -391,6 +414,7 @@ function automationFixture(overrides: Partial<AutomationDefinition> = {}): Autom
     targetThreadId: 'thread_1',
     projectRoot: null,
     cwd: null,
+    cwds: [],
     runMode: null,
     runProfileId: null,
     model: null,

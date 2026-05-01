@@ -47,8 +47,15 @@ const nativeRecord: ThreadAutomationRecord = {
   name: 'Daily Check',
   prompt: 'Review the thread',
   rrule: 'FREQ=DAILY;INTERVAL=1',
+  rrulePrefix: null,
   status: 'ACTIVE',
   targetThreadId: 'thread-1',
+  model: null,
+  reasoningEffort: null,
+  executionEnvironment: null,
+  runMode: null,
+  cwd: null,
+  cwds: [],
   createdAtMs: 1710000000000,
   updatedAtMs: 1710000005000,
   nextRunAtMs: null,
@@ -1154,13 +1161,14 @@ describe('AutomationRunner', () => {
     expect(rpcCalls.filter((call) => call.method === 'thread/start')).toHaveLength(1)
   })
 
-  it('ignores cron automation records for manual runs', async () => {
+  it('runs cron automation records manually through the first-class API', async () => {
     const { codexHomeDir, service, rpcCalls } = await createHarness()
     await writeNative(codexHomeDir, 'cron-check-dir', { ...nativeRecord, id: 'cron-check', kind: 'cron' }, { runMode: 'chat' })
 
-    await expect(service.runNow('cron-check')).rejects.toThrow('Automation not found')
+    const run = await service.runNow('cron-check')
 
-    expect(rpcCalls).toEqual([])
+    expect(run).toMatchObject({ automationId: 'cron-check', state: 'running', trigger: 'manual' })
+    expect(rpcCalls.filter((call) => call.method === 'turn/start')).toHaveLength(1)
   })
 
   it('rejects disabled execution and blocked run profile policies before persistence or bridge calls', async () => {

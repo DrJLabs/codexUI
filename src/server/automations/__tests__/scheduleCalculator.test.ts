@@ -2,6 +2,18 @@ import { describe, expect, it } from 'vitest'
 import { evaluateRruleSchedule } from '../scheduleCalculator'
 
 describe('evaluateRruleSchedule', () => {
+  it('accepts Desktop-prefixed RRULE strings through scheduler normalization', () => {
+    const decision = evaluateRruleSchedule({
+      rrule: 'RRULE:FREQ=HOURLY;INTERVAL=1;BYMINUTE=0;BYDAY=SU,MO,TU,WE,TH,FR,SA',
+      anchorIso: '2026-04-30T00:00:00.000Z',
+      nextDueAtIso: null,
+      nowIso: '2026-04-30T00:30:00.000Z',
+    })
+
+    expect(decision.nextDueAtIso).toBe('2026-04-30T01:00:00.000Z')
+    expect(decision.unsupportedReason).toBeNull()
+  })
+
   it('computes minutely interval schedules from the anchor minute', () => {
     const decision = evaluateRruleSchedule({
       rrule: 'FREQ=MINUTELY;INTERVAL=15',
