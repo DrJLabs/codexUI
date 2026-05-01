@@ -246,6 +246,33 @@ describe('AutomationScheduler', () => {
     })
   })
 
+  it('excludes Desktop cron automations with unsupported execution environments from scheduler candidates', async () => {
+    const { codexHomeDir, service } = await createHarness()
+    const automationDir = await writeNative(codexHomeDir, 'desktop-special-dir', {
+      ...nativeRecord,
+      id: 'desktop-special',
+      kind: 'cron',
+      rrule: 'FREQ=HOURLY;INTERVAL=1',
+      rrulePrefix: 'RRULE:',
+      targetThreadId: null,
+      executionEnvironment: 'desktop-special',
+      runMode: null,
+      cwd: '/tmp/project',
+      cwds: ['/tmp/project'],
+    })
+
+    const entries = await service.listSchedulerEntries()
+
+    expect(entries).toHaveLength(0)
+    const schedulerState = JSON.parse(await readFile(join(automationDir, 'scheduler.json'), 'utf8')) as AutomationSchedulerState
+    expect(schedulerState).toMatchObject({
+      automationId: 'desktop-special',
+      sourceDirName: 'desktop-special-dir',
+      nextDueAtIso: null,
+      unsupportedReason: 'Unsupported automation execution_environment: desktop-special',
+    })
+  })
+
   it('scans persisted active definitions and starts one due scheduled run', async () => {
     const now = new Date('2026-04-30T10:00:00.000Z')
     const { codexHomeDir, service, rpcCalls } = await createHarness()

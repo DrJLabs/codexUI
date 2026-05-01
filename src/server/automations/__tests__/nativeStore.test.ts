@@ -185,6 +185,45 @@ describe('native automation store TOML compatibility', () => {
     expect(nextRaw).toContain('desktop_only = "keep"')
   })
 
+  it('replaces the full multiline cwds array during TOML writeback', () => {
+    const previousRaw = [
+      'version = 1',
+      'id = "daily-check"',
+      'kind = "cron"',
+      'name = "Daily Check"',
+      'prompt = "Check the thread"',
+      'status = "PAUSED"',
+      'rrule = "FREQ=DAILY;INTERVAL=1"',
+      'cwd = "/old/repo"',
+      'cwds = [',
+      '  "/old/repo",',
+      '  "/old/[two]",',
+      ']',
+      'created_at = 1710000000000',
+      'updated_at = 1710000005000',
+      'desktop_only = "keep"',
+      '',
+    ].join('\n')
+
+    const nextRaw = serializeAutomationToml({
+      ...pausedRecord,
+      kind: 'cron',
+      targetThreadId: null,
+      cwd: '/new/repo',
+      cwds: ['/new/repo'],
+    }, previousRaw)
+
+    expect(nextRaw).toContain('cwd = "/new/repo"')
+    expect(nextRaw).toContain('cwds = ["/new/repo"]')
+    expect(nextRaw).not.toContain('/old/repo')
+    expect(nextRaw).not.toContain('/old/[two]')
+    expect(nextRaw).toContain('desktop_only = "keep"')
+    expect(parseAutomationToml(nextRaw)).toMatchObject({
+      cwd: '/new/repo',
+      cwds: ['/new/repo'],
+    })
+  })
+
   it('keeps an existing empty target_thread_id key when preserving a legacy file that already had one', () => {
     const previousRaw = `${serializeAutomationToml({
       ...pausedRecord,

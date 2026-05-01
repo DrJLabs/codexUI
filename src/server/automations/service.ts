@@ -318,6 +318,10 @@ export class AutomationsService {
     for (const entry of entries.records) {
       const sidecarResult = await readSidecar(entry)
       const mapped = await mapDefinition(entry, sidecarResult.sidecar, { includeRecentRuns: false })
+      if (entry.record.executionEnvironment && !entry.record.runMode) {
+        await writeUnsupportedExecutionEnvironmentSchedulerState(entry, sidecarResult.sidecar)
+        continue
+      }
       const schedulerState = await readSchedulerStateForTick(entry)
       const currentScheduleHash = buildScheduleHash(entry, sidecarResult.sidecar)
       schedulerEntries.push({
@@ -621,6 +625,27 @@ async function readSchedulerStateForTick(entry: NativeAutomationEntry): Promise<
   } catch {
     return null
   }
+}
+
+async function writeUnsupportedExecutionEnvironmentSchedulerState(
+  entry: NativeAutomationEntry,
+  sidecar: AutomationSidecar,
+): Promise<AutomationSchedulerState> {
+  const store = createAutomationSchedulerStore(entry.automationDirPath)
+  const current = await store.readOrDefault({
+    automationId: entry.record.id,
+    sourceDirName: entry.sourceDirName,
+  })
+  const nowIso = new Date().toISOString()
+  return await store.writeState({
+    ...current,
+    automationId: entry.record.id,
+    sourceDirName: entry.sourceDirName,
+    scheduleHash: buildScheduleHash(entry, sidecar),
+    nextDueAtIso: null,
+    unsupportedReason: `Unsupported automation execution_environment: ${entry.record.executionEnvironment}`,
+    updatedAtIso: nowIso,
+  })
 }
 
 async function reconcileSchedulerFromScheduledRun(entry: NativeAutomationEntry, run: AutomationRun): Promise<void> {

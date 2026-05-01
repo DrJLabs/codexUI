@@ -452,9 +452,15 @@ export function serializeAutomationToml(record: ThreadAutomationRecord, previous
   const merged: string[] = []
   let multilineStringDelimiter: '"""' | "'''" | null = null
   let skipMultilineString = false
+  let skipMultilineArray = false
 
   for (const [index, line] of lines.entries()) {
     if (index === lines.length - 1 && line.length === 0) continue
+
+    if (skipMultilineArray) {
+      if (findTomlArrayCloseIndex(line) >= 0) skipMultilineArray = false
+      continue
+    }
 
     if (multilineStringDelimiter) {
       if (!skipMultilineString) merged.push(line)
@@ -473,12 +479,14 @@ export function serializeAutomationToml(record: ThreadAutomationRecord, previous
     }
 
     const nextDelimiter = getOpenMultilineTomlStringDelimiter(assignment.value)
+    const skipFollowingArrayLines = assignment.value.trim().startsWith('[') && findTomlArrayCloseIndex(assignment.value) < 0
     if (!seen.has(assignment.key)) {
       seen.add(assignment.key)
       if (Object.prototype.hasOwnProperty.call(fields, assignment.key)) {
         merged.push(`${assignment.key} = ${fields[assignment.key]}`)
       }
     }
+    if (skipFollowingArrayLines) skipMultilineArray = true
     if (nextDelimiter) {
       multilineStringDelimiter = nextDelimiter
       skipMultilineString = true
@@ -513,13 +521,17 @@ function safeAutomationId(recordId: string | null | undefined, sourceDirName: st
 
 async function chooseAvailableAutomationBasename(automationRoot: string, basename: string): Promise<string> {
   const safeBase = isSafeAutomationBasename(basename) ? basename : randomBytes(8).toString('hex')
-  try {
-    await stat(join(automationRoot, safeBase))
-    return `${safeBase}-${randomBytes(4).toString('hex')}`
-  } catch (error) {
-    if (isMissingFileError(error)) return safeBase
-    throw error
+  let candidate = safeBase
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    try {
+      await stat(join(automationRoot, candidate))
+      candidate = `${safeBase}-${randomBytes(4).toString('hex')}`
+    } catch (error) {
+      if (isMissingFileError(error)) return candidate
+      throw error
+    }
   }
+  throw new Error(`Unable to allocate automation directory for ${safeBase}`)
 }
 
 async function readAutomationRecordFromFile(filePath: string): Promise<ThreadAutomationRecord | null> {
