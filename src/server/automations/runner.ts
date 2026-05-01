@@ -586,20 +586,31 @@ function extractThreadId(params: unknown): string {
 }
 
 async function readProjectionSidecar(entry: NativeAutomationEntry): Promise<AutomationSidecarRead> {
+  let raw: string
   try {
-    const parsed = JSON.parse(await readFile(join(entry.automationDirPath, 'codexui.json'), 'utf8')) as unknown
+    raw = await readFile(join(entry.automationDirPath, 'codexui.json'), 'utf8')
+  } catch (error) {
+    if (isMissingFileError(error)) return defaultProjectionSidecar()
+    throw error
+  }
+  try {
+    const parsed = JSON.parse(raw) as unknown
     return parseAutomationSidecarRead(parsed).sidecar
   } catch {
-    return {
-      description: null,
-      cwd: null,
-      runMode: null,
-      runProfileId: null,
-      model: null,
-      reasoningEffort: null,
-      kanbanProjection: { mode: 'off' },
-      notes: '',
-    }
+    return defaultProjectionSidecar()
+  }
+}
+
+function defaultProjectionSidecar(): AutomationSidecarRead {
+  return {
+    description: null,
+    cwd: null,
+    runMode: null,
+    runProfileId: null,
+    model: null,
+    reasoningEffort: null,
+    kanbanProjection: { mode: 'off' },
+    notes: '',
   }
 }
 

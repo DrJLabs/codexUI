@@ -828,8 +828,17 @@ function sidecarFromCreate(input: AutomationCreateInput): AutomationSidecar {
 
 async function readSidecar(entry: NativeAutomationEntry): Promise<{ sidecar: AutomationSidecar; diagnostic: AutomationDiagnostic | null }> {
   const path = sidecarPath(entry)
+  let raw: string
   try {
-    const parsed = JSON.parse(await readFile(path, 'utf8')) as unknown
+    raw = await readFile(path, 'utf8')
+  } catch (error) {
+    if (isNodeError(error) && error.code === 'ENOENT') {
+      return { sidecar: defaultSidecar(), diagnostic: null }
+    }
+    throw error
+  }
+  try {
+    const parsed = JSON.parse(raw) as unknown
     const parsedSidecar = parseAutomationSidecarRead(parsed)
     return {
       sidecar: parsedSidecar.sidecar,
@@ -843,10 +852,7 @@ async function readSidecar(entry: NativeAutomationEntry): Promise<{ sidecar: Aut
           }
         : null,
     }
-  } catch (error) {
-    if (isNodeError(error) && error.code === 'ENOENT') {
-      return { sidecar: defaultSidecar(), diagnostic: null }
-    }
+  } catch {
     return {
       sidecar: defaultSidecar(),
       diagnostic: {

@@ -42,7 +42,8 @@ export function createAutomationRunStore(automationDirPath: string): AutomationR
       if (Number.isFinite(limit) && runs.length >= limit) break
       try {
         runs.push(parseRun(await readFile(runJsonPath(runsRoot, runId), 'utf8'), automationDirPath, runId))
-      } catch {
+      } catch (error) {
+        if (!isToleratedRunReadError(error)) throw error
         // Ignore stale or malformed run directories so one bad run does not hide the rest.
       }
     }
@@ -65,7 +66,8 @@ export function createAutomationRunStore(automationDirPath: string): AutomationR
       try {
         await readRun(runId)
         return true
-      } catch {
+      } catch (error) {
+        if (!isErrorCode(error, 'ENOENT')) throw error
         return false
       }
     },
@@ -78,7 +80,8 @@ export function createAutomationRunStore(automationDirPath: string): AutomationR
           try {
             const run = await readRun(runId)
             if (isActiveAutomationRunState(run.state)) activeRuns.push(run)
-          } catch {
+          } catch (error) {
+            if (!isToleratedRunReadError(error)) throw error
             // Ignore stale index entries; the next run update will rewrite the index.
           }
         }
@@ -290,7 +293,14 @@ function parseRun(raw: string, automationDirPath: string, runId: string): Automa
     trigger: parsed.trigger === 'schedule' ? 'schedule' : 'manual',
     dueAtIso: typeof parsed.dueAtIso === 'string' ? parsed.dueAtIso : null,
     nextDueAtIso: typeof parsed.nextDueAtIso === 'string' ? parsed.nextDueAtIso : null,
+    targetThreadId: typeof parsed.targetThreadId === 'string' ? parsed.targetThreadId : null,
+    cwd: typeof parsed.cwd === 'string' ? parsed.cwd : null,
+    worktreePath: typeof parsed.worktreePath === 'string' ? parsed.worktreePath : null,
     branchName: typeof parsed.branchName === 'string' ? parsed.branchName : null,
+    threadId: typeof parsed.threadId === 'string' ? parsed.threadId : null,
+    turnId: typeof parsed.turnId === 'string' ? parsed.turnId : null,
+    resultSummary: typeof parsed.resultSummary === 'string' ? parsed.resultSummary : null,
+    errorMessage: typeof parsed.errorMessage === 'string' ? parsed.errorMessage : null,
     findings: typeof parsed.findings === 'boolean' ? parsed.findings : null,
     inboxTitle: typeof parsed.inboxTitle === 'string' ? parsed.inboxTitle : '',
     inboxSummary: typeof parsed.inboxSummary === 'string' ? parsed.inboxSummary : '',
@@ -322,6 +332,10 @@ function normalizeListLimit(limit: number | undefined): number {
   if (limit === undefined) return Number.POSITIVE_INFINITY
   if (!Number.isInteger(limit) || limit < 1) return Number.POSITIVE_INFINITY
   return limit
+}
+
+function isToleratedRunReadError(error: unknown): boolean {
+  return error instanceof SyntaxError || isErrorCode(error, 'ENOENT')
 }
 
 function compareIsoDesc(a: string, b: string): number {

@@ -262,6 +262,15 @@ describe('AutomationRunner', () => {
     expect(rpcCalls).toEqual([])
   })
 
+  it('surfaces non-missing sidecar read failures for definition reads', async () => {
+    const { codexHomeDir, service } = await createHarness()
+    const automationDir = await writeNative(codexHomeDir, 'daily-check-dir', nativeRecord, { runMode: 'chat' })
+    await rm(join(automationDir, 'codexui.json'), { force: true })
+    await mkdir(join(automationDir, 'codexui.json'), { recursive: true })
+
+    await expect(service.getDefinition('daily-check')).rejects.toThrow()
+  })
+
   it('starts worktree mode runs in a managed worktree, stores snapshots, and completes through turn notifications', async () => {
     const projectRoot = await createGitRepo()
     const { codexHomeDir, service, rpcCalls, notificationListeners } = await createHarness()
@@ -424,6 +433,29 @@ describe('AutomationRunner', () => {
     const completed = (await service.listRuns('daily-check'))[0]!
 
     expect(completed).toMatchObject({ id: first.id, state: 'completed_no_findings' })
+  })
+
+  it('surfaces non-missing projection sidecar read failures during completion', async () => {
+    const { codexHomeDir, service, notificationListeners } = await createHarness()
+    const automationDir = await writeNative(codexHomeDir, 'daily-check-dir', nativeRecord, { runMode: 'chat' })
+    await service.runNow('daily-check')
+    await rm(join(automationDir, 'codexui.json'), { force: true })
+    await mkdir(join(automationDir, 'codexui.json'), { recursive: true })
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+
+    try {
+      await Promise.resolve(notificationListeners[0]!({
+        method: 'turn/completed',
+        params: { threadId: 'thread-1', turnId: 'turn_1' },
+        atIso: new Date().toISOString(),
+      }))
+      expect(warn).toHaveBeenCalledWith(
+        'Automation turn completion notification failed:',
+        expect.objectContaining({ code: 'EISDIR' }),
+      )
+    } finally {
+      warn.mockRestore()
+    }
   })
 
   it('does not scan automation storage for unrelated completed turns', async () => {

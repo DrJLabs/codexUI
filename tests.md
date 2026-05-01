@@ -5941,3 +5941,35 @@ Review-cycle diagnostics for malformed managed worktree lock files.
 
 #### Rollback/Cleanup
 - Delete disposable repositories, worktrees, and data directories created only for this check.
+
+---
+
+### Automations PR review cycle 15 fixes
+
+#### Feature/Change Name
+Review-cycle hardening for sidecar read errors and persisted run record normalization.
+
+#### Prerequisites/Setup
+1. Use `${WORKTREE_ROOT}` on `feat/automations`.
+2. Reuse an existing compatible dependency install if this worktree does not already have dependencies.
+3. Use disposable automation directories, sidecar files, and run records only.
+
+#### Steps
+1. Run `pnpm exec vitest run src/server/automations/__tests__/runStore.test.ts src/server/automations/__tests__/runner.test.ts`.
+2. Run `pnpm test:unit`.
+3. Run `pnpm run build`.
+4. Run `git diff --check`.
+5. Replace an automation `codexui.json` sidecar with a directory and read the definition.
+6. Replace an automation `codexui.json` sidecar with a directory, complete a running automation turn, and inspect the completion warning.
+7. Create a run directory whose `run.json` path is a directory, then call `listRuns()` and `hasRun()`.
+8. Create a persisted run whose `threadId` and `turnId` are non-string values, then read the run.
+
+#### Expected Results
+- Missing or invalid JSON sidecars still fall back to defaults, but non-missing sidecar filesystem errors propagate instead of being collapsed into defaults.
+- Projection-sidecar read faults during completion surface through the bridge notification warning path.
+- Run listings skip only missing or malformed run records and propagate other filesystem read errors.
+- `hasRun()` returns `false` only for missing run files and propagates other read failures.
+- Persisted malformed `threadId` and `turnId` values normalize to `null`.
+
+#### Rollback/Cleanup
+- Delete disposable automation directories and run records created only for this check.

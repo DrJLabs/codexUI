@@ -111,6 +111,15 @@ describe('createAutomationRunStore', () => {
     await expect(createAutomationRunStore(automationDir).listRuns()).rejects.toThrow()
   })
 
+  it('surfaces non-missing run file read failures instead of skipping the run', async () => {
+    const automationDir = await mkdtemp(join(tmpdir(), 'codexui-automation-run-store-'))
+    tempDirs.push(automationDir)
+    const runId = 'automation_run_unreadable'
+    await mkdir(join(automationDir, 'runs', runId, 'run.json'), { recursive: true })
+
+    await expect(createAutomationRunStore(automationDir).listRuns()).rejects.toThrow()
+  })
+
   it('checks whether a run exists without listing all runs', async () => {
     const automationDir = await mkdtemp(join(tmpdir(), 'codexui-automation-run-store-'))
     tempDirs.push(automationDir)
@@ -119,6 +128,33 @@ describe('createAutomationRunStore', () => {
 
     await expect(store.hasRun('automation_run_exists')).resolves.toBe(true)
     await expect(store.hasRun('automation_run_missing')).resolves.toBe(false)
+  })
+
+  it('surfaces non-missing run file read failures while checking existence', async () => {
+    const automationDir = await mkdtemp(join(tmpdir(), 'codexui-automation-run-store-'))
+    tempDirs.push(automationDir)
+    const runId = 'automation_run_unreadable'
+    await mkdir(join(automationDir, 'runs', runId, 'run.json'), { recursive: true })
+
+    await expect(createAutomationRunStore(automationDir).hasRun(runId)).rejects.toThrow()
+  })
+
+  it('normalizes malformed persisted thread and turn identifiers to null', async () => {
+    const automationDir = await mkdtemp(join(tmpdir(), 'codexui-automation-run-store-'))
+    tempDirs.push(automationDir)
+    const runId = 'automation_run_malformed_ids'
+    const runDir = join(automationDir, 'runs', runId)
+    await mkdir(runDir, { recursive: true })
+    await writeFile(join(runDir, 'run.json'), `${JSON.stringify({
+      ...automationRunFixture({ id: runId }),
+      threadId: { nested: 'thread_1' },
+      turnId: 123,
+    }, null, 2)}\n`, 'utf8')
+
+    const run = await createAutomationRunStore(automationDir).readRun(runId)
+
+    expect(run.threadId).toBeNull()
+    expect(run.turnId).toBeNull()
   })
 
   it('lists active runs even when they are outside the recent-run window', async () => {
