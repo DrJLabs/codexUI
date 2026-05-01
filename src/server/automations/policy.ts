@@ -12,8 +12,12 @@ export type AutomationRunProfileInput = {
   runProfileId?: string | null
 }
 
+export function isAutomationExecutionPolicyEnabled(policy: KanbanExecutionPolicy): boolean {
+  return policy.executionEnabled && policy.executionMode !== 'disabled'
+}
+
 export function assertAutomationExecutionPolicy(policy: KanbanExecutionPolicy): void {
-  if (!policy.executionEnabled || policy.executionMode === 'disabled') {
+  if (!isAutomationExecutionPolicyEnabled(policy)) {
     throw createAutomationPolicyError(403, 'Automation execution is disabled')
   }
 }

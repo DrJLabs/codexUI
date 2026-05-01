@@ -18,12 +18,13 @@ export function createAutomationsMiddleware(options: CreateAutomationsMiddleware
     ...options,
     enableScheduler: options.enableScheduler === true,
   })
+  const schedulerEnabled = options.enableScheduler === true && service.isExecutionEnabled()
   const router = createAutomationsRouter({
     ...options,
     service,
-    enableScheduler: options.enableScheduler === true,
+    enableScheduler: schedulerEnabled,
   }) as AutomationsRequestHandler
-  const scheduler = options.enableScheduler === true && options.bridge
+  const scheduler = schedulerEnabled && options.bridge
     ? new AutomationScheduler({
         service,
         intervalMs: options.schedulerIntervalMs,

@@ -6000,3 +6000,33 @@ Review-cycle hardening for fast turn-completion notifications.
 
 #### Rollback/Cleanup
 - Delete disposable automation directories and run records created only for this check.
+
+---
+
+### Automations PR review cycle 17 fixes
+
+#### Feature/Change Name
+Review-cycle policy gating for automations execution feature flags and scheduler startup.
+
+#### Prerequisites/Setup
+1. Use `${WORKTREE_ROOT}` on `feat/automations`.
+2. Reuse an existing compatible dependency install if this worktree does not already have dependencies.
+3. Use disposable HTTP server instances and automation storage only.
+
+#### Steps
+1. Run `pnpm exec vitest run src/server/automations/__tests__/routes.test.ts`.
+2. Run `pnpm test:unit`.
+3. Run `pnpm run build`.
+4. Run `git diff --check`.
+5. Start the shared server with default execution policy and request `/codex-api/automations/state`.
+6. Start the shared server with `CODEXUI_KANBAN_EXECUTION_ENABLED=1` and verify the scheduler interval is created and disposed.
+7. Start automations middleware with a disabled execution policy, bridge, and scheduler request, then request `/codex-api/automations/state`.
+
+#### Expected Results
+- Default shared-server state reports `featureFlags.manualRun: false` and `featureFlags.scheduler: false` when execution policy is disabled.
+- The production scheduler interval is not started while execution is disabled.
+- With execution explicitly enabled, scheduler startup and disposal still work.
+- A disabled execution policy suppresses manual-run and scheduler feature flags even when a bridge and scheduler request are provided.
+
+#### Rollback/Cleanup
+- Stop disposable servers and delete automation storage created only for this check.

@@ -233,7 +233,7 @@ describe('createAutomationsMiddleware', () => {
     instance.dispose()
   })
 
-  it('reports production feature flags for the shared server wiring', async () => {
+  it('reports execution feature flags as disabled for default shared server policy', async () => {
     const instance = createCodexUiServer()
     const server = createHttpServer(instance.app)
     servers.push(server)
@@ -254,15 +254,31 @@ describe('createAutomationsMiddleware', () => {
 
     expect(state.status).toBe(200)
     expect(state.body.data.featureFlags).toMatchObject({
-      scheduler: true,
-      manualRun: true,
+      scheduler: false,
+      manualRun: false,
       kanbanProjection: true,
       artifactIndexing: true,
     })
     instance.dispose()
   })
 
-  it('disposes the production scheduler interval with the bridge', () => {
+  it('does not start the production scheduler interval when execution is disabled', () => {
+    vi.useFakeTimers()
+    try {
+      const instance = createCodexUiServer()
+      expect(vi.getTimerCount()).toBe(0)
+
+      instance.dispose()
+
+      expect(vi.getTimerCount()).toBe(0)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('starts and disposes the production scheduler interval when execution is enabled', () => {
+    const previous = process.env.CODEXUI_KANBAN_EXECUTION_ENABLED
+    process.env.CODEXUI_KANBAN_EXECUTION_ENABLED = '1'
     vi.useFakeTimers()
     try {
       const instance = createCodexUiServer()
@@ -272,6 +288,11 @@ describe('createAutomationsMiddleware', () => {
 
       expect(vi.getTimerCount()).toBe(0)
     } finally {
+      if (previous === undefined) {
+        delete process.env.CODEXUI_KANBAN_EXECUTION_ENABLED
+      } else {
+        process.env.CODEXUI_KANBAN_EXECUTION_ENABLED = previous
+      }
       vi.useRealTimers()
     }
   })
@@ -345,12 +366,29 @@ describe('createAutomationsMiddleware', () => {
   })
 
   it('reports scheduler support in state when enabled for the service', async () => {
-    const { baseUrl } = await createHarness({ enableScheduler: true })
+    const { bridge } = createBridge()
+    const { baseUrl } = await createHarness({ bridge, policy: enabledPolicy, enableScheduler: true })
 
-    const state = await requestJson<{ data: { featureFlags: { scheduler: boolean } } }>(`${baseUrl}/codex-api/automations/state`)
+    const state = await requestJson<{ data: { featureFlags: { scheduler: boolean; manualRun: boolean } } }>(`${baseUrl}/codex-api/automations/state`)
 
     expect(state.status).toBe(200)
     expect(state.body.data.featureFlags.scheduler).toBe(true)
+    expect(state.body.data.featureFlags.manualRun).toBe(true)
+  })
+
+  it('reports manual run and scheduler support as unavailable when execution policy is disabled', async () => {
+    const { bridge } = createBridge()
+    const { baseUrl } = await createHarness({
+      bridge,
+      policy: { ...enabledPolicy, executionMode: 'disabled', executionEnabled: false },
+      enableScheduler: true,
+    })
+
+    const state = await requestJson<{ data: { featureFlags: { scheduler: boolean; manualRun: boolean } } }>(`${baseUrl}/codex-api/automations/state`)
+
+    expect(state.status).toBe(200)
+    expect(state.body.data.featureFlags.scheduler).toBe(false)
+    expect(state.body.data.featureFlags.manualRun).toBe(false)
   })
 
   it('reports projection and artifact indexing support only when wired for the service', async () => {

@@ -33,6 +33,7 @@ import { AutomationRunner } from './runner'
 import { evaluateRruleSchedule } from './scheduleCalculator'
 import { createAutomationSchedulerStore, type AutomationSchedulerState } from './schedulerStore'
 import { parseAutomationSidecarRead, type AutomationCreateInput, type AutomationPatchInput, type AutomationSidecarRead } from './schema.js'
+import { isAutomationExecutionPolicyEnabled } from './policy'
 
 const SIDECAR_FILENAME = 'codexui.json'
 
@@ -105,6 +106,10 @@ export class AutomationsService {
     this.runner?.dispose()
   }
 
+  isExecutionEnabled(): boolean {
+    return isAutomationExecutionPolicyEnabled(this.policy)
+  }
+
   async listDefinitions(): Promise<AutomationDefinition[]> {
     const { definitions } = await this.listDefinitionsWithDiagnostics()
     return definitions
@@ -115,8 +120,8 @@ export class AutomationsService {
     return {
       storageRoot,
       featureFlags: {
-        scheduler: this.options.enableScheduler === true,
-        manualRun: true,
+        scheduler: this.options.enableScheduler === true && this.isExecutionEnabled(),
+        manualRun: this.runner !== null && this.isExecutionEnabled(),
         kanbanProjection: this.kanbanProjection !== null,
         artifactIndexing: this.options.artifactIndexing === true,
       },
