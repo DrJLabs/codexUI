@@ -181,7 +181,7 @@ describe('createAutomationRunStore', () => {
     expect(activeRuns.map((run) => run.id)).toEqual(['automation_run_1000_active'])
   })
 
-  it('falls back to scanning run directories when the active-run index is empty', async () => {
+  it('trusts an empty active-run index instead of scanning run directories', async () => {
     const automationDir = await mkdtemp(join(tmpdir(), 'codexui-automation-run-store-'))
     tempDirs.push(automationDir)
     const runId = 'automation_run_unindexed_active'
@@ -192,8 +192,8 @@ describe('createAutomationRunStore', () => {
 
     const activeRuns = await createAutomationRunStore(automationDir).listActiveRuns()
 
-    expect(activeRuns.map((run) => run.id)).toEqual([runId])
-    await expect(readFile(join(automationDir, '.active-runs.json'), 'utf8')).resolves.toContain(runId)
+    expect(activeRuns).toEqual([])
+    await expect(readFile(join(automationDir, '.active-runs.json'), 'utf8')).resolves.toBe('[]\n')
   })
 
   it('preserves all active run ids when concurrent writes update the active index', async () => {

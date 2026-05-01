@@ -6030,3 +6030,30 @@ Review-cycle policy gating for automations execution feature flags and scheduler
 
 #### Rollback/Cleanup
 - Stop disposable servers and delete automation storage created only for this check.
+
+---
+
+### Automations PR review cycle 19 fixes
+
+#### Feature/Change Name
+Review-cycle active-run index empty-state performance fix.
+
+#### Prerequisites/Setup
+1. Use `${WORKTREE_ROOT}` on `feat/automations`.
+2. Reuse an existing compatible dependency install if this worktree does not already have dependencies.
+3. Use disposable automation run storage only.
+
+#### Steps
+1. Run `pnpm exec vitest run src/server/automations/__tests__/runStore.test.ts`.
+2. Run `pnpm test:unit`.
+3. Run `pnpm run build`.
+4. Run `git diff --check`.
+5. Create an automation run directory with a stale active run, write `.active-runs.json` as an empty array, then call `listActiveRuns()`.
+
+#### Expected Results
+- `listActiveRuns()` treats an existing empty active-run index as authoritative and returns an empty list.
+- The call does not scan historical run directories or rewrite the empty active-run index.
+- Missing or malformed active-run indexes still use the existing recovery scan path.
+
+#### Rollback/Cleanup
+- Delete disposable automation run storage created only for this check.

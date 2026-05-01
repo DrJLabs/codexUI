@@ -74,7 +74,7 @@ export function createAutomationRunStore(automationDirPath: string): AutomationR
 
     async listActiveRuns() {
       const indexedRunIds = await readActiveRunIndex(runsRoot)
-      if (indexedRunIds && indexedRunIds.length > 0) {
+      if (indexedRunIds !== null) {
         const activeRuns: AutomationRun[] = []
         for (const runId of indexedRunIds) {
           try {
