@@ -122,7 +122,7 @@ function readTomlStringArray(value: string): string[] | null {
   const values: string[] = []
   let index = 0
   while (index < body.length) {
-    while (body[index] === ' ' || body[index] === '\t' || body[index] === ',') index += 1
+    while (/\s|,/u.test(body[index] ?? '')) index += 1
     if (index >= body.length) break
     const quote = body[index]
     if (quote !== '"' && quote !== "'") return null
@@ -142,7 +142,7 @@ function readTomlStringArray(value: string): string[] | null {
     if (end >= body.length) return null
     values.push(readTomlString(body.slice(index, end + 1)))
     index = end + 1
-    while (body[index] === ' ' || body[index] === '\t') index += 1
+    while (/\s/u.test(body[index] ?? '')) index += 1
     if (index < body.length && body[index] !== ',') return null
   }
   return values
@@ -291,7 +291,20 @@ export function parseAutomationToml(raw: string): ThreadAutomationRecord | null 
   let multilineStringKey: string | null = null
   let multilineStringDelimiter: '"""' | "'''" | null = null
   let multilineStringLines: string[] = []
+  let multilineArrayKey: string | null = null
+  let multilineArrayLines: string[] = []
   for (const line of raw.split(/\r?\n/u)) {
+    if (multilineArrayKey) {
+      const arrayLine = stripTomlLineComment(line).trim()
+      multilineArrayLines.push(arrayLine)
+      if (arrayLine.includes(']')) {
+        values[multilineArrayKey] = multilineArrayLines.join('\n')
+        multilineArrayKey = null
+        multilineArrayLines = []
+      }
+      continue
+    }
+
     if (multilineStringDelimiter) {
       const closingIndex = findTomlMultilineCloseIndex(line, multilineStringDelimiter)
       const nextLine = closingIndex >= 0
@@ -309,6 +322,12 @@ export function parseAutomationToml(raw: string): ThreadAutomationRecord | null 
 
     const assignment = readTopLevelTomlAssignment(line)
     if (!assignment) continue
+    const trimmedValue = assignment.value.trim()
+    if (trimmedValue.startsWith('[') && !trimmedValue.endsWith(']')) {
+      multilineArrayKey = assignment.key
+      multilineArrayLines = [trimmedValue]
+      continue
+    }
     multilineStringDelimiter = getOpenMultilineTomlStringDelimiter(assignment.value)
     if (multilineStringDelimiter) {
       multilineStringKey = assignment.key

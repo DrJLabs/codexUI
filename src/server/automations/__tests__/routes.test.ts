@@ -935,6 +935,37 @@ describe('createAutomationsMiddleware', () => {
     await expect(stat(join(cronDir, 'automation.toml'))).rejects.toThrow()
   })
 
+  it('preserves unknown Desktop execution_environment values during metadata patches', async () => {
+    const { baseUrl, codexHomeDir } = await createHarness()
+    const csrfHeaders = await readCsrfHeaders(baseUrl)
+    await writeNative(codexHomeDir, 'desktop-runner', {
+      ...nativeRecord,
+      id: 'desktop-runner',
+      kind: 'cron',
+      targetThreadId: null,
+      executionEnvironment: 'desktop-special',
+      runMode: null,
+      cwd: '/repo/desktop',
+      cwds: ['/repo/desktop'],
+    })
+
+    const patched = await requestJson<{ data: { id: string; name: string; runMode: null; targetThreadId: null } }>(
+      `${baseUrl}/codex-api/automations/desktop-runner`,
+      { method: 'PATCH', headers: csrfHeaders, body: JSON.stringify({ name: 'Renamed Desktop Runner', runMode: 'chat' }) },
+    )
+    const raw = await readFile(join(codexHomeDir, 'automations', 'desktop-runner', 'automation.toml'), 'utf8')
+
+    expect(patched.status).toBe(200)
+    expect(patched.body.data).toMatchObject({
+      id: 'desktop-runner',
+      name: 'Renamed Desktop Runner',
+      runMode: null,
+      targetThreadId: null,
+    })
+    expect(raw).toContain('execution_environment = "desktop-special"')
+    expect(raw).not.toContain('execution_environment = "chat"')
+  })
+
   it('creates local and worktree automations without an attached thread id', async () => {
     const { baseUrl } = await createHarness()
     const csrfHeaders = await readCsrfHeaders(baseUrl)

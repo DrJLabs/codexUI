@@ -204,6 +204,7 @@ export class AutomationsService {
       await this.assertKanbanProjectionTarget(patch.kanbanProjection)
     }
     const now = Date.now()
+    const preserveUnknownExecutionEnvironment = Boolean(entry.record.executionEnvironment && !entry.record.runMode)
     const nextRecord: ThreadAutomationRecord = {
       ...entry.record,
       name: patch.name ?? entry.record.name,
@@ -212,8 +213,8 @@ export class AutomationsService {
       targetThreadId: hasOwn(patch, 'targetThreadId') ? patch.targetThreadId ?? null : entry.record.targetThreadId,
       model: hasOwn(patch, 'model') ? patch.model ?? null : entry.record.model,
       reasoningEffort: hasOwn(patch, 'reasoningEffort') ? patch.reasoningEffort ?? null : entry.record.reasoningEffort,
-      runMode: hasOwn(patch, 'runMode') ? patch.runMode ?? null : entry.record.runMode,
-      executionEnvironment: hasOwn(patch, 'runMode') ? patch.runMode ?? null : entry.record.executionEnvironment,
+      runMode: preserveUnknownExecutionEnvironment ? entry.record.runMode : hasOwn(patch, 'runMode') ? patch.runMode ?? null : entry.record.runMode,
+      executionEnvironment: preserveUnknownExecutionEnvironment ? entry.record.executionEnvironment : hasOwn(patch, 'runMode') ? patch.runMode ?? null : entry.record.executionEnvironment,
       cwd: hasOwn(patch, 'cwd') ? patch.cwd ?? null : entry.record.cwd,
       cwds: hasOwn(patch, 'cwd') ? patch.cwd ? [patch.cwd] : [] : entry.record.cwds,
       updatedAtMs: now,
@@ -222,14 +223,16 @@ export class AutomationsService {
       ...sidecarResult.sidecar,
       description: hasOwn(patch, 'description') ? patch.description ?? null : sidecarResult.sidecar.description,
       cwd: hasOwn(patch, 'cwd') ? patch.cwd ?? null : sidecarResult.sidecar.cwd,
-      runMode: hasOwn(patch, 'runMode') ? patch.runMode ?? null : sidecarResult.sidecar.runMode,
+      runMode: preserveUnknownExecutionEnvironment ? sidecarResult.sidecar.runMode : hasOwn(patch, 'runMode') ? patch.runMode ?? null : sidecarResult.sidecar.runMode,
       runProfileId: hasOwn(patch, 'runProfileId') ? patch.runProfileId ?? null : sidecarResult.sidecar.runProfileId,
       model: hasOwn(patch, 'model') ? patch.model ?? null : sidecarResult.sidecar.model,
       reasoningEffort: hasOwn(patch, 'reasoningEffort') ? patch.reasoningEffort ?? null : sidecarResult.sidecar.reasoningEffort,
       kanbanProjection: hasOwn(patch, 'kanbanProjection') ? patch.kanbanProjection ?? { mode: 'off' } : sidecarResult.sidecar.kanbanProjection,
       notes: hasOwn(patch, 'notes') ? patch.notes ?? '' : sidecarResult.sidecar.notes,
     }
-    assertAutomationRunTarget(nextRecord.runMode ?? nextSidecar.runMode, nextRecord.cwd ?? nextSidecar.cwd, nextRecord.targetThreadId)
+    if (!preserveUnknownExecutionEnvironment) {
+      assertAutomationRunTarget(nextRecord.runMode ?? nextSidecar.runMode, nextRecord.cwd ?? nextSidecar.cwd, nextRecord.targetThreadId)
+    }
     await writeNativeHeartbeatAutomationBySourceDir(entry.sourceDirName, nextRecord, this.options)
     await writeSidecar(entry, nextSidecar)
     nextSidecar = await this.projectDefinitionSidecar({ ...entry, record: nextRecord }, nextSidecar)

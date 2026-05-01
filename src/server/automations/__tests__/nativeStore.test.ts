@@ -119,6 +119,31 @@ describe('native automation store TOML compatibility', () => {
     })
   })
 
+  it('parses multiline Desktop cwds arrays with comments', () => {
+    const raw = [
+      'version = 1',
+      'id = "multi-line-cwds"',
+      'kind = "cron"',
+      'name = "Multiline cwds"',
+      'prompt = "Run"',
+      'status = "ACTIVE"',
+      'rrule = "RRULE:FREQ=DAILY"',
+      'execution_environment = "worktree"',
+      'cwds = [',
+      '  "/repo/one", # primary',
+      '  "/repo/two",',
+      ']',
+      'created_at = 1777654085276',
+      'updated_at = 1777654085276',
+      '',
+    ].join('\n')
+
+    expect(parseAutomationToml(raw)).toMatchObject({
+      cwd: '/repo/one',
+      cwds: ['/repo/one', '/repo/two'],
+    })
+  })
+
   it('preserves Desktop cron fields and omits empty target_thread_id on no-op writeback', async () => {
     const previousRaw = await readFile('fixtures/desktop-automations/hourly-fixture/automation.toml', 'utf8')
     const record = parseAutomationToml(previousRaw)
