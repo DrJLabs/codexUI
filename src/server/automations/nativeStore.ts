@@ -1,7 +1,7 @@
 import { randomBytes } from 'node:crypto'
 import { mkdir, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
-import type { AutomationDiagnostic } from '../../types/automations'
+import type { AutomationDiagnostic, AutomationRunMode } from '../../types/automations'
 import { resolveCodexHomeDir } from './paths'
 
 export type ThreadAutomationStatus = 'ACTIVE' | 'PAUSED'
@@ -12,8 +12,15 @@ export type ThreadAutomationRecord = {
   name: string
   prompt: string
   rrule: string
+  rrulePrefix: 'RRULE:' | null
   status: ThreadAutomationStatus
   targetThreadId: string | null
+  model: string | null
+  reasoningEffort: string | null
+  executionEnvironment: string | null
+  runMode: AutomationRunMode | null
+  cwd: string | null
+  cwds: string[]
   createdAtMs: number | null
   updatedAtMs: number | null
   nextRunAtMs: number | null
@@ -92,19 +99,91 @@ function serializeTomlString(value: string): string {
   return JSON.stringify(value)
 }
 
-function buildAutomationTomlFields(record: ThreadAutomationRecord): Record<string, string> {
-  return {
+function readTomlStringArray(value: string): string[] | null {
+  const trimmed = value.trim()
+  if (!trimmed.startsWith('[') || !trimmed.endsWith(']')) return null
+  const body = trimmed.slice(1, -1).trim()
+  if (!body) return []
+  const values: string[] = []
+  let index = 0
+  while (index < body.length) {
+    while (body[index] === ' ' || body[index] === '\t' || body[index] === ',') index += 1
+    if (index >= body.length) break
+    const quote = body[index]
+    if (quote !== '"' && quote !== "'") return null
+    let end = index + 1
+    let escaped = false
+    while (end < body.length) {
+      const char = body[end]
+      if (quote === '"' && !escaped && char === '\\') {
+        escaped = true
+        end += 1
+        continue
+      }
+      if (!escaped && char === quote) break
+      escaped = false
+      end += 1
+    }
+    if (end >= body.length) return null
+    values.push(readTomlString(body.slice(index, end + 1)))
+    index = end + 1
+    while (body[index] === ' ' || body[index] === '\t') index += 1
+    if (index < body.length && body[index] !== ',') return null
+  }
+  return values
+}
+
+function serializeTomlStringArray(values: string[]): string {
+  return `[${values.map((value) => serializeTomlString(value)).join(', ')}]`
+}
+
+function normalizeAutomationRruleForRead(value: string): { rrule: string; rrulePrefix: 'RRULE:' | null } {
+  const trimmed = value.trim()
+  if (trimmed.startsWith('RRULE:')) return { rrule: trimmed.slice('RRULE:'.length), rrulePrefix: 'RRULE:' }
+  return { rrule: trimmed, rrulePrefix: null }
+}
+
+function runModeFromExecutionEnvironment(value: string | null): AutomationRunMode | null {
+  if (value === 'chat' || value === 'local' || value === 'worktree') return value
+  return null
+}
+
+function previousRawHasTopLevelKey(previousRaw: string | undefined, key: string): boolean {
+  if (typeof previousRaw !== 'string') return false
+  let multilineStringDelimiter: '"""' | "'''" | null = null
+  for (const line of previousRaw.split(/\r?\n/u)) {
+    if (multilineStringDelimiter) {
+      if (findTomlMultilineCloseIndex(line, multilineStringDelimiter) >= 0) multilineStringDelimiter = null
+      continue
+    }
+    const assignment = readTopLevelTomlAssignment(line)
+    if (!assignment) continue
+    if (assignment.key === key) return true
+    multilineStringDelimiter = getOpenMultilineTomlStringDelimiter(assignment.value)
+  }
+  return false
+}
+
+function buildAutomationTomlFields(record: ThreadAutomationRecord, previousRaw?: string): Record<string, string> {
+  const fields: Record<string, string> = {
     version: '1',
     id: serializeTomlString(record.id),
     kind: serializeTomlString(record.kind),
     name: serializeTomlString(record.name),
     prompt: serializeTomlString(record.prompt),
     status: serializeTomlString(record.status),
-    rrule: serializeTomlString(record.rrule),
-    target_thread_id: serializeTomlString(record.targetThreadId ?? ''),
-    created_at: String(record.createdAtMs ?? Date.now()),
-    updated_at: String(record.updatedAtMs ?? Date.now()),
+    rrule: serializeTomlString(`${record.rrulePrefix ?? (record.kind === 'cron' ? 'RRULE:' : '')}${record.rrule}`),
   }
+  if (record.model) fields.model = serializeTomlString(record.model)
+  if (record.reasoningEffort) fields.reasoning_effort = serializeTomlString(record.reasoningEffort)
+  if (record.executionEnvironment) fields.execution_environment = serializeTomlString(record.executionEnvironment)
+  if (record.cwds.length > 0) fields.cwds = serializeTomlStringArray(record.cwds)
+  if (record.targetThreadId || previousRawHasTopLevelKey(previousRaw, 'target_thread_id')) {
+    fields.target_thread_id = serializeTomlString(record.targetThreadId ?? '')
+  }
+  fields.created_at = String(record.createdAtMs ?? Date.now())
+  fields.updated_at = String(record.updatedAtMs ?? Date.now())
+  return fields
 }
 
 function readTopLevelTomlAssignment(line: string): { key: string, value: string } | null {
@@ -227,13 +306,19 @@ export function parseAutomationToml(raw: string): ThreadAutomationRecord | null 
   const kindValue = readTomlString(values.kind ?? 'heartbeat')
   const name = readTomlString(values.name ?? '')
   const prompt = readTomlString(values.prompt ?? '')
-  const rrule = readTomlString(values.rrule ?? '')
+  const normalizedRrule = normalizeAutomationRruleForRead(readTomlString(values.rrule ?? ''))
   const statusValue = readTomlString(values.status ?? 'ACTIVE')
   const targetThreadId = readTomlString(values.target_thread_id ?? '') || null
+  const model = readTomlString(values.model ?? '') || null
+  const reasoningEffort = readTomlString(values.reasoning_effort ?? '') || null
+  const executionEnvironment = readTomlString(values.execution_environment ?? '') || null
+  const cwds = readTomlStringArray(values.cwds ?? '') ?? []
+  const cwd = cwds[0] ?? null
+  const runMode = runModeFromExecutionEnvironment(executionEnvironment)
   const createdAtMs = Number.parseInt(values.created_at ?? '', 10)
   const updatedAtMs = Number.parseInt(values.updated_at ?? '', 10)
 
-  if (!id || !name || !prompt || !rrule) return null
+  if (!id || !name || !prompt || !normalizedRrule.rrule) return null
   if (kindValue !== 'heartbeat' && kindValue !== 'cron') return null
   if (statusValue !== 'ACTIVE' && statusValue !== 'PAUSED') return null
 
@@ -242,9 +327,16 @@ export function parseAutomationToml(raw: string): ThreadAutomationRecord | null 
     kind: kindValue,
     name,
     prompt,
-    rrule,
+    rrule: normalizedRrule.rrule,
+    rrulePrefix: normalizedRrule.rrulePrefix,
     status: statusValue,
     targetThreadId,
+    model,
+    reasoningEffort,
+    executionEnvironment,
+    runMode,
+    cwd,
+    cwds,
     createdAtMs: Number.isFinite(createdAtMs) ? createdAtMs : null,
     updatedAtMs: Number.isFinite(updatedAtMs) ? updatedAtMs : null,
     nextRunAtMs: null,
@@ -252,9 +344,16 @@ export function parseAutomationToml(raw: string): ThreadAutomationRecord | null 
 }
 
 export function serializeAutomationToml(record: ThreadAutomationRecord, previousRaw?: string): string {
-  const fields = buildAutomationTomlFields(record)
+  const fields = buildAutomationTomlFields(record, previousRaw)
   const orderedKeys = Object.keys(fields)
-  const knownKeys = new Set(orderedKeys)
+  const knownKeys = new Set([
+    ...orderedKeys,
+    'model',
+    'reasoning_effort',
+    'execution_environment',
+    'cwds',
+    'target_thread_id',
+  ])
 
   if (typeof previousRaw !== 'string') {
     return `${orderedKeys.map((key) => `${key} = ${fields[key]}`).join('\n')}\n`
@@ -288,7 +387,9 @@ export function serializeAutomationToml(record: ThreadAutomationRecord, previous
     const nextDelimiter = getOpenMultilineTomlStringDelimiter(assignment.value)
     if (!seen.has(assignment.key)) {
       seen.add(assignment.key)
-      merged.push(`${assignment.key} = ${fields[assignment.key]}`)
+      if (Object.prototype.hasOwnProperty.call(fields, assignment.key)) {
+        merged.push(`${assignment.key} = ${fields[assignment.key]}`)
+      }
     }
     if (nextDelimiter) {
       multilineStringDelimiter = nextDelimiter
@@ -468,8 +569,15 @@ export async function writeThreadHeartbeatAutomation(
     name,
     prompt,
     rrule,
+    rrulePrefix: null,
     status: input.status,
     targetThreadId: threadId,
+    model: existing?.record.model ?? null,
+    reasoningEffort: existing?.record.reasoningEffort ?? null,
+    executionEnvironment: existing?.record.executionEnvironment ?? null,
+    runMode: existing?.record.runMode ?? null,
+    cwd: existing?.record.cwd ?? null,
+    cwds: existing?.record.cwds ?? [],
     createdAtMs: existing?.record.createdAtMs ?? now,
     updatedAtMs: now,
     nextRunAtMs: null,
