@@ -72,10 +72,15 @@ export function evaluateRruleSchedule(input: {
   }
 }
 
+function normalizeAutomationRrule(rrule: string): string {
+  const trimmed = rrule.trim()
+  return trimmed.startsWith('RRULE:') ? trimmed.slice('RRULE:'.length) : trimmed
+}
+
 function parseRrule(rrule: string): ParsedRrule {
   try {
     const values = new Map<string, string>()
-    for (const rawPart of rrule.split(';')) {
+    for (const rawPart of normalizeAutomationRrule(rrule).split(';')) {
       const separator = rawPart.indexOf('=')
       if (separator <= 0 || separator === rawPart.length - 1) throw new Error('invalid RRULE part')
       const key = rawPart.slice(0, separator).trim()

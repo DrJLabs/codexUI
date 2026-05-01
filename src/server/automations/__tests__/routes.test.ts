@@ -184,7 +184,7 @@ async function writeNative(codexHomeDir: string, dirName: string, record: Thread
 
 describe('automation request schema', () => {
   it('rejects invalid create, patch, delete, and route inputs', () => {
-    expect(() => parseAutomationCreateInput({ kind: 'cron' })).toThrow(/kind/)
+    expect(() => parseAutomationCreateInput({ kind: 'scheduled_chat' })).toThrow(/kind/)
     expect(() => parseAutomationCreateInput({ kind: 'heartbeat', name: '', prompt: 'p', schedule: { type: 'rrule', rrule: 'FREQ=DAILY' }, targetThreadId: 'thread' })).toThrow(/name/)
     expect(() => parseAutomationCreateInput({ kind: 'heartbeat', name: 'n', prompt: '', schedule: { type: 'rrule', rrule: 'FREQ=DAILY' }, targetThreadId: 'thread' })).toThrow(/prompt/)
     expect(() => parseAutomationCreateInput({ kind: 'heartbeat', name: 'n', prompt: 'p', schedule: { type: 'rrule', rrule: 'FREQ=DAILY;FREQ=HOURLY' }, targetThreadId: 'thread' })).toThrow(/RRULE/)
@@ -201,6 +201,24 @@ describe('automation request schema', () => {
     expect(() => parseAutomationRouteParams({ automationId: '.' })).toThrow(/automationId/)
     expect(parseAutomationDeleteOptions({ removeNative: 'true' }, {})).toEqual({ removeNative: true })
     expect(() => parseAutomationDeleteOptions({}, { removeNative: 'yes' })).toThrow(/removeNative/)
+  })
+
+  it('accepts Desktop cron create payloads and normalizes RRULE prefixes', () => {
+    expect(parseAutomationCreateInput({
+      kind: 'cron',
+      name: 'Hourly',
+      prompt: 'Run',
+      schedule: { type: 'rrule', rrule: 'RRULE:FREQ=HOURLY;INTERVAL=1;BYMINUTE=0' },
+      targetThreadId: null,
+      cwd: '/tmp',
+      runMode: 'worktree',
+    })).toMatchObject({
+      kind: 'cron',
+      schedule: { type: 'rrule', rrule: 'FREQ=HOURLY;INTERVAL=1;BYMINUTE=0' },
+      targetThreadId: null,
+      cwd: '/tmp',
+      runMode: 'worktree',
+    })
   })
 
   it('parses valid kanban projection settings and rejects malformed inputs', () => {

@@ -3,7 +3,7 @@ import type { AutomationKanbanProjection, AutomationRunMode } from '../../types/
 import { AutomationValidationError } from './errors.js'
 
 export type AutomationCreateInput = {
-  kind: 'heartbeat'
+  kind: 'heartbeat' | 'cron'
   name: string
   description: string | null
   prompt: string
@@ -84,9 +84,14 @@ function readOptionalRequiredString(input: Record<string, unknown>, field: strin
 function readSchedule(value: unknown): { type: 'rrule'; rrule: string } {
   if (!isRecord(value)) throw new AutomationValidationError('schedule is required')
   if (value.type !== 'rrule') throw new AutomationValidationError('schedule.type must be rrule')
-  const rrule = readTrimmedString(value.rrule, 'schedule.rrule')
+  const rrule = normalizeAutomationRrule(readTrimmedString(value.rrule, 'schedule.rrule'))
   validateRrule(rrule)
   return { type: 'rrule', rrule }
+}
+
+export function normalizeAutomationRrule(rrule: string): string {
+  const trimmed = rrule.trim()
+  return trimmed.startsWith('RRULE:') ? trimmed.slice('RRULE:'.length) : trimmed
 }
 
 function readOptionalSchedule(input: Record<string, unknown>): { type: 'rrule'; rrule: string } | undefined {
@@ -226,14 +231,14 @@ function readOptionalNotes(input: Record<string, unknown>): string | undefined {
 
 export function parseAutomationCreateInput(value: unknown): AutomationCreateInput {
   if (!isRecord(value)) throw new AutomationValidationError('Automation create payload is required')
-  if (value.kind !== 'heartbeat') throw new AutomationValidationError('kind must be heartbeat')
+  if (value.kind !== 'heartbeat' && value.kind !== 'cron') throw new AutomationValidationError('kind must be heartbeat or cron')
   const runMode = readRunMode(value.runMode)
   const cwd = readCwd(value.cwd)
   if ((runMode === 'local' || runMode === 'worktree') && !cwd) {
     throw new AutomationValidationError('cwd is required for local and worktree automations')
   }
   return {
-    kind: 'heartbeat',
+    kind: value.kind,
     name: readTrimmedString(value.name, 'name'),
     description: readNullableString(value.description, 'description'),
     prompt: readTrimmedString(value.prompt, 'prompt'),
