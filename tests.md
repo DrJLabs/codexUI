@@ -253,6 +253,62 @@ First-class Automations hash route with shared heartbeat editor.
 
 ---
 
+### Automations Production-Ready App Surface
+
+#### Feature/Change Name
+Production-readiness pass for the Automations route.
+
+#### Prerequisites/Setup
+1. Use `${WORKTREE_ROOT}`.
+2. If the worktree has no local dependency install, point `node_modules` at `${HOST_NODE_MODULES}` for verification.
+3. Start the app with a temporary automation store:
+   - `CODEX_HOME="$(mktemp -d /tmp/codexui-automation-prod-ui-XXXXXX)" pnpm run dev -- --host 127.0.0.1 --port 4175`
+4. Use the active Vite URL printed by the dev server.
+
+#### Steps
+1. Run `pnpm exec vitest run src/utils/automationDisplay.test.ts src/composables/useAutomations.test.ts src/api/automationsGateway.test.ts`.
+2. Run `pnpm run build:frontend`.
+3. Seed one daily thread automation and one weekly local-project automation through `POST /codex-api/automations`.
+4. Open `http://127.0.0.1:<vite-port>/#/automations` in light theme at `1440x1000`.
+5. Confirm the summary shows `Total automations`, `Active`, `Needs attention`, and `Next scheduled run`.
+6. Confirm automation cards show human schedule labels, target labels, health labels, and status without raw RRULE/source/kind/path fields in the first viewport.
+7. Confirm the editor shows schedule frequency/time controls, user-facing `Thread` and `Project folder` labels, and the manual-run disabled explanation when manual runs are disabled.
+8. Click `New` and confirm the create draft shows starting-point buttons for `Thread heartbeat`, `Project cron`, and `Worktree check`.
+9. Open `Advanced details` and confirm native storage root, native path, sidecar path, source, kind, run profile id, model, and reasoning effort remain available there.
+10. Repeat steps 4-9 in dark theme.
+11. Repeat steps 4-9 at `375x812` in light and dark themes.
+
+#### Expected Results
+- The default route reads like an app surface, not a developer console.
+- Users can create daily and weekly schedules through controls without typing RRULE syntax.
+- Raw technical fields are hidden from the first viewport and reachable from `Advanced details`.
+- `Run now` is disabled with clear copy when the API reports manual runs are disabled.
+- Desktop and mobile layouts have no page-level horizontal overflow.
+- Light and dark themes keep cards, editor fields, advanced details, and action buttons readable.
+
+#### Observed Results
+- 2026-05-01: `pnpm exec vitest run src/utils/automationDisplay.test.ts src/composables/useAutomations.test.ts src/api/automationsGateway.test.ts` passed with 3 files and 43 tests.
+- 2026-05-01: `pnpm run build:frontend` passed.
+- 2026-05-01: Headless Playwright against `http://127.0.0.1:5174/#/automations` with temporary `CODEX_HOME=/tmp/codexui-automation-prod-ui-8Pcn17` passed:
+  - desktop light screenshot: `output/playwright/automation-production-desktop-light-final.png`
+  - desktop dark screenshot: `output/playwright/automation-production-desktop-dark-final.png`
+  - mobile light screenshot: `output/playwright/automation-production-mobile-light-final.png`
+  - mobile dark screenshot: `output/playwright/automation-production-mobile-dark-final.png`
+  - cards rendered for both seeded automations
+  - schedule builder was visible
+  - starting-point templates were hidden while editing and visible after clicking `New`
+  - manual-run disabled copy was visible
+  - `Advanced details` exposed native path, sidecar path, run profile, model, and reasoning details after opening
+  - no raw technical fields appeared in the first viewport sample
+  - no horizontal overflow at `1440x1000` or `375x812`
+
+#### Rollback/Cleanup
+- Stop the dev server.
+- Remove the temporary `CODEX_HOME` directory.
+- Restore any temporary `node_modules` symlink if needed.
+
+---
+
 ### Automations Phase 10A run-history triage UI
 
 #### Feature/Change Name
