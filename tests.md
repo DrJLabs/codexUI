@@ -6094,7 +6094,7 @@ Review-cycle scheduler feature flag consistency for caller-owned services.
 Desktop-compatible automation TOML parsing, writeback, listing, and scheduling.
 
 #### Prerequisites/Setup
-1. Use `/home/drj/projects/codexUI-desktop-automation-schema-parity-dev` on `feature/desktop-automation-schema-parity-dev`.
+1. Use `${WORKTREE_ROOT}` on `feature/desktop-automation-schema-parity-dev`.
 2. Reuse an existing compatible dependency install if this worktree does not already have dependencies.
 3. Use a temporary `CODEX_HOME` or disposable test profile.
 4. Copy `fixtures/desktop-automations/hourly-fixture/automation.toml` to `$CODEX_HOME/automations/hourly-fixture/automation.toml`.
@@ -6109,15 +6109,27 @@ Desktop-compatible automation TOML parsing, writeback, listing, and scheduling.
 7. Save the automation without changing fields.
 8. Reopen `$CODEX_HOME/automations/hourly-fixture/automation.toml`.
 9. Confirm `rrule` still starts with `RRULE:`, `cwds` is still an array, `model` and `reasoning_effort` are present, and empty `target_thread_id` was not added.
-10. Switch to dark theme and repeat steps 4-6.
+10. Click `New`.
+11. Leave attached thread id empty.
+12. Set name to `Playwright desktop cron`.
+13. Set run mode to `Managed worktree`.
+14. Set cwd to `/mnt/c/Users/projects/apollo`.
+15. Set prompt to `Playwright verification prompt`.
+16. Set schedule rule to `RRULE:FREQ=HOURLY;INTERVAL=1;BYMINUTE=5`.
+17. Set model to `gpt-5.5` and reasoning effort to `low`.
+18. Save the new automation.
+19. Reopen `$CODEX_HOME/automations/playwright-desktop-cron/automation.toml`.
+20. Confirm `kind = "cron"`, `rrule` starts with `RRULE:`, `execution_environment = "worktree"`, `cwd` is present, `cwds` is an array, `model` and `reasoning_effort` are present, and empty `target_thread_id` was not added.
+21. Switch to dark theme and repeat steps 4-6.
 
 #### Expected Results
 - Desktop-created cron records parse, list, and open without a thread target.
 - Scheduler accepts the Desktop-prefixed RRULE after normalization.
 - No-op save preserves Desktop TOML fields and unknown fields.
-- New detached worktree scheduled automations write `kind = "cron"`, `RRULE:`-prefixed `rrule`, `execution_environment`, `cwds`, `model`, and `reasoning_effort` to `automation.toml`.
+- New detached worktree scheduled automations write `kind = "cron"`, `RRULE:`-prefixed `rrule`, `execution_environment`, `cwd`, `cwds`, `model`, and `reasoning_effort` to `automation.toml`.
 - Light and dark themes both render the automation fields readably.
 
 #### Rollback/Cleanup
 - Remove `$CODEX_HOME/automations/hourly-fixture/` from the disposable profile.
+- Remove `$CODEX_HOME/automations/playwright-desktop-cron/` from the disposable profile.
 - Stop any local server used only for this check.

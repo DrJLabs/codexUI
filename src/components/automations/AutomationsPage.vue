@@ -52,9 +52,9 @@
     </section>
 
     <section class="automations-workspace">
-      <aside class="automations-list" aria-label="Heartbeat automations">
+      <aside class="automations-list" aria-label="Automations">
         <div class="automations-list-header">
-          <h2>Heartbeats</h2>
+          <h2>Automations</h2>
           <button type="button" :disabled="isLoading || isSaving" @click="startCreate()">New</button>
         </div>
 
@@ -208,7 +208,7 @@
           </div>
           <div>
             <dt>Cwd</dt>
-            <dd><code>{{ selectedAutomation?.cwd || selectedAutomation?.cwds[0] || 'n/a' }}</code></dd>
+            <dd><code>{{ selectedAutomation?.cwd || selectedAutomation?.cwds?.[0] || 'n/a' }}</code></dd>
           </div>
           <div>
             <dt>Next run</dt>

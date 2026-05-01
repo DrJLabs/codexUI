@@ -189,6 +189,7 @@ function buildAutomationTomlFields(record: ThreadAutomationRecord, previousRaw?:
     status: serializeTomlString(record.status),
     rrule: serializeTomlString(`${record.rrulePrefix ?? (record.kind === 'cron' ? 'RRULE:' : '')}${record.rrule}`),
   }
+  if (record.cwd) fields.cwd = serializeTomlString(record.cwd)
   if (record.model) fields.model = serializeTomlString(record.model)
   if (record.reasoningEffort) fields.reasoning_effort = serializeTomlString(record.reasoningEffort)
   if (record.executionEnvironment) fields.execution_environment = serializeTomlString(record.executionEnvironment)
@@ -327,8 +328,10 @@ export function parseAutomationToml(raw: string): ThreadAutomationRecord | null 
   const model = readTomlString(values.model ?? '') || null
   const reasoningEffort = readTomlString(values.reasoning_effort ?? '') || null
   const executionEnvironment = readTomlString(values.execution_environment ?? '') || null
-  const cwds = readTomlStringArray(values.cwds ?? '') ?? []
-  const cwd = cwds[0] ?? null
+  const cwdValue = readTomlString(values.cwd ?? '') || null
+  const parsedCwds = readTomlStringArray(values.cwds ?? '') ?? []
+  const cwd = cwdValue ?? parsedCwds[0] ?? null
+  const cwds = parsedCwds.length > 0 ? parsedCwds : (cwdValue ? [cwdValue] : [])
   const runMode = runModeFromExecutionEnvironment(executionEnvironment)
   const createdAtMs = Number.parseInt(values.created_at ?? '', 10)
   const updatedAtMs = Number.parseInt(values.updated_at ?? '', 10)
@@ -363,6 +366,7 @@ export function serializeAutomationToml(record: ThreadAutomationRecord, previous
   const orderedKeys = Object.keys(fields)
   const knownKeys = new Set([
     ...orderedKeys,
+    'cwd',
     'model',
     'reasoning_effort',
     'execution_environment',
@@ -436,6 +440,17 @@ function safeAutomationId(recordId: string | null | undefined, sourceDirName: st
   if (isSafeAutomationBasename(recordId)) return recordId
   if (isSafeAutomationBasename(sourceDirName)) return sourceDirName
   return isSafeAutomationBasename(fallback) ? fallback : randomBytes(8).toString('hex')
+}
+
+async function chooseAvailableAutomationBasename(automationRoot: string, basename: string): Promise<string> {
+  const safeBase = isSafeAutomationBasename(basename) ? basename : randomBytes(8).toString('hex')
+  try {
+    await stat(join(automationRoot, safeBase))
+    return `${safeBase}-${randomBytes(4).toString('hex')}`
+  } catch (error) {
+    if (isMissingFileError(error)) return safeBase
+    throw error
+  }
 }
 
 async function readAutomationRecordFromFile(filePath: string): Promise<ThreadAutomationRecord | null> {
@@ -576,13 +591,14 @@ export async function writeNativeAutomation(
   const automationRoot = getCodexAutomationsDir(options)
   await mkdir(automationRoot, { recursive: true })
   const existing = threadId ? await readThreadHeartbeatAutomationEntry(threadId, options) : null
-  const generatedId = explicitId && isSafeAutomationBasename(explicitId)
+  const generatedIdBase = explicitId && isSafeAutomationBasename(explicitId)
     ? explicitId
     : threadId
       ? slugifyAutomationId(threadId, name)
       : input.kind === 'cron'
         ? slugifyAutomationId('', name)
         : `${slugifyAutomationId('', name)}-${randomBytes(4).toString('hex')}`
+  const generatedId = existing ? generatedIdBase : await chooseAvailableAutomationBasename(automationRoot, generatedIdBase)
   const id = safeAutomationId(existing?.record.id, existing?.sourceDirName, generatedId)
   const sourceDirName = existing?.sourceDirName && isSafeAutomationBasename(existing.sourceDirName)
     ? existing.sourceDirName

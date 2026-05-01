@@ -1,3 +1,5 @@
+import { normalizeAutomationRrule } from './schema.js'
+
 export type SchedulerDecision = {
   due: boolean
   dueAtIso: string | null
@@ -70,11 +72,6 @@ export function evaluateRruleSchedule(input: {
     missedRunPolicy: 'one_catch_up',
     unsupportedReason: null,
   }
-}
-
-function normalizeAutomationRrule(rrule: string): string {
-  const trimmed = rrule.trim()
-  return trimmed.startsWith('RRULE:') ? trimmed.slice('RRULE:'.length) : trimmed
 }
 
 function parseRrule(rrule: string): ParsedRrule {
