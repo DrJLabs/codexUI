@@ -394,12 +394,13 @@ export function useAutomations(options: UseAutomationsOptions = {}) {
 }
 
 function toCreateInput(draft: AutomationDraft): CreateAutomationInput {
+  const targetThreadId = normalizeOptionalNullable(draft.targetThreadId)
   return {
-    kind: 'heartbeat',
+    kind: targetThreadId ? 'heartbeat' : 'cron',
     name: draft.name.trim(),
     prompt: draft.prompt.trim(),
     schedule: { type: 'rrule', rrule: draft.rrule.trim() },
-    targetThreadId: normalizeOptionalNullable(draft.targetThreadId),
+    targetThreadId,
     description: normalizeOptionalNullable(draft.description),
     cwd: normalizeOptionalNullable(draft.cwd),
     runMode: draft.runMode,

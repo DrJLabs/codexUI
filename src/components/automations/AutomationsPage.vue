@@ -68,6 +68,7 @@
             <thead>
               <tr>
                 <th>Name</th>
+                <th>Kind</th>
                 <th>Status</th>
                 <th>Thread</th>
                 <th>RRULE</th>
@@ -91,6 +92,7 @@
                     {{ definition.name }}
                   </button>
                 </td>
+                <td><code>{{ definition.kind }}</code></td>
                 <td><span class="automations-status-pill" :data-status="definition.status">{{ definition.status }}</span></td>
                 <td><code>{{ definition.targetThreadId || 'No thread' }}</code></td>
                 <td><code>{{ definition.schedule.rrule }}</code></td>
@@ -199,6 +201,14 @@
           <div>
             <dt>Sidecar path</dt>
             <dd><code>{{ selectedAutomation?.storage.sidecarPath || 'Created on save' }}</code></dd>
+          </div>
+          <div>
+            <dt>Kind</dt>
+            <dd><code>{{ selectedAutomation?.kind || 'Created on save' }}</code></dd>
+          </div>
+          <div>
+            <dt>Cwd</dt>
+            <dd><code>{{ selectedAutomation?.cwd || selectedAutomation?.cwds[0] || 'n/a' }}</code></dd>
           </div>
           <div>
             <dt>Next run</dt>
