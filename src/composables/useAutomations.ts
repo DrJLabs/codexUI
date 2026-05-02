@@ -67,20 +67,27 @@ const defaultGateway: AutomationsGateway = {
   unarchiveAutomationRun,
 }
 
-const emptyState: AutomationsState = {
-  storageRoot: '',
-  featureFlags: {
-    scheduler: false,
-    manualRun: false,
-    kanbanProjection: false,
-    artifactIndexing: false,
-  },
-  sourceCounts: {
-    native: 0,
-    codexui: 0,
-  },
-  diagnostics: [],
-  definitions: [],
+function createEmptyState(): AutomationsState {
+  return {
+    storageRoot: '',
+    featureFlags: {
+      scheduler: false,
+      manualRun: false,
+      kanbanProjection: false,
+      artifactIndexing: false,
+    },
+    sourceCounts: {
+      native: 0,
+      codexui: 0,
+    },
+    diagnostics: [],
+    definitions: [],
+    executionOptions: {
+      defaultRunProfileId: 'workspace-coding',
+      currentConfigProfileId: null,
+      runProfiles: [],
+    },
+  }
 }
 
 function createEmptyDraft(threadId = ''): AutomationDraft {
@@ -130,7 +137,7 @@ function normalizeNotes(value: string): string {
 
 export function useAutomations(options: UseAutomationsOptions = {}) {
   const gateway = options.gateway ?? defaultGateway
-  const state: Ref<AutomationsState> = ref(emptyState)
+  const state: Ref<AutomationsState> = ref(createEmptyState())
   const templates: Ref<AutomationTemplate[]> = ref([])
   const isLoading = ref(false)
   const isSaving = ref(false)
@@ -394,7 +401,7 @@ export function useAutomations(options: UseAutomationsOptions = {}) {
 }
 
 function toCreateInput(draft: AutomationDraft): CreateAutomationInput {
-  const targetThreadId = normalizeOptionalNullable(draft.targetThreadId)
+  const targetThreadId = draft.runMode === 'chat' ? normalizeOptionalNullable(draft.targetThreadId) : null
   return {
     kind: targetThreadId ? 'heartbeat' : 'cron',
     name: draft.name.trim(),
@@ -412,11 +419,12 @@ function toCreateInput(draft: AutomationDraft): CreateAutomationInput {
 }
 
 function toPatchInput(draft: AutomationDraft): PatchAutomationInput {
+  const targetThreadId = draft.runMode === 'chat' ? normalizeOptionalNullable(draft.targetThreadId) : null
   return {
     name: draft.name.trim(),
     prompt: draft.prompt.trim(),
     schedule: { type: 'rrule', rrule: draft.rrule.trim() },
-    targetThreadId: normalizeOptionalNullable(draft.targetThreadId),
+    targetThreadId,
     description: normalizeOptionalNullable(draft.description),
     cwd: normalizeOptionalNullable(draft.cwd),
     runMode: draft.runMode,

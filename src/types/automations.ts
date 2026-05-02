@@ -133,6 +133,11 @@ export type AutomationsState = {
   }
   diagnostics: AutomationDiagnostic[]
   definitions: AutomationDefinition[]
+  executionOptions: {
+    defaultRunProfileId: string
+    currentConfigProfileId: string | null
+    runProfiles: CodexRunProfile[]
+  }
 }
 
 export type AutomationTemplate = {

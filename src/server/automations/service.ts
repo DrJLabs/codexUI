@@ -12,6 +12,15 @@ import type {
 import type { CodexRunProfile } from '../../types/execution'
 import type { KanbanExecutionPolicy } from '../../types/kanban'
 import type { CodexBridgeRuntime } from '../codexAppServerBridge'
+import {
+  DEFAULT_CODEX_RUN_PROFILE_ID,
+  mergeCodexRunProfiles,
+  normalizeCodexConfigProfiles,
+  readOptionalApprovalPolicy,
+  readOptionalReasoningEffort,
+  readOptionalSandboxMode,
+  type CodexConfigProfileDefaults,
+} from '../execution/runProfiles'
 import { resolveKanbanConfig } from '../kanban/config'
 import { resolveKanbanDataDir } from '../kanban/paths'
 import { KanbanStorage } from '../kanban/storage'
@@ -33,7 +42,12 @@ import { AutomationRunner } from './runner'
 import { evaluateRruleSchedule } from './scheduleCalculator'
 import { createAutomationSchedulerStore, type AutomationSchedulerState } from './schedulerStore'
 import { parseAutomationSidecarRead, type AutomationCreateInput, type AutomationPatchInput, type AutomationSidecarRead } from './schema.js'
-import { isAutomationExecutionPolicyEnabled } from './policy'
+import {
+  assertAutomationExecutionPolicy,
+  assertAutomationRunProfileAllowed,
+  isAutomationExecutionPolicyEnabled,
+  resolveAutomationRunProfile,
+} from './policy'
 
 const SIDECAR_FILENAME = 'codexui.json'
 
@@ -55,6 +69,11 @@ export type AutomationsServiceOptions = NativeAutomationStoreOptions & {
   kanbanProjection?: AutomationKanbanProjectionService
   kanbanProjectionTaskValidator?: KanbanProjectionTaskValidator | null
   artifactIndexing?: boolean
+}
+
+type CodexConfigReadResult = {
+  config: Record<string, unknown> | null
+  layers: Record<string, unknown>[]
 }
 
 export type AutomationSchedulerEntry = {
@@ -121,6 +140,7 @@ export class AutomationsService {
 
   async listState(): Promise<AutomationsState> {
     const { definitions, diagnostics, storageRoot } = await this.listDefinitionsWithDiagnostics()
+    const executionOptions = await this.readExecutionOptions(definitions.map((definition) => definition.cwd))
     return {
       storageRoot,
       featureFlags: {
@@ -135,6 +155,36 @@ export class AutomationsService {
       },
       diagnostics,
       definitions,
+      executionOptions,
+    }
+  }
+
+  async readExecutionOptions(
+    cwds: Array<string | null | undefined> = [],
+    options: { preferCwdDefault?: boolean } = {},
+  ): Promise<AutomationsState['executionOptions']> {
+    const configRead = await this.readCodexConfig()
+    const configProfiles = normalizeCodexConfigProfiles(
+      readCodexConfigProfileMap(configRead),
+      readCodexConfigProfileDefaultsFromLayers(configRead),
+    )
+    const uniqueCwds = Array.from(new Set(cwds.map((value) => value?.trim()).filter(Boolean)))
+    const cwdConfigReads = await Promise.all(uniqueCwds.map((cwd) => this.readCodexConfig(cwd)))
+    let currentConfigProfileId = readCurrentConfigProfileId(configRead.config)
+    if (options.preferCwdDefault && cwdConfigReads.length === 1) {
+      currentConfigProfileId = readCurrentConfigProfileId(cwdConfigReads[0]?.config) ?? currentConfigProfileId
+    }
+    for (const cwdConfigRead of cwdConfigReads) {
+      const cwdProfiles = normalizeCodexConfigProfiles(
+        readCodexConfigProfileMap(cwdConfigRead),
+        readCodexConfigProfileDefaultsFromLayers(cwdConfigRead),
+      )
+      configProfiles.push(...cwdProfiles)
+    }
+    return {
+      defaultRunProfileId: currentConfigProfileId || DEFAULT_CODEX_RUN_PROFILE_ID,
+      currentConfigProfileId,
+      runProfiles: mergeCodexRunProfiles(configProfiles),
     }
   }
 
@@ -383,13 +433,42 @@ export class AutomationsService {
       const definition = (await mapDefinition(entry, sidecarResult.sidecar, { includeRecentRuns: false })).definition
       await this.ensureInterruptedRunRecoveryBeforeCapacity(definition.id)
       await this.assertRunStartCapacity(definition)
+      assertAutomationExecutionPolicy(this.policy)
+      assertAutomationRunnerTarget(definition)
+      const executionOptions = options.runProfiles
+        ? null
+        : await this.readExecutionOptions([definition.cwd], { preferCwdDefault: true })
+      const runProfiles = options.runProfiles ?? executionOptions?.runProfiles
+      assertAutomationRunProfileAllowed(resolveAutomationRunProfile(definition, {
+        ...options,
+        defaultRunProfileId: executionOptions?.defaultRunProfileId,
+        runProfiles,
+      }), this.policy)
       return await this.runner.runNow({
         definition,
         automationDirPath: entry.automationDirPath,
-        runProfiles: options.runProfiles,
+        runProfiles,
+        defaultRunProfileId: executionOptions?.defaultRunProfileId,
         runProfileId: options.runProfileId,
       })
     })
+  }
+
+  private async readCodexConfig(cwd?: string): Promise<CodexConfigReadResult> {
+    if (!this.options.bridge?.rpc) return { config: null, layers: [] }
+    try {
+      const params = cwd?.trim()
+        ? { includeLayers: true, cwd: cwd.trim() }
+        : { includeLayers: true }
+      const payload = await this.options.bridge.rpc<unknown>('config/read', params)
+      const root = asRecord(payload)
+      const layers = Array.isArray(root?.layers)
+        ? root.layers.map((layer) => asRecord(asRecord(layer)?.config)).filter((layer): layer is Record<string, unknown> => Boolean(layer))
+        : []
+      return { config: asRecord(root?.config) ?? root, layers }
+    } catch {
+      return { config: null, layers: [] }
+    }
   }
 
   async runScheduled(
@@ -409,13 +488,25 @@ export class AutomationsService {
       const definition = (await mapDefinition(entry, sidecarResult.sidecar, { includeRecentRuns: false })).definition
       await this.ensureInterruptedRunRecoveryBeforeCapacity(definition.id)
       await this.assertRunStartCapacity(definition)
+      const executionOptions = input.runProfiles
+        ? null
+        : await this.readExecutionOptions([definition.cwd], { preferCwdDefault: true })
+      const runProfiles = input.runProfiles ?? executionOptions?.runProfiles
+      assertAutomationExecutionPolicy(this.policy)
+      assertAutomationRunnerTarget(definition)
+      assertAutomationRunProfileAllowed(resolveAutomationRunProfile(definition, {
+        ...input,
+        defaultRunProfileId: executionOptions?.defaultRunProfileId,
+        runProfiles,
+      }), this.policy)
       return await this.runner.runScheduled({
         definition,
         automationDirPath: entry.automationDirPath,
         sourceDirName: entry.sourceDirName,
         dueAtIso: input.dueAtIso,
         nextDueAtIso: input.nextDueAtIso,
-        runProfiles: input.runProfiles,
+        runProfiles,
+        defaultRunProfileId: executionOptions?.defaultRunProfileId,
         runProfileId: input.runProfileId,
       })
     })
@@ -857,6 +948,16 @@ function assertAutomationRunTarget(runMode: AutomationRunMode | null, cwd: strin
   }
 }
 
+function assertAutomationRunnerTarget(definition: AutomationDefinition): void {
+  const runMode = definition.runMode ?? 'chat'
+  if (runMode === 'chat' && !definition.targetThreadId) {
+    throw new AutomationValidationError('chat automation runs require a targetThreadId')
+  }
+  if ((runMode === 'local' || runMode === 'worktree') && (!definition.cwd || !isAbsolute(definition.cwd))) {
+    throw new AutomationValidationError(`${runMode} automation runs require an absolute cwd`)
+  }
+}
+
 function dateIso(value: number | null): string {
   return new Date(value && Number.isFinite(value) ? value : 0).toISOString()
 }
@@ -947,6 +1048,79 @@ function sidecarPath(entry: NativeAutomationEntry): string {
 
 function hasOwn(input: object, field: string): boolean {
   return Object.prototype.hasOwnProperty.call(input, field)
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value !== null && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : null
+}
+
+export function readCodexConfigProfileDefaults(config: Record<string, unknown> | null): CodexConfigProfileDefaults {
+  const sandboxWorkspaceWrite = asRecord(config?.sandbox_workspace_write)
+    ?? asRecord(config?.sandboxWorkspaceWrite)
+  return {
+    model: readNonEmptyString(config?.model),
+    reasoningEffort: readOptionalReasoningEffort(config?.model_reasoning_effort ?? config?.modelReasoningEffort),
+    sandboxMode: readOptionalSandboxMode(config?.sandbox_mode ?? config?.sandboxMode),
+    approvalPolicy: readOptionalApprovalPolicy(config?.approval_policy ?? config?.approvalPolicy),
+    networkAccess: readOptionalBoolean(config?.network_access ?? config?.networkAccess)
+      ?? readOptionalBoolean(sandboxWorkspaceWrite?.network_access ?? sandboxWorkspaceWrite?.networkAccess),
+  }
+}
+
+function readCodexConfigProfileDefaultsFromLayers(configRead: CodexConfigReadResult): CodexConfigProfileDefaults {
+  if (configRead.layers.length > 0) {
+    return readCodexConfigProfileDefaults(mergeCodexConfigLayers(configRead.layers))
+  }
+  if (!readCurrentConfigProfileId(configRead.config)) {
+    return readCodexConfigProfileDefaults(configRead.config)
+  }
+  return {}
+}
+
+function readCodexConfigProfileMap(configRead: CodexConfigReadResult): unknown {
+  const configProfiles = asRecord(configRead.config?.profiles)
+  if (configRead.layers.length === 0) return configProfiles
+  const layerProfiles = asRecord(mergeCodexConfigLayers(configRead.layers).profiles)
+  if (!layerProfiles) return configProfiles
+  if (!configProfiles) return layerProfiles
+  return mergeConfigValue(layerProfiles, configProfiles)
+}
+
+function mergeCodexConfigLayers(layers: Record<string, unknown>[]): Record<string, unknown> {
+  const merged: Record<string, unknown> = {}
+  for (const layer of layers) {
+    mergeConfigLayerInto(merged, layer)
+  }
+  return merged
+}
+
+function mergeConfigLayerInto(target: Record<string, unknown>, layer: Record<string, unknown>): void {
+  for (const [key, value] of Object.entries(layer)) {
+    target[key] = mergeConfigValue(target[key], value)
+  }
+}
+
+function mergeConfigValue(existingValue: unknown, nextValue: unknown): unknown {
+  const existing = asRecord(existingValue)
+  const next = asRecord(nextValue)
+  if (!existing || !next) return nextValue
+  const merged: Record<string, unknown> = { ...existing }
+  mergeConfigLayerInto(merged, next)
+  return merged
+}
+
+function readCurrentConfigProfileId(config: Record<string, unknown> | null): string | null {
+  return readNonEmptyString(config?.current_profile ?? config?.currentProfile ?? config?.profile)
+}
+
+function readOptionalBoolean(value: unknown): boolean | null {
+  return typeof value === 'boolean' ? value : null
+}
+
+function readNonEmptyString(value: unknown): string | null {
+  if (typeof value !== 'string') return null
+  const trimmed = value.trim()
+  return trimmed || null
 }
 
 function isNodeError(error: unknown): error is NodeJS.ErrnoException {

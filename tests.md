@@ -253,6 +253,70 @@ First-class Automations hash route with shared heartbeat editor.
 
 ---
 
+### Automations Production-Ready App Surface
+
+#### Feature/Change Name
+Production-readiness pass for the Automations route.
+
+#### Prerequisites/Setup
+1. Use `${WORKTREE_ROOT}`.
+2. If the worktree has no local dependency install, point `node_modules` at `${HOST_NODE_MODULES}` for verification.
+3. Start the app with a temporary automation store:
+   - `CODEX_HOME="$(mktemp -d /tmp/codexui-automation-prod-ui-XXXXXX)" pnpm run dev -- --host 127.0.0.1 --port 4175`
+4. Use the active Vite URL printed by the dev server.
+
+#### Steps
+1. Run `pnpm exec vitest run src/utils/automationDisplay.test.ts src/composables/useAutomations.test.ts src/api/automationsGateway.test.ts`.
+2. Run `pnpm run build:frontend`.
+3. Seed one daily thread automation and one weekly local-project automation through `POST /codex-api/automations`.
+4. Open `http://127.0.0.1:<vite-port>/#/automations` in light theme at `1440x1000`.
+5. Confirm the summary shows `Total automations`, `Active`, `Needs attention`, and `Next scheduled run`.
+6. Confirm automation cards show human schedule labels, target labels, health labels, and status without raw RRULE/source/kind/path fields in the first viewport.
+7. Confirm the editor shows schedule frequency/time controls, user-facing `Thread` and `Project folder` labels, up-front `Model` and `Reasoning effort` selects, and the manual-run disabled explanation when manual runs are disabled.
+8. Click `New` and confirm the create draft shows starting-point buttons for `Thread heartbeat`, `Project cron`, and `Worktree check`.
+9. Open `Advanced details` and confirm native storage root, native path, sidecar path, source, kind, run profile id, model, and reasoning effort remain available there.
+10. Repeat steps 4-9 in dark theme.
+11. Repeat steps 4-9 at `375x812` in light and dark themes.
+
+#### Expected Results
+- The default route reads like an app surface, not a developer console.
+- Users can create daily and weekly schedules through controls without typing RRULE syntax.
+- Users can choose model and reasoning effort from main-form selects without opening `Advanced details`.
+- Raw technical fields are hidden from the first viewport and reachable from `Advanced details`.
+- Mobile form controls use a non-zooming touch font size so focusing model/reasoning controls does not force browser zoom or reset the pane to the top.
+- `Run now` is disabled with clear copy when the API reports manual runs are disabled.
+- Desktop and mobile layouts have no page-level horizontal overflow.
+- Light and dark themes keep cards, editor fields, advanced details, and action buttons readable.
+
+#### Observed Results
+- 2026-05-01: `pnpm exec vitest run src/utils/automationDisplay.test.ts src/composables/useAutomations.test.ts src/api/automationsGateway.test.ts` passed with 3 files and 43 tests.
+- 2026-05-01: `pnpm run build:frontend` passed.
+- 2026-05-01: `pnpm run build:frontend` passed after moving model/reasoning effort to main-form selects and adding mobile-safe form-control sizing.
+- 2026-05-01: Headless mobile Playwright at `375x812` passed after removing the nested mobile editor scrollbar:
+  - focused and typed `profile-mobile-focus` into `Run profile id`
+  - `.automations-editor` used `overflow-y: visible`
+  - no horizontal overflow was detected
+  - screenshot: `output/playwright/automation-mobile-focus-run-profile.png`
+- 2026-05-01: Headless Playwright against `http://127.0.0.1:5174/#/automations` with temporary `CODEX_HOME=/tmp/codexui-automation-prod-ui-8Pcn17` passed:
+  - desktop light screenshot: `output/playwright/automation-production-desktop-light-final.png`
+  - desktop dark screenshot: `output/playwright/automation-production-desktop-dark-final.png`
+  - mobile light screenshot: `output/playwright/automation-production-mobile-light-final.png`
+  - mobile dark screenshot: `output/playwright/automation-production-mobile-dark-final.png`
+  - cards rendered for both seeded automations
+  - schedule builder was visible
+  - starting-point templates were hidden while editing and visible after clicking `New`
+  - manual-run disabled copy was visible
+  - `Advanced details` exposed native path, sidecar path, run profile, model, and reasoning details after opening
+  - no raw technical fields appeared in the first viewport sample
+  - no horizontal overflow at `1440x1000` or `375x812`
+
+#### Rollback/Cleanup
+- Stop the dev server.
+- Remove the temporary `CODEX_HOME` directory.
+- Restore any temporary `node_modules` symlink if needed.
+
+---
+
 ### Automations Phase 10A run-history triage UI
 
 #### Feature/Change Name
@@ -6133,3 +6197,198 @@ Desktop-compatible automation TOML parsing, writeback, listing, and scheduling.
 - Remove `$CODEX_HOME/automations/hourly-fixture/` from the disposable profile.
 - Remove `$CODEX_HOME/automations/playwright-desktop-cron/` from the disposable profile.
 - Stop any local server used only for this check.
+
+---
+
+### Automations Advanced Execution Settings
+
+#### Feature/Change Name
+Menu-based automation execution settings in Advanced details.
+
+#### Prerequisites/Setup
+1. Use `${WORKTREE_ROOT}` on `feature/automation-advanced-execution-settings-dev`.
+2. Reuse an existing compatible dependency install if this worktree does not already have dependencies.
+3. Start the dev server from this worktree at `http://127.0.0.1:5173`.
+4. Use an automation state with either built-in run profiles only or at least one Codex `config.toml` profile under `[profiles.<name>]`.
+
+#### Steps
+1. Run `pnpm vitest run src/server/automations/__tests__ src/server/execution/__tests__/runProfiles.test.ts src/composables/useAutomations.test.ts src/utils/automationDisplay.test.ts`.
+2. Run `pnpm run build:frontend`.
+3. Open `/automations` in light theme.
+4. Select an existing automation or create a new automation.
+5. Confirm Advanced details is expanded by default.
+6. Confirm Run profile is a dropdown, not a free-text profile ID input.
+7. Change Run profile from the dropdown.
+8. Change Model override and Reasoning override from dropdowns.
+9. Save the automation.
+10. Reload the page and reselect the automation.
+11. Switch to dark theme and repeat steps 4-8.
+12. Use a 375x812 mobile viewport, scroll to Advanced details, and tap each execution-settings dropdown.
+
+#### Expected Results
+- Run profile, Model override, and Reasoning override are readily editable inside Advanced details.
+- Config profiles from Codex `config.toml` appear in the Run profile menu with their profile IDs.
+- Saved run profile, model, and reasoning choices persist after reload.
+- Existing unknown run profile IDs remain visible as unavailable current-profile options instead of silently falling back.
+- Light theme renders the execution settings with readable labels, values, and helper text.
+- Dark theme renders the execution settings with dark input surfaces and readable text.
+- Mobile select focus does not zoom, jump back to the page top, or create horizontal overflow.
+
+#### Observed Verification
+- `pnpm vitest run src/server/automations src/server/execution/__tests__/runProfiles.test.ts src/composables/useAutomations.test.ts src/utils/automationDisplay.test.ts` passed: 13 files, 217 tests.
+- `pnpm run build:frontend` passed.
+- Server tests include raw-layer config profile defaults, cwd-specific config profile resolution for local automations, and explicit missing profile rejection instead of fallback to the workspace default.
+- Playwright checked `http://127.0.0.1:5173/#/automations` at 1440x1000 in light and dark themes, and 375x812 in mobile light theme.
+- Playwright confirmed Advanced is open by default; Run profile, Model override, and Reasoning override are selects; no raw run-profile text input remains; Model and Reasoning controls are absent from the main grid; Reasoning options include Default, None, Minimal, Low, Medium, High, and Extra High; and mobile select focus keeps `window.scrollY` stable with no horizontal overflow.
+- Screenshots:
+  - `output/playwright/automation-advanced-execution-light.png`
+  - `output/playwright/automation-advanced-execution-dark.png`
+  - `output/playwright/automation-advanced-execution-mobile.png`
+
+#### Rollback/Cleanup
+- Revert saved automation changes or delete the test automation.
+- Stop the local dev server used only for this check.
+
+---
+
+### Automations Mobile Workspace Container Alignment
+
+#### Feature/Change Name
+Mobile automation editor workspace section expands around the full form.
+
+#### Prerequisites/Setup
+1. Use `${WORKTREE_ROOT}` on `feature/automation-advanced-execution-settings-dev`.
+2. Start the dev server from this worktree at `http://127.0.0.1:5173`.
+
+#### Steps
+1. Open `/automations` in a 393x852 mobile viewport.
+2. Start creating an automation.
+3. Scroll to the Project folder field.
+4. Repeat in dark theme.
+
+#### Expected Results
+- The outer Automations workspace section border encloses the Project folder field and the rest of the editor.
+- The Project folder input does not overlap or escape below the section border.
+- Light and dark themes both keep readable field surfaces.
+- The mobile page does not create horizontal overflow.
+
+#### Observed Verification
+- Playwright checked `http://127.0.0.1:5173/#/automations` at 393x852 in light and dark themes.
+- The Project folder field and editor bottom were inside `.automations-workspace`; `document.body.scrollWidth` matched the viewport width.
+- Screenshots:
+  - `output/playwright/automation-project-folder-alignment-mobile.png`
+  - `output/playwright/automation-project-folder-alignment-dark-mobile.png`
+
+#### Rollback/Cleanup
+- Stop the local dev server used only for this check.
+
+---
+
+### Automations Compact Editable Sidebar
+
+#### Feature/Change Name
+Existing automation editor uses a compact editable status/details sidebar.
+
+#### Prerequisites/Setup
+1. Use `${WORKTREE_ROOT}` on `feature/automation-compact-sidebar-dev`.
+2. Start the dev server from this worktree at `http://127.0.0.1:5173`.
+3. Have at least one automation selected, or create a temporary project automation and delete it after verification.
+
+#### Steps
+1. Run `pnpm vitest run src/utils/automationDisplay.test.ts src/composables/useAutomations.test.ts`.
+2. Run `pnpm run build:frontend`.
+3. Open `/automations` in desktop light theme.
+4. Select an automation.
+5. Confirm the editor shows top actions, Status rows, Details rows, collapsed Previous runs, and closed Advanced.
+6. Change Runs in, Project, Repeats, Model, and Reasoning in place.
+7. Open Advanced and confirm Name, Thread, Prompt, Description, Notes, Run profile, custom RRULE, and storage metadata remain available.
+8. Switch to dark theme and repeat steps 4-7.
+9. Open `/automations` in a 375x812 or 393x852 mobile viewport and repeat steps 4-7.
+
+#### Expected Results
+- Existing automations open into a compact editable panel instead of a full form-first editor.
+- Status, Next run, and Last ran are visible near the top.
+- Runs in, Project, Repeats, Model, and Reasoning are editable in place.
+- Advanced is closed by default and contains lower-frequency fields and metadata.
+- Previous runs is collapsed by default and uses dense rows when opened.
+- Mobile has no horizontal overflow, uses 16px inputs/selects, and keeps top actions reachable.
+- Light and dark themes both use readable panel, row, and control surfaces.
+
+#### Observed Verification
+- `pnpm vitest run src/utils/automationDisplay.test.ts src/composables/useAutomations.test.ts` passed: 2 files, 38 tests.
+- PR review fix verification: `pnpm vitest run src/utils/automationDisplay.test.ts src/server/automations/__tests__/routes.test.ts src/server/automations/__tests__/runner.test.ts` passed: 3 files, 110 tests.
+- PR review fix verification after effective profile validation updates: `pnpm vitest run src/utils/automationDisplay.test.ts src/server/execution/__tests__/runProfiles.test.ts src/server/automations/__tests__/routes.test.ts src/server/automations/__tests__/runner.test.ts src/server/automations/__tests__/scheduler.test.ts` passed: 5 files, 140 tests.
+- PR review fix verification after cwd default-profile handling: `pnpm vitest run src/server/automations/__tests__/runner.test.ts src/server/automations/__tests__/scheduler.test.ts src/server/automations/__tests__/routes.test.ts src/server/execution/__tests__/runProfiles.test.ts src/utils/automationDisplay.test.ts` passed: 5 files, 140 tests.
+- PR review fix verification after UI-only default profile selection: `pnpm vitest run src/composables/useAutomations.test.ts src/server/automations/__tests__/runner.test.ts src/server/automations/__tests__/scheduler.test.ts src/server/automations/__tests__/routes.test.ts src/server/execution/__tests__/runProfiles.test.ts src/utils/automationDisplay.test.ts` passed: 6 files, 159 tests.
+- PR review fix verification after mobile run-row and INTERVAL=1 schedule fixes: `pnpm vitest run src/utils/automationDisplay.test.ts src/composables/useAutomations.test.ts src/server/automations/__tests__/runner.test.ts src/server/automations/__tests__/scheduler.test.ts src/server/automations/__tests__/routes.test.ts src/server/execution/__tests__/runProfiles.test.ts` passed: 6 files, 159 tests.
+- PR review fix verification after page-load config-read reduction and O(N) summary helpers: `pnpm vitest run src/utils/automationDisplay.test.ts src/composables/useAutomations.test.ts src/server/automations/__tests__/routes.test.ts src/server/automations/__tests__/runner.test.ts src/server/automations/__tests__/scheduler.test.ts src/server/execution/__tests__/runProfiles.test.ts` passed: 6 files, 159 tests.
+- PR review fix verification after post-limit config-override policy handling: `pnpm vitest run src/utils/automationDisplay.test.ts src/server/automations/__tests__/runner.test.ts src/server/automations/__tests__/scheduler.test.ts src/server/automations/__tests__/routes.test.ts src/composables/useAutomations.test.ts src/server/execution/__tests__/runProfiles.test.ts` passed: 6 files, 160 tests.
+- PR review fix verification after active run timestamp ordering: `pnpm vitest run src/utils/automationDisplay.test.ts` passed: 1 file, 22 tests.
+- PR review fix verification after follow-up review comments: `pnpm vitest run src/utils/automationDisplay.test.ts src/composables/useAutomations.test.ts src/server/automations/__tests__/routes.test.ts src/server/automations/__tests__/runner.test.ts src/server/execution/__tests__/runProfiles.test.ts` passed: 5 files, 143 tests.
+- PR review fix verification: `pnpm run build:frontend` passed.
+- PR review fix verification: `git diff --check` passed.
+- PR review fix verification after follow-up review comments: `pnpm run build:frontend` passed.
+- PR review fix verification after follow-up review comments: `git diff --check` passed.
+- Duplicate create/advanced field fix verification: `pnpm run build:frontend` passed.
+- Duplicate create/advanced field fix verification: `git diff --check` passed.
+- Thread picker create/edit field verification: `pnpm run build:frontend` passed.
+- Thread picker create/edit field verification: `git diff --check` passed.
+- Mobile thread picker long-list focus fix verification: `pnpm run build:frontend` passed.
+- Mobile thread picker long-list focus fix verification: `git diff --check` passed.
+- Mobile thread picker header clearance adjustment verification: `pnpm run build:frontend` passed.
+- Mobile thread picker header clearance adjustment verification: `git diff --check` passed.
+- Template cadence preset verification: `pnpm run build:frontend` passed.
+- Template cadence preset verification: `git diff --check` passed.
+- `pnpm run build:frontend` passed.
+- Playwright checked `http://127.0.0.1:5173/#/automations` with a temporary project automation at desktop 1440x1000 light/dark and mobile 393x852.
+- Playwright confirmed compact Status and Details sections render, Advanced is closed, Previous runs is collapsed, compact controls use dark surfaces in dark theme, and mobile has no horizontal overflow.
+- Screenshots:
+  - `output/playwright/automation-compact-sidebar-light.png`
+  - `output/playwright/automation-compact-sidebar-dark.png`
+  - `output/playwright/automation-compact-sidebar-mobile.png`
+
+#### Rollback/Cleanup
+- Delete any temporary automation created only for this verification.
+- Stop the local dev server used only for this check.
+
+---
+
+### Automations Mobile Text Field Focus Positioning
+
+#### Feature/Change Name
+Automation editor keeps focused mobile text fields visible above the virtual keyboard.
+
+#### Prerequisites/Setup
+1. Use `${WORKTREE_ROOT}` on `feature/automation-compact-sidebar-dev`.
+2. Start the dev server from this worktree at `http://127.0.0.1:5173`.
+3. Open `/automations` on a mobile browser or a 375x812/393x852 mobile viewport.
+
+#### Steps
+1. Start creating an automation with the Thread heartbeat template.
+2. In light theme, tap the Name input, Project input, Prompt textarea, Description input, Notes textarea, and custom schedule input when visible.
+3. For each focused text field, wait for the mobile keyboard to finish opening.
+4. Confirm the selected field remains visible with space above the keyboard and does not jump to the page top.
+5. Repeat steps 1-4 in dark theme.
+
+#### Expected Results
+- Any focused automation text input or textarea scrolls into the usable visual viewport on mobile.
+- The focused field is not left against the keyboard edge or hidden behind the keyboard.
+- The page does not reset to the top when a lower form field receives focus.
+- Light and dark themes both keep the focused field readable.
+
+#### Observed Verification
+- `pnpm run build:frontend` passed.
+- `git diff --check` passed.
+- Follow-up regression fix keeps the thread picker search input out of the page-level mobile focus scroller and avoids aggressive `scrollIntoView` positioning.
+- Route-level fix removes custom automation focus scrolling and gives the Automations route a native mobile scroll container with keyboard-safe scroll padding.
+- Review-comment fix verification: `pnpm vitest run src/composables/useAutomations.test.ts src/utils/automationDisplay.test.ts` passed: 2 files, 45 tests.
+- Review-comment fix verification: `pnpm run build:frontend` passed.
+- Review-comment fix verification: `git diff --check` passed.
+- Button clarification update labels the draft action as `New automation` and the submit action as `Create automation`/`Save changes`.
+- Follow-up review-comment fix verification: `pnpm vitest run src/composables/useAutomations.test.ts src/utils/automationDisplay.test.ts` passed: 2 files, 45 tests.
+- Follow-up review-comment fix verification: `pnpm run build:frontend` passed.
+- Follow-up review-comment fix verification: `git diff --check` passed.
+
+#### Rollback/Cleanup
+- Delete any temporary automation created only for this verification.
+- Stop the local dev server used only for this check.

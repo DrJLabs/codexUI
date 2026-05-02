@@ -19,6 +19,25 @@ it('prefills create draft from a thread shortcut when no matching automation exi
   expect(automations.draft.value.targetThreadId).toBe('thread_123')
 })
 
+it('keeps new draft run profile unset until the user changes it', async () => {
+  const gateway = createGatewayFixture([])
+  vi.mocked(gateway.loadAutomationsState).mockResolvedValue({
+    ...stateFixture([]),
+    executionOptions: {
+      defaultRunProfileId: 'network-coding',
+      currentConfigProfileId: 'network-coding',
+      runProfiles: [],
+    },
+  })
+  const automations = useAutomations({ gateway })
+
+  await automations.loadAll()
+  expect(automations.draft.value.runProfileId).toBe('')
+
+  automations.startCreate('thread_123')
+  expect(automations.draft.value.runProfileId).toBe('')
+})
+
 it('preserves a route thread prefill across the initial async load', async () => {
   const deferred = createDeferredState([automationFixture({ id: 'auto_1', targetThreadId: 'other_thread' })])
   const automations = useAutomations({ gateway: createGatewayFixture([], { deferredState: deferred.promise }) })
@@ -80,9 +99,28 @@ it('serializes run mode and cwd draft fields before save', async () => {
   await automations.saveDraft()
 
   expect(gateway.createAutomation).toHaveBeenCalledWith(expect.objectContaining({
-    kind: 'heartbeat',
+    kind: 'cron',
+    targetThreadId: null,
     runMode: 'worktree',
     cwd: '/tmp/project',
+  }))
+})
+
+it('does not serialize hidden thread targets for non-chat creates', async () => {
+  const gateway = createGatewayFixture([])
+  const automations = useAutomations({ gateway })
+  automations.startCreate('thread_123')
+  automations.draft.value.name = 'Worktree check'
+  automations.draft.value.prompt = 'Check in a worktree'
+  automations.draft.value.runMode = 'worktree'
+  automations.draft.value.cwd = '/tmp/project'
+
+  await automations.saveDraft()
+
+  expect(gateway.createAutomation).toHaveBeenCalledWith(expect.objectContaining({
+    kind: 'cron',
+    targetThreadId: null,
+    runMode: 'worktree',
   }))
 })
 
@@ -131,6 +169,22 @@ it('allows editing a detached automation without a target thread id', async () =
   expect(gateway.updateAutomation).toHaveBeenCalledWith('detached', expect.objectContaining({
     targetThreadId: null,
     notes: 'Updated detached notes',
+  }))
+})
+
+it('does not serialize hidden thread targets for non-chat updates', async () => {
+  const gateway = createGatewayFixture([automationFixture({ id: 'auto_1', targetThreadId: 'thread_1', runMode: 'chat' })])
+  const automations = useAutomations({ gateway })
+  await automations.loadAll()
+  automations.draft.value.runMode = 'local'
+  automations.draft.value.cwd = '/tmp/project'
+
+  await automations.saveDraft()
+
+  expect(gateway.updateAutomation).toHaveBeenCalledWith('auto_1', expect.objectContaining({
+    targetThreadId: null,
+    runMode: 'local',
+    cwd: '/tmp/project',
   }))
 })
 
@@ -384,6 +438,11 @@ function stateFixture(definitions: AutomationDefinition[]): AutomationsState {
     sourceCounts: { native: definitions.filter((definition) => definition.source === 'native').length, codexui: 0 },
     diagnostics: [],
     definitions,
+    executionOptions: {
+      defaultRunProfileId: 'workspace-coding',
+      currentConfigProfileId: null,
+      runProfiles: [],
+    },
   }
 }
 

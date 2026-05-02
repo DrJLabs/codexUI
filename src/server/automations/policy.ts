@@ -10,6 +10,7 @@ import type { AutomationsRemoteAccess } from './remoteAccess'
 export type AutomationRunProfileInput = {
   runProfiles?: CodexRunProfile[]
   runProfileId?: string | null
+  defaultRunProfileId?: string | null
 }
 
 export function isAutomationExecutionPolicyEnabled(policy: KanbanExecutionPolicy): boolean {
@@ -49,10 +50,13 @@ export function resolveAutomationRunProfile(
   input: AutomationRunProfileInput,
 ): CodexRunProfile {
   const profiles = mergeRunProfiles(input.runProfiles)
-  const requestedId = (input.runProfileId ?? definition.runProfileId ?? DEFAULT_CODEX_RUN_PROFILE_ID).trim()
-  const profileId = profiles.some((profile) => profile.id === requestedId)
-    ? requestedId
-    : DEFAULT_CODEX_RUN_PROFILE_ID
+  const explicitProfileId = (input.runProfileId ?? definition.runProfileId ?? '').trim()
+  const requestedId = explicitProfileId || input.defaultRunProfileId?.trim() || DEFAULT_CODEX_RUN_PROFILE_ID
+  const profileExists = profiles.some((profile) => profile.id === requestedId)
+  if (explicitProfileId && !profileExists) {
+    throw createAutomationPolicyError(400, `Codex run profile "${explicitProfileId}" is not available`)
+  }
+  const profileId = profileExists ? requestedId : DEFAULT_CODEX_RUN_PROFILE_ID
   const baseProfile = profiles.find((profile) => profile.id === profileId)
     ?? profiles.find((profile) => profile.id === DEFAULT_CODEX_RUN_PROFILE_ID)
     ?? BUILTIN_CODEX_RUN_PROFILES.find((profile) => profile.id === DEFAULT_CODEX_RUN_PROFILE_ID)!
@@ -83,7 +87,14 @@ function mergeRunProfiles(extra: CodexRunProfile[] | undefined): CodexRunProfile
 }
 
 function normalizeReasoningEffort(value: string | null): CodexRunProfile['reasoningEffort'] | '' {
-  return value === 'low' || value === 'medium' || value === 'high' || value === 'xhigh' ? value : ''
+  return value === 'none' ||
+    value === 'minimal' ||
+    value === 'low' ||
+    value === 'medium' ||
+    value === 'high' ||
+    value === 'xhigh'
+    ? value
+    : ''
 }
 
 function createAutomationPolicyError(statusCode: number, message: string): Error & { statusCode: number } {
