@@ -767,7 +767,9 @@ function classifyRrule(rrule: string): { frequency: ScheduleFrequency; time: str
   const parts = parseRrule(rrule)
   const hour = parseInteger(parts.BYHOUR)
   const minute = parseInteger(parts.BYMINUTE)
-  const time = hour === null || minute === null ? null : `${hour.toString().padStart(2, '0')}:${minute.toString().padStart(2, '0')}`
+  const time = hour === null || minute === null || hour > 23 || minute > 59
+    ? null
+    : `${hour.toString().padStart(2, '0')}:${minute.toString().padStart(2, '0')}`
 
   if (parts.FREQ === 'DAILY' && time && hasOnlyRruleKeys(parts, ['BYHOUR', 'BYMINUTE', 'FREQ'])) {
     return { frequency: 'daily', time, weekday: null }

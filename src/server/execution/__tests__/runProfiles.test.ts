@@ -152,6 +152,22 @@ describe('execution run profiles', () => {
     })
   })
 
+  it('inherits missing config override fields from the matching built-in profile id', () => {
+    const profiles = mergeCodexRunProfiles(normalizeCodexConfigProfiles({
+      'read-only-planning': {
+        model: 'gpt-5.5',
+      },
+    }))
+
+    expect(profiles.find((profile) => profile.id === 'read-only-planning')).toMatchObject({
+      source: 'config',
+      model: 'gpt-5.5',
+      sandboxMode: 'read-only',
+      approvalPolicy: 'on-request',
+      networkAccess: false,
+    })
+  })
+
   it('preserves supported Codex config enum values', () => {
     const profiles = normalizeCodexConfigProfiles({
       minimal_profile: {

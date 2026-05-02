@@ -6317,6 +6317,7 @@ Existing automation editor uses a compact editable status/details sidebar.
 #### Observed Verification
 - `pnpm vitest run src/utils/automationDisplay.test.ts src/composables/useAutomations.test.ts` passed: 2 files, 38 tests.
 - PR review fix verification: `pnpm vitest run src/utils/automationDisplay.test.ts src/server/automations/__tests__/routes.test.ts src/server/automations/__tests__/runner.test.ts` passed: 3 files, 110 tests.
+- PR review fix verification after effective profile validation updates: `pnpm vitest run src/utils/automationDisplay.test.ts src/server/execution/__tests__/runProfiles.test.ts src/server/automations/__tests__/routes.test.ts src/server/automations/__tests__/runner.test.ts src/server/automations/__tests__/scheduler.test.ts` passed: 5 files, 140 tests.
 - PR review fix verification: `pnpm run build:frontend` passed.
 - PR review fix verification: `git diff --check` passed.
 - `pnpm run build:frontend` passed.

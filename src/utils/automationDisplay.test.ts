@@ -44,6 +44,15 @@ describe('automationDisplay', () => {
     )
   })
 
+  it('keeps out-of-range RRULE times visible as custom schedules', () => {
+    expect(describeAutomationSchedule('FREQ=DAILY;BYHOUR=99;BYMINUTE=0')).toBe(
+      'Custom schedule: FREQ=DAILY;BYHOUR=99;BYMINUTE=0',
+    )
+    expect(describeAutomationSchedule('FREQ=WEEKLY;BYDAY=MO;BYHOUR=10;BYMINUTE=99')).toBe(
+      'Custom schedule: FREQ=WEEKLY;BYDAY=MO;BYHOUR=10;BYMINUTE=99',
+    )
+  })
+
   it('keeps modified weekly RRULE schedules visible as custom schedules', () => {
     expect(describeAutomationSchedule('FREQ=WEEKLY;INTERVAL=2;BYDAY=MO;BYHOUR=10;BYMINUTE=30')).toBe(
       'Custom schedule: FREQ=WEEKLY;INTERVAL=2;BYDAY=MO;BYHOUR=10;BYMINUTE=30',
@@ -182,6 +191,16 @@ describe('automationDisplay', () => {
       project: 'apollo',
       age: '29m',
     })
+  })
+
+  it('uses active timestamps for in-progress compact run list items', () => {
+    const now = new Date('2026-05-02T06:00:00.000Z')
+    expect(describeAutomationRunListItem(automationRunFixture({
+      state: 'running',
+      completedAtIso: null,
+      updatedAtIso: '2026-05-02T05:31:00.000Z',
+      startedAtIso: '2026-05-02T05:00:00.000Z',
+    }), now).age).toBe('29m')
   })
 })
 

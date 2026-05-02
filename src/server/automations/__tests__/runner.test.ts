@@ -294,17 +294,27 @@ describe('AutomationRunner', () => {
     expect(rpcCalls).toEqual([])
   })
 
-  it('uses explicit built-in run profiles without reading Codex config first', async () => {
-    const { codexHomeDir, service, rpcCalls } = await createHarness()
+  it('validates config overrides for built-in run profile ids before starting manual runs', async () => {
+    const { codexHomeDir, service, rpcCalls } = await createHarness({
+      configReadPayload: {
+        config: {
+          current_profile: 'workspace-coding',
+          profiles: {
+            'workspace-coding': {
+              sandbox_mode: 'workspace-write',
+              network_access: true,
+            },
+          },
+        },
+      },
+    })
     await writeNative(codexHomeDir, 'daily-check-dir', nativeRecord, {
       runMode: 'chat',
       runProfileId: 'workspace-coding',
     })
 
-    const run = await service.runNow('daily-check')
-
-    expect(run.runProfileId).toBe('workspace-coding')
-    expect(rpcCalls.map((call) => call.method)).toEqual(['thread/resume', 'turn/start'])
+    await expect(service.runNow('daily-check')).rejects.toThrow('network access')
+    expect(rpcCalls.map((call) => call.method)).toEqual(['config/read'])
   })
 
   it('surfaces non-missing sidecar read failures for definition reads', async () => {
@@ -1344,7 +1354,6 @@ describe('AutomationRunner', () => {
     })
     const automationDir = await writeNative(codexHomeDir, 'daily-check-dir', nativeRecord, {
       runMode: 'chat',
-      runProfileId: 'minimal-coding',
     })
     await writeScheduler(automationDir, { nextDueAtIso: dueAtIso })
 

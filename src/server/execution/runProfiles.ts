@@ -99,15 +99,16 @@ export function normalizeCodexConfigProfiles(value: unknown, defaults: CodexConf
   if (!isRecord(value)) return []
   const normalized: CodexRunProfile[] = []
   const timestamp = new Date().toISOString()
-  const fallbackProfile = BUILTIN_CODEX_RUN_PROFILES.find((profile) => profile.id === DEFAULT_CODEX_RUN_PROFILE_ID)!
-  const fallbackModel = readString(defaults.model) || fallbackProfile.model
-  const fallbackReasoningEffort = defaults.reasoningEffort ?? fallbackProfile.reasoningEffort
-  const fallbackSandboxMode = defaults.sandboxMode ?? fallbackProfile.sandboxMode
-  const fallbackApprovalPolicy = defaults.approvalPolicy ?? fallbackProfile.approvalPolicy
-  const fallbackNetworkAccess = defaults.networkAccess ?? fallbackProfile.networkAccess
+  const defaultProfile = BUILTIN_CODEX_RUN_PROFILES.find((profile) => profile.id === DEFAULT_CODEX_RUN_PROFILE_ID)!
   for (const [rawId, rawProfile] of Object.entries(value)) {
     const id = rawId.trim()
     if (!id || !isRecord(rawProfile)) continue
+    const fallbackProfile = BUILTIN_CODEX_RUN_PROFILES.find((profile) => profile.id === id) ?? defaultProfile
+    const fallbackModel = readString(defaults.model) || fallbackProfile.model
+    const fallbackReasoningEffort = defaults.reasoningEffort ?? fallbackProfile.reasoningEffort
+    const fallbackSandboxMode = defaults.sandboxMode ?? fallbackProfile.sandboxMode
+    const fallbackApprovalPolicy = defaults.approvalPolicy ?? fallbackProfile.approvalPolicy
+    const fallbackNetworkAccess = defaults.networkAccess ?? fallbackProfile.networkAccess
     const reasoningEffort = readOptionalReasoningEffort(rawProfile.model_reasoning_effort ?? rawProfile.modelReasoningEffort)
       ?? fallbackReasoningEffort
     const sandboxMode = readOptionalSandboxMode(rawProfile.sandbox_mode ?? rawProfile.sandboxMode)

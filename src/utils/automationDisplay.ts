@@ -30,20 +30,22 @@ export function describeAutomationSchedule(rrule: string): string {
   const parts = parseRrule(rrule)
   const hour = parseNumberPart(parts.BYHOUR)
   const minute = parseNumberPart(parts.BYMINUTE)
+  const time = hour !== null && minute !== null && hour >= 0 && hour <= 23 && minute >= 0 && minute <= 59
+    ? { hour, minute }
+    : null
 
-  if (hasOnlyKeys(parts, SIMPLE_DAILY_KEYS) && parts.FREQ === 'DAILY' && hour !== null && minute !== null) {
-    return `Daily at ${formatTime(hour, minute)}`
+  if (hasOnlyKeys(parts, SIMPLE_DAILY_KEYS) && parts.FREQ === 'DAILY' && time) {
+    return `Daily at ${formatTime(time.hour, time.minute)}`
   }
 
   if (
     hasOnlyKeys(parts, SIMPLE_WEEKLY_KEYS) &&
     parts.FREQ === 'WEEKLY' &&
     parts.BYDAY &&
-    hour !== null &&
-    minute !== null
+    time
   ) {
     const day = WEEKDAY_LABELS[parts.BYDAY]
-    if (day) return `Weekly on ${day} at ${formatTime(hour, minute)}`
+    if (day) return `Weekly on ${day} at ${formatTime(time.hour, time.minute)}`
   }
 
   return `Custom schedule: ${rrule}`
@@ -118,7 +120,7 @@ export function describeAutomationRunListItem(run: AutomationRun, now = new Date
     state: run.state,
     title: run.automationName,
     project: basename(run.worktreePath ?? run.cwd ?? '') || 'Thread',
-    age: formatAutomationRelativeTime(run.completedAtIso ?? run.startedAtIso ?? run.updatedAtIso ?? run.createdAtIso, now),
+    age: formatAutomationRelativeTime(run.completedAtIso ?? run.updatedAtIso ?? run.startedAtIso ?? run.createdAtIso, now),
   }
 }
 

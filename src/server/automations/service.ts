@@ -428,20 +428,18 @@ export class AutomationsService {
       assertAutomationRunnerTarget(definition)
       const preflightRunProfile = resolveAutomationRunProfileForPreflight(definition, options)
       if (preflightRunProfile) assertAutomationRunProfileAllowed(preflightRunProfile, this.policy)
-      const executionOptions = options.runProfiles || preflightRunProfile
-        ? null
-        : await this.readExecutionOptions([definition.cwd])
+      const executionOptions = options.runProfiles ? null : await this.readExecutionOptions([definition.cwd])
       const runProfiles = options.runProfiles ?? executionOptions?.runProfiles
-      if (!preflightRunProfile) {
-        assertAutomationRunProfileAllowed(resolveAutomationRunProfile(definition, {
-          ...options,
-          runProfiles,
-        }), this.policy)
-      }
+      assertAutomationRunProfileAllowed(resolveAutomationRunProfile(definition, {
+        ...options,
+        defaultRunProfileId: executionOptions?.defaultRunProfileId,
+        runProfiles,
+      }), this.policy)
       return await this.runner.runNow({
         definition,
         automationDirPath: entry.automationDirPath,
         runProfiles,
+        defaultRunProfileId: executionOptions?.defaultRunProfileId,
         runProfileId: options.runProfileId,
       })
     })
@@ -489,6 +487,7 @@ export class AutomationsService {
         dueAtIso: input.dueAtIso,
         nextDueAtIso: input.nextDueAtIso,
         runProfiles: input.runProfiles ?? executionOptions?.runProfiles,
+        defaultRunProfileId: executionOptions?.defaultRunProfileId,
         runProfileId: input.runProfileId,
       })
     })

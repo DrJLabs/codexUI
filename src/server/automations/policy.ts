@@ -10,6 +10,7 @@ import type { AutomationsRemoteAccess } from './remoteAccess'
 export type AutomationRunProfileInput = {
   runProfiles?: CodexRunProfile[]
   runProfileId?: string | null
+  defaultRunProfileId?: string | null
 }
 
 export function isAutomationExecutionPolicyEnabled(policy: KanbanExecutionPolicy): boolean {
@@ -50,7 +51,7 @@ export function resolveAutomationRunProfile(
 ): CodexRunProfile {
   const profiles = mergeRunProfiles(input.runProfiles)
   const explicitProfileId = (input.runProfileId ?? definition.runProfileId ?? '').trim()
-  const requestedId = explicitProfileId || DEFAULT_CODEX_RUN_PROFILE_ID
+  const requestedId = explicitProfileId || input.defaultRunProfileId?.trim() || DEFAULT_CODEX_RUN_PROFILE_ID
   const profileExists = profiles.some((profile) => profile.id === requestedId)
   if (explicitProfileId && !profileExists) {
     throw createAutomationPolicyError(400, `Codex run profile "${explicitProfileId}" is not available`)
