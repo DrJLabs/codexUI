@@ -475,6 +475,7 @@
         :class="{
           'is-virtual-keyboard-open': isTerminalKeyboardLayoutActive,
           'is-terminal-open': isComposerTerminalOpen,
+          'is-automations-route': isAutomationsRoute,
         }"
         :style="contentStyle"
       >
@@ -4458,6 +4459,16 @@ async function loadWorktreeBranches(sourceCwd: string): Promise<void> {
 
 .content-root.is-virtual-keyboard-open .content-body {
   padding-bottom: max(0.5rem, env(safe-area-inset-bottom));
+}
+
+.content-root.is-automations-route .content-body {
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.content-root.is-automations-route.is-virtual-keyboard-open .content-body {
+  padding-bottom: max(1rem, env(safe-area-inset-bottom));
+  scroll-padding-bottom: 7rem;
 }
 
 .content-root.is-virtual-keyboard-open .content-grid {
