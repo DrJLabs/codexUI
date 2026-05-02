@@ -288,11 +288,11 @@ Run:
 
 ```bash
 fuser -k 5173/tcp || true
-setsid bash -lc 'cd /home/drj/projects/codexUI-automation-compact-sidebar-dev && pnpm run dev -- --host 0.0.0.0 --port 5173 > /tmp/codexui-automation-compact-5173.log 2>&1' >/dev/null 2>&1 &
+setsid bash -lc 'cd "${WORKTREE_ROOT}" && pnpm run dev -- --host 0.0.0.0 --port 5173 > /tmp/codexui-automation-compact-5173.log 2>&1' >/dev/null 2>&1 &
 curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:5173/#/automations
 ```
 
-Expected: `200`, and `/proc/<pid>/cwd` points to `/home/drj/projects/codexUI-automation-compact-sidebar-dev`.
+Expected: `200`, and `/proc/<pid>/cwd` points to `${WORKTREE_ROOT}`.
 
 - [x] **Step 4: Playwright verification**
 

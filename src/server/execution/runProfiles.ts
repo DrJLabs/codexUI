@@ -265,7 +265,7 @@ function readSandboxMode(value: unknown): CodexRunProfileSandboxMode {
   return readOptionalSandboxMode(value) ?? 'workspace-write'
 }
 
-function readOptionalSandboxMode(value: unknown): CodexRunProfileSandboxMode | undefined {
+export function readOptionalSandboxMode(value: unknown): CodexRunProfileSandboxMode | undefined {
   return value === 'read-only' || value === 'workspace-write' || value === 'danger-full-access'
     ? value
     : undefined
@@ -275,7 +275,7 @@ function readApprovalPolicy(value: unknown): CodexRunProfileApprovalPolicy {
   return readOptionalApprovalPolicy(value) ?? 'on-request'
 }
 
-function readOptionalApprovalPolicy(value: unknown): CodexRunProfileApprovalPolicy | undefined {
+export function readOptionalApprovalPolicy(value: unknown): CodexRunProfileApprovalPolicy | undefined {
   return value === 'untrusted' || value === 'on-failure' || value === 'on-request' || value === 'never'
     ? value
     : undefined
@@ -285,7 +285,7 @@ function readReasoningEffort(value: unknown): CodexRunProfileReasoningEffort {
   return readOptionalReasoningEffort(value) ?? ''
 }
 
-function readOptionalReasoningEffort(value: unknown): CodexRunProfileReasoningEffort | undefined {
+export function readOptionalReasoningEffort(value: unknown): CodexRunProfileReasoningEffort | undefined {
   return value === 'none' || value === 'minimal' || value === 'low' || value === 'medium' || value === 'high' || value === 'xhigh'
     ? value
     : undefined

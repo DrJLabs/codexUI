@@ -118,7 +118,7 @@ async function createHarness(options: {
   }
 }
 
-function createBridge(configReadPayload: unknown = {}) {
+function createBridge(configReadPayload: unknown | ((params: unknown) => unknown | Promise<unknown>) = {}) {
   const rpcCalls: Array<{ method: string; params: unknown }> = []
   const notificationListeners: Array<(notification: CodexBridgeNotification) => void> = []
   const unsubscribe = vi.fn()
@@ -143,7 +143,11 @@ function createBridge(configReadPayload: unknown = {}) {
           },
         } as T
       }
-      if (method === 'config/read') return configReadPayload as T
+      if (method === 'config/read') {
+        return (typeof configReadPayload === 'function'
+          ? await configReadPayload(params)
+          : configReadPayload) as T
+      }
       return {} as T
     },
     subscribeNotifications: vi.fn((listener) => {
@@ -576,6 +580,55 @@ describe('createAutomationsMiddleware', () => {
         sandboxMode: 'workspace-write',
         approvalPolicy: 'on-failure',
         networkAccess: true,
+      }),
+    ]))
+  })
+
+  it('includes cwd-scoped Codex profiles for existing local automations in state options', async () => {
+    const projectCwd = '/tmp/codexui-project'
+    const { bridge } = createBridge((params: unknown) => readRecord(params).cwd === projectCwd
+      ? {
+          config: {
+            profiles: {
+              'project-profile': {
+                model: 'gpt-5.5',
+                sandbox_mode: 'read-only',
+              },
+            },
+          },
+        }
+      : {
+          config: {
+            current_profile: 'workspace-coding',
+          },
+        })
+    const { baseUrl, codexHomeDir } = await createHarness({ bridge, policy: enabledPolicy })
+    await writeNative(codexHomeDir, 'project-check-dir', {
+      ...nativeRecord,
+      id: 'project-check',
+      targetThreadId: null,
+      runMode: 'local',
+      cwd: projectCwd,
+      cwds: [projectCwd],
+    })
+
+    const state = await requestJson<{
+      data: {
+        executionOptions: {
+          defaultRunProfileId: string
+          runProfiles: Array<{ id: string; source?: string; model: string; sandboxMode: string }>
+        }
+      }
+    }>(`${baseUrl}/codex-api/automations/state`)
+
+    expect(state.status).toBe(200)
+    expect(state.body.data.executionOptions.defaultRunProfileId).toBe('workspace-coding')
+    expect(state.body.data.executionOptions.runProfiles).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        id: 'project-profile',
+        source: 'config',
+        model: 'gpt-5.5',
+        sandboxMode: 'read-only',
       }),
     ]))
   })

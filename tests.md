@@ -6324,8 +6324,11 @@ Existing automation editor uses a compact editable status/details sidebar.
 - PR review fix verification after page-load config-read reduction and O(N) summary helpers: `pnpm vitest run src/utils/automationDisplay.test.ts src/composables/useAutomations.test.ts src/server/automations/__tests__/routes.test.ts src/server/automations/__tests__/runner.test.ts src/server/automations/__tests__/scheduler.test.ts src/server/execution/__tests__/runProfiles.test.ts` passed: 6 files, 159 tests.
 - PR review fix verification after post-limit config-override policy handling: `pnpm vitest run src/utils/automationDisplay.test.ts src/server/automations/__tests__/runner.test.ts src/server/automations/__tests__/scheduler.test.ts src/server/automations/__tests__/routes.test.ts src/composables/useAutomations.test.ts src/server/execution/__tests__/runProfiles.test.ts` passed: 6 files, 160 tests.
 - PR review fix verification after active run timestamp ordering: `pnpm vitest run src/utils/automationDisplay.test.ts` passed: 1 file, 22 tests.
+- PR review fix verification after follow-up review comments: `pnpm vitest run src/utils/automationDisplay.test.ts src/composables/useAutomations.test.ts src/server/automations/__tests__/routes.test.ts src/server/automations/__tests__/runner.test.ts src/server/execution/__tests__/runProfiles.test.ts` passed: 5 files, 143 tests.
 - PR review fix verification: `pnpm run build:frontend` passed.
 - PR review fix verification: `git diff --check` passed.
+- PR review fix verification after follow-up review comments: `pnpm run build:frontend` passed.
+- PR review fix verification after follow-up review comments: `git diff --check` passed.
 - `pnpm run build:frontend` passed.
 - Playwright checked `http://127.0.0.1:5173/#/automations` with a temporary project automation at desktop 1440x1000 light/dark and mobile 393x852.
 - Playwright confirmed compact Status and Details sections render, Advanced is closed, Previous runs is collapsed, compact controls use dark surfaces in dark theme, and mobile has no horizontal overflow.

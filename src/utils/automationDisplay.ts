@@ -131,10 +131,9 @@ export function describeAutomationRunListItem(run: AutomationRun, now = new Date
 }
 
 export function describeRunHealth(
-  definition: AutomationDefinition,
   runs: AutomationRun[],
 ): { label: string; tone: HealthTone } {
-  const latestRun = mostRecentRun(runs.length > 0 ? runs : definition.recentRuns ?? [])
+  const latestRun = mostRecentRun(runs)
 
   if (!latestRun) {
     return { label: 'No runs yet', tone: 'neutral' }

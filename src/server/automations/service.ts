@@ -16,6 +16,9 @@ import {
   DEFAULT_CODEX_RUN_PROFILE_ID,
   mergeCodexRunProfiles,
   normalizeCodexConfigProfiles,
+  readOptionalApprovalPolicy,
+  readOptionalReasoningEffort,
+  readOptionalSandboxMode,
   type CodexConfigProfileDefaults,
 } from '../execution/runProfiles'
 import { resolveKanbanConfig } from '../kanban/config'
@@ -137,7 +140,7 @@ export class AutomationsService {
 
   async listState(): Promise<AutomationsState> {
     const { definitions, diagnostics, storageRoot } = await this.listDefinitionsWithDiagnostics()
-    const executionOptions = await this.readExecutionOptions()
+    const executionOptions = await this.readExecutionOptions(definitions.map((definition) => definition.cwd))
     return {
       storageRoot,
       featureFlags: {
@@ -162,7 +165,7 @@ export class AutomationsService {
   ): Promise<AutomationsState['executionOptions']> {
     const configRead = await this.readCodexConfig()
     const configProfiles = normalizeCodexConfigProfiles(
-      configRead.config?.profiles,
+      readCodexConfigProfileMap(configRead),
       readCodexConfigProfileDefaultsFromLayers(configRead),
     )
     const uniqueCwds = Array.from(new Set(cwds.map((value) => value?.trim()).filter(Boolean)))
@@ -173,7 +176,7 @@ export class AutomationsService {
     }
     for (const cwdConfigRead of cwdConfigReads) {
       const cwdProfiles = normalizeCodexConfigProfiles(
-        cwdConfigRead.config?.profiles,
+        readCodexConfigProfileMap(cwdConfigRead),
         readCodexConfigProfileDefaultsFromLayers(cwdConfigRead),
       )
       configProfiles.push(...cwdProfiles)
@@ -1074,6 +1077,15 @@ function readCodexConfigProfileDefaultsFromLayers(configRead: CodexConfigReadRes
   return {}
 }
 
+function readCodexConfigProfileMap(configRead: CodexConfigReadResult): unknown {
+  const configProfiles = asRecord(configRead.config?.profiles)
+  if (configRead.layers.length === 0) return configProfiles
+  const layerProfiles = asRecord(mergeCodexConfigLayers(configRead.layers).profiles)
+  if (!layerProfiles) return configProfiles
+  if (!configProfiles) return layerProfiles
+  return mergeConfigValue(layerProfiles, configProfiles)
+}
+
 function mergeCodexConfigLayers(layers: Record<string, unknown>[]): Record<string, unknown> {
   const merged: Record<string, unknown> = {}
   for (const layer of layers) {
@@ -1099,29 +1111,6 @@ function mergeConfigValue(existingValue: unknown, nextValue: unknown): unknown {
 
 function readCurrentConfigProfileId(config: Record<string, unknown> | null): string | null {
   return readNonEmptyString(config?.current_profile ?? config?.currentProfile ?? config?.profile)
-}
-
-function readOptionalReasoningEffort(value: unknown): CodexConfigProfileDefaults['reasoningEffort'] {
-  return value === 'none' ||
-    value === 'minimal' ||
-    value === 'low' ||
-    value === 'medium' ||
-    value === 'high' ||
-    value === 'xhigh'
-    ? value
-    : null
-}
-
-function readOptionalSandboxMode(value: unknown): CodexConfigProfileDefaults['sandboxMode'] {
-  return value === 'read-only' || value === 'workspace-write' || value === 'danger-full-access'
-    ? value
-    : null
-}
-
-function readOptionalApprovalPolicy(value: unknown): CodexConfigProfileDefaults['approvalPolicy'] {
-  return value === 'untrusted' || value === 'on-failure' || value === 'on-request' || value === 'never'
-    ? value
-    : null
 }
 
 function readOptionalBoolean(value: unknown): boolean | null {

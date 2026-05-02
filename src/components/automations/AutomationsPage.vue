@@ -110,7 +110,7 @@
               title="Pause automation"
               @click="pauseSelected"
             >
-              ⏸
+              <IconTablerPlayerPause class="automations-action-icon" />
             </button>
             <button
               v-else-if="draft.mode === 'edit' && selectedAutomation?.status === 'paused'"
@@ -121,7 +121,7 @@
               title="Resume automation"
               @click="resumeSelected"
             >
-              ▶
+              <IconTablerPlayerPlay class="automations-action-icon" />
             </button>
             <button
               v-if="draft.mode === 'edit'"
@@ -132,7 +132,7 @@
               title="Delete automation"
               @click="confirmDelete"
             >
-              ×
+              <IconTablerTrash class="automations-action-icon" />
             </button>
             <button
               v-if="draft.mode === 'edit'"
@@ -141,7 +141,8 @@
               :disabled="isSaving || isRunningNow || !manualRunsEnabled"
               @click="runSelectedNow"
             >
-              {{ isRunningNow ? 'Starting...' : '▷ Run now' }}
+              <IconTablerPlayerPlay v-if="!isRunningNow" class="automations-run-now-icon" />
+              <span>{{ isRunningNow ? 'Starting...' : 'Run now' }}</span>
             </button>
             <button class="automations-primary" type="submit" :disabled="isLoading || isSaving">
               {{ isSaving ? 'Saving...' : draft.mode === 'edit' ? 'Save' : 'Create' }}
@@ -436,6 +437,9 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { useAutomations } from '../../composables/useAutomations'
+import IconTablerPlayerPause from '../icons/IconTablerPlayerPause.vue'
+import IconTablerPlayerPlay from '../icons/IconTablerPlayerPlay.vue'
+import IconTablerTrash from '../icons/IconTablerTrash.vue'
 import type { AutomationRun, AutomationRunMode } from '../../types/automations'
 import {
   buildDailyRrule,
@@ -493,6 +497,7 @@ const weekdayOptions = [
   { value: 'SA', label: 'Saturday' },
   { value: 'SU', label: 'Sunday' },
 ] as const
+const validWeekdayValues = new Set(weekdayOptions.map((option) => option.value))
 
 const scheduleTemplates = [
   { id: 'thread-heartbeat', label: 'Thread heartbeat' },
@@ -527,7 +532,7 @@ let isSyncingScheduleControls = false
 const activeCount = computed(() => definitions.value.filter((definition) => definition.status === 'active').length)
 const needsAttentionCount = computed(() =>
   definitions.value.filter((definition) => {
-    const tone = describeRunHealth(definition, definition.recentRuns ?? []).tone
+    const tone = describeRunHealth(definition.recentRuns ?? []).tone
     return tone === 'danger' || tone === 'warning'
   }).length,
 )
@@ -551,7 +556,7 @@ const featureFlagSummary = computed(() =>
 )
 const automationCards = computed(() =>
   definitions.value.map((definition) => {
-    const health = describeRunHealth(definition, definition.recentRuns ?? [])
+    const health = describeRunHealth(definition.recentRuns ?? [])
     return {
       definition,
       scheduleLabel: describeAutomationSchedule(definition.schedule.rrule),
@@ -799,7 +804,7 @@ function classifyRrule(rrule: string): { frequency: ScheduleFrequency; time: str
     time &&
     parts.BYDAY &&
     hasDefaultInterval &&
-    /^[A-Z]{2}$/.test(parts.BYDAY) &&
+    validWeekdayValues.has(parts.BYDAY as typeof weekdayOptions[number]['value']) &&
     hasOnlyRruleKeys(parts, parts.INTERVAL ? ['BYDAY', 'BYHOUR', 'BYMINUTE', 'FREQ', 'INTERVAL'] : ['BYDAY', 'BYHOUR', 'BYMINUTE', 'FREQ'])
   ) {
     return { frequency: 'weekly', time, weekday: parts.BYDAY }
@@ -1192,10 +1197,24 @@ function shouldShowReadAction(run: AutomationRun): boolean {
 }
 
 .automations-run-now-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
   min-height: 34px;
 }
 
+.automations-action-icon,
+.automations-run-now-icon {
+  width: 1em;
+  height: 1em;
+  flex: 0 0 auto;
+}
+
 .automations-icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   width: 34px;
   min-width: 34px;
   height: 34px;
@@ -1326,7 +1345,7 @@ function shouldShowReadAction(run: AutomationRun): boolean {
 .automations-execution-settings {
   display: grid;
   min-width: 0;
-  grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr) minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr);
   gap: 1rem;
 }
 

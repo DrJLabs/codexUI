@@ -135,14 +135,14 @@ describe('automationDisplay', () => {
   })
 
   it('marks failed latest runs as needing attention', () => {
-    expect(describeRunHealth(automationFixture(), [automationRunFixture({ state: 'failed' })])).toEqual({
+    expect(describeRunHealth([automationRunFixture({ state: 'failed' })])).toEqual({
       label: 'Needs attention',
       tone: 'danger',
     })
   })
 
   it('marks automations with no runs as not yet run', () => {
-    expect(describeRunHealth(automationFixture(), [])).toEqual({
+    expect(describeRunHealth([])).toEqual({
       label: 'No runs yet',
       tone: 'neutral',
     })

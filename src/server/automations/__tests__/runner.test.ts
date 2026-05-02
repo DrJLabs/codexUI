@@ -1355,19 +1355,10 @@ describe('AutomationRunner', () => {
       configReadPayload: {
         config: {
           current_profile: 'minimal-coding',
-          model: 'gpt-5.5',
-          model_reasoning_effort: 'minimal',
-          approval_policy: 'on-failure',
-          profiles: {
-            'minimal-coding': {
-              model: 'gpt-5.5',
-              sandbox_mode: 'read-only',
-            },
-          },
         },
         layers: [{
           config: {
-            model: 'gpt-5.4',
+            model: 'gpt-5.5',
             model_reasoning_effort: 'minimal',
             approval_policy: 'on-failure',
             profiles: {

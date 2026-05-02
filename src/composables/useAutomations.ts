@@ -67,25 +67,27 @@ const defaultGateway: AutomationsGateway = {
   unarchiveAutomationRun,
 }
 
-const emptyState: AutomationsState = {
-  storageRoot: '',
-  featureFlags: {
-    scheduler: false,
-    manualRun: false,
-    kanbanProjection: false,
-    artifactIndexing: false,
-  },
-  sourceCounts: {
-    native: 0,
-    codexui: 0,
-  },
-  diagnostics: [],
-  definitions: [],
-  executionOptions: {
-    defaultRunProfileId: 'workspace-coding',
-    currentConfigProfileId: null,
-    runProfiles: [],
-  },
+function createEmptyState(): AutomationsState {
+  return {
+    storageRoot: '',
+    featureFlags: {
+      scheduler: false,
+      manualRun: false,
+      kanbanProjection: false,
+      artifactIndexing: false,
+    },
+    sourceCounts: {
+      native: 0,
+      codexui: 0,
+    },
+    diagnostics: [],
+    definitions: [],
+    executionOptions: {
+      defaultRunProfileId: 'workspace-coding',
+      currentConfigProfileId: null,
+      runProfiles: [],
+    },
+  }
 }
 
 function createEmptyDraft(threadId = ''): AutomationDraft {
@@ -135,7 +137,7 @@ function normalizeNotes(value: string): string {
 
 export function useAutomations(options: UseAutomationsOptions = {}) {
   const gateway = options.gateway ?? defaultGateway
-  const state: Ref<AutomationsState> = ref(emptyState)
+  const state: Ref<AutomationsState> = ref(createEmptyState())
   const templates: Ref<AutomationTemplate[]> = ref([])
   const isLoading = ref(false)
   const isSaving = ref(false)
