@@ -6350,3 +6350,36 @@ Existing automation editor uses a compact editable status/details sidebar.
 #### Rollback/Cleanup
 - Delete any temporary automation created only for this verification.
 - Stop the local dev server used only for this check.
+
+---
+
+### Automations Mobile Text Field Focus Positioning
+
+#### Feature/Change Name
+Automation editor keeps focused mobile text fields visible above the virtual keyboard.
+
+#### Prerequisites/Setup
+1. Use `${WORKTREE_ROOT}` on `feature/automation-compact-sidebar-dev`.
+2. Start the dev server from this worktree at `http://127.0.0.1:5173`.
+3. Open `/automations` on a mobile browser or a 375x812/393x852 mobile viewport.
+
+#### Steps
+1. Start creating an automation with the Thread heartbeat template.
+2. In light theme, tap the Name input, Project input, Prompt textarea, Description input, Notes textarea, and custom schedule input when visible.
+3. For each focused text field, wait for the mobile keyboard to finish opening.
+4. Confirm the selected field remains visible with space above the keyboard and does not jump to the page top.
+5. Repeat steps 1-4 in dark theme.
+
+#### Expected Results
+- Any focused automation text input or textarea scrolls into the usable visual viewport on mobile.
+- The focused field is not left against the keyboard edge or hidden behind the keyboard.
+- The page does not reset to the top when a lower form field receives focus.
+- Light and dark themes both keep the focused field readable.
+
+#### Observed Verification
+- `pnpm run build:frontend` passed.
+- `git diff --check` passed.
+
+#### Rollback/Cleanup
+- Delete any temporary automation created only for this verification.
+- Stop the local dev server used only for this check.

@@ -92,7 +92,12 @@
         </ul>
       </aside>
 
-      <form class="automations-editor" aria-label="Automation editor" @submit.prevent="saveDraft">
+      <form
+        class="automations-editor"
+        aria-label="Automation editor"
+        @focusin.capture="onAutomationFieldFocusIn"
+        @submit.prevent="saveDraft"
+      >
         <div class="automations-editor-header automations-compact-header">
           <div>
             <h2>{{ draft.mode === 'edit' ? draft.name || 'Automation' : 'Create automation' }}</h2>
@@ -437,7 +442,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { useAutomations } from '../../composables/useAutomations'
 import AutomationThreadPicker from './AutomationThreadPicker.vue'
@@ -532,6 +537,8 @@ const scheduleFrequency = ref<ScheduleFrequency>('daily')
 const scheduleTime = ref('09:00')
 const scheduleWeekday = ref('MO')
 let isSyncingScheduleControls = false
+let focusedAutomationField: HTMLElement | null = null
+const automationFocusTimers: number[] = []
 
 const activeCount = computed(() => definitions.value.filter((definition) => definition.status === 'active').length)
 const needsAttentionCount = computed(() =>
@@ -695,6 +702,14 @@ watch([scheduleFrequency, scheduleTime, scheduleWeekday], () => {
 
 onMounted(() => {
   void loadAll()
+  window.visualViewport?.addEventListener('resize', onAutomationVisualViewportChange)
+  window.visualViewport?.addEventListener('scroll', onAutomationVisualViewportChange)
+})
+
+onBeforeUnmount(() => {
+  clearAutomationFocusTimers()
+  window.visualViewport?.removeEventListener('resize', onAutomationVisualViewportChange)
+  window.visualViewport?.removeEventListener('scroll', onAutomationVisualViewportChange)
 })
 
 async function confirmDelete(): Promise<void> {
@@ -867,6 +882,86 @@ function formatStateLabel(value: string): string {
 
 function shouldShowReadAction(run: AutomationRun): boolean {
   return run.readAtIso === null && (run.findings === true || run.state === 'failed')
+}
+
+function onAutomationFieldFocusIn(event: FocusEvent): void {
+  const target = event.target
+  if (!(target instanceof HTMLElement) || !isAutomationTextControl(target)) return
+  focusedAutomationField = target
+  scheduleFocusedAutomationFieldScroll(target)
+}
+
+function isAutomationTextControl(element: HTMLElement): boolean {
+  if (element instanceof HTMLTextAreaElement) return true
+  if (!(element instanceof HTMLInputElement)) return false
+  const type = element.type.toLowerCase()
+  return ['', 'email', 'number', 'password', 'search', 'tel', 'text', 'time', 'url'].includes(type)
+}
+
+function scheduleFocusedAutomationFieldScroll(element: HTMLElement): void {
+  clearAutomationFocusTimers()
+  automationFocusTimers.push(window.setTimeout(() => scrollAutomationFieldIntoView(element), 40))
+  automationFocusTimers.push(window.setTimeout(() => scrollAutomationFieldIntoView(element), 280))
+}
+
+function scrollAutomationFieldIntoView(element: HTMLElement): void {
+  if (document.activeElement !== element || !isMobileAutomationViewport()) return
+
+  const viewport = window.visualViewport
+  const visibleTop = viewport?.offsetTop ?? 0
+  const visibleHeight = viewport?.height ?? window.innerHeight
+  const visibleBottom = visibleTop + visibleHeight
+  const topPadding = 24
+  const bottomPadding = 28
+  const targetTop = visibleTop + Math.max(topPadding, Math.round(visibleHeight * 0.28))
+  const targetBottom = visibleBottom - bottomPadding
+  const rect = element.getBoundingClientRect()
+  const keyboardLikelyOpen = viewport ? window.innerHeight - viewport.height > 120 : false
+
+  let delta = 0
+  if (rect.top < visibleTop + topPadding) {
+    delta = rect.top - targetTop
+  } else if (rect.bottom > targetBottom) {
+    delta = rect.bottom - targetBottom
+  } else if (keyboardLikelyOpen && rect.top > targetTop) {
+    delta = rect.top - targetTop
+  }
+  if (Math.abs(delta) < 2) return
+
+  const scroller = findScrollableAncestor(element)
+  if (scroller) {
+    scroller.scrollBy({ top: delta, behavior: 'smooth' })
+    return
+  }
+  document.scrollingElement?.scrollBy({ top: delta, behavior: 'smooth' })
+}
+
+function findScrollableAncestor(element: HTMLElement): HTMLElement | null {
+  let parent = element.parentElement
+  while (parent && parent !== document.body && parent !== document.documentElement) {
+    const style = window.getComputedStyle(parent)
+    const overflowY = style.overflowY
+    const canScroll = overflowY !== 'visible' && overflowY !== 'clip' && parent.scrollHeight > parent.clientHeight
+    if (canScroll) return parent
+    parent = parent.parentElement
+  }
+  return null
+}
+
+function isMobileAutomationViewport(): boolean {
+  return window.matchMedia('(max-width: 720px)').matches
+}
+
+function clearAutomationFocusTimers(): void {
+  while (automationFocusTimers.length > 0) {
+    const timer = automationFocusTimers.pop()
+    if (timer !== undefined) window.clearTimeout(timer)
+  }
+}
+
+function onAutomationVisualViewportChange(): void {
+  if (!focusedAutomationField || document.activeElement !== focusedAutomationField) return
+  scheduleFocusedAutomationFieldScroll(focusedAutomationField)
 }
 </script>
 
