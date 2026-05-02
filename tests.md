@@ -6316,6 +6316,9 @@ Existing automation editor uses a compact editable status/details sidebar.
 
 #### Observed Verification
 - `pnpm vitest run src/utils/automationDisplay.test.ts src/composables/useAutomations.test.ts` passed: 2 files, 38 tests.
+- PR review fix verification: `pnpm vitest run src/utils/automationDisplay.test.ts src/server/automations/__tests__/routes.test.ts src/server/automations/__tests__/runner.test.ts` passed: 3 files, 110 tests.
+- PR review fix verification: `pnpm run build:frontend` passed.
+- PR review fix verification: `git diff --check` passed.
 - `pnpm run build:frontend` passed.
 - Playwright checked `http://127.0.0.1:5173/#/automations` with a temporary project automation at desktop 1440x1000 light/dark and mobile 393x852.
 - Playwright confirmed compact Status and Details sections render, Advanced is closed, Previous runs is collapsed, compact controls use dark surfaces in dark theme, and mobile has no horizontal overflow.

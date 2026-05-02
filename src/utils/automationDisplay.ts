@@ -188,8 +188,8 @@ function formatTime(hour: number, minute: number): string {
 }
 
 function basename(path: string): string {
-  const normalized = path.replace(/\/+$/, '')
-  return normalized.split('/').pop() || normalized || path
+  const normalized = path.replace(/[\\/]+$/, '')
+  return normalized.split(/[\\/]/).pop() || normalized || path
 }
 
 function mostRecentRun(runs: AutomationRun[]): AutomationRun | null {

@@ -158,18 +158,18 @@ export class AutomationsService {
 
   async readExecutionOptions(cwds: Array<string | null | undefined> = []): Promise<AutomationsState['executionOptions']> {
     const configRead = await this.readCodexConfig()
-    let configProfiles = normalizeCodexConfigProfiles(
+    const configProfiles = normalizeCodexConfigProfiles(
       configRead.config?.profiles,
       readCodexConfigProfileDefaultsFromLayers(configRead),
     )
-    for (const cwd of Array.from(new Set(cwds.map((value) => value?.trim()).filter(Boolean)))) {
-      const cwdConfigRead = await this.readCodexConfig(cwd)
+    const uniqueCwds = Array.from(new Set(cwds.map((value) => value?.trim()).filter(Boolean)))
+    const cwdConfigReads = await Promise.all(uniqueCwds.map((cwd) => this.readCodexConfig(cwd)))
+    for (const cwdConfigRead of cwdConfigReads) {
       const cwdProfiles = normalizeCodexConfigProfiles(
         cwdConfigRead.config?.profiles,
         readCodexConfigProfileDefaultsFromLayers(cwdConfigRead),
       )
-      configProfiles = mergeCodexRunProfiles([...configProfiles, ...cwdProfiles])
-        .filter((profile) => profile.source === 'config')
+      configProfiles.push(...cwdProfiles)
     }
     const currentConfigProfileId = readCurrentConfigProfileId(configRead.config)
     return {
@@ -428,7 +428,9 @@ export class AutomationsService {
       assertAutomationRunnerTarget(definition)
       const preflightRunProfile = resolveAutomationRunProfileForPreflight(definition, options)
       if (preflightRunProfile) assertAutomationRunProfileAllowed(preflightRunProfile, this.policy)
-      const executionOptions = options.runProfiles ? null : await this.readExecutionOptions([definition.cwd])
+      const executionOptions = options.runProfiles || preflightRunProfile
+        ? null
+        : await this.readExecutionOptions([definition.cwd])
       const runProfiles = options.runProfiles ?? executionOptions?.runProfiles
       if (!preflightRunProfile) {
         assertAutomationRunProfileAllowed(resolveAutomationRunProfile(definition, {
@@ -1081,14 +1083,17 @@ function mergeCodexConfigLayers(layers: Record<string, unknown>[]): Record<strin
 
 function mergeConfigLayerInto(target: Record<string, unknown>, layer: Record<string, unknown>): void {
   for (const [key, value] of Object.entries(layer)) {
-    const existing = asRecord(target[key])
-    const nested = asRecord(value)
-    if (existing && nested) {
-      target[key] = { ...existing, ...nested }
-    } else {
-      target[key] = value
-    }
+    target[key] = mergeConfigValue(target[key], value)
   }
+}
+
+function mergeConfigValue(existingValue: unknown, nextValue: unknown): unknown {
+  const existing = asRecord(existingValue)
+  const next = asRecord(nextValue)
+  if (!existing || !next) return nextValue
+  const merged: Record<string, unknown> = { ...existing }
+  mergeConfigLayerInto(merged, next)
+  return merged
 }
 
 function readCurrentConfigProfileId(config: Record<string, unknown> | null): string | null {

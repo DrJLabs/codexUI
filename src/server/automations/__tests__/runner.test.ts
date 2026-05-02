@@ -294,6 +294,19 @@ describe('AutomationRunner', () => {
     expect(rpcCalls).toEqual([])
   })
 
+  it('uses explicit built-in run profiles without reading Codex config first', async () => {
+    const { codexHomeDir, service, rpcCalls } = await createHarness()
+    await writeNative(codexHomeDir, 'daily-check-dir', nativeRecord, {
+      runMode: 'chat',
+      runProfileId: 'workspace-coding',
+    })
+
+    const run = await service.runNow('daily-check')
+
+    expect(run.runProfileId).toBe('workspace-coding')
+    expect(rpcCalls.map((call) => call.method)).toEqual(['thread/resume', 'turn/start'])
+  })
+
   it('surfaces non-missing sidecar read failures for definition reads', async () => {
     const { codexHomeDir, service } = await createHarness()
     const automationDir = await writeNative(codexHomeDir, 'daily-check-dir', nativeRecord, { runMode: 'chat' })

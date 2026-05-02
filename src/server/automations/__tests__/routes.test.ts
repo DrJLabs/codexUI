@@ -491,6 +491,9 @@ describe('createAutomationsMiddleware', () => {
             sandbox_mode: 'read-only',
             network_access: false,
           },
+          'inherited-network': {
+            sandbox_mode: 'workspace-write',
+          },
         },
       },
       layers: [{
@@ -508,7 +511,14 @@ describe('createAutomationsMiddleware', () => {
               sandbox_mode: 'read-only',
               network_access: false,
             },
+            'inherited-network': {
+              sandbox_mode: 'workspace-write',
+            },
           },
+        },
+      }, {
+        config: {
+          sandbox_workspace_write: { exclude_tmpdir_env_var: true },
         },
       }],
     })
@@ -557,6 +567,15 @@ describe('createAutomationsMiddleware', () => {
         sandboxMode: 'read-only',
         approvalPolicy: 'on-failure',
         networkAccess: false,
+      }),
+      expect.objectContaining({
+        id: 'inherited-network',
+        source: 'config',
+        model: 'gpt-5.4',
+        reasoningEffort: 'minimal',
+        sandboxMode: 'workspace-write',
+        approvalPolicy: 'on-failure',
+        networkAccess: true,
       }),
     ]))
   })

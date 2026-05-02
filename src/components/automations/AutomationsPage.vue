@@ -110,7 +110,7 @@
               title="Pause automation"
               @click="pauseSelected"
             >
-              II
+              ⏸
             </button>
             <button
               v-else-if="draft.mode === 'edit' && selectedAutomation?.status === 'paused'"
@@ -777,6 +777,7 @@ function classifyRrule(rrule: string): { frequency: ScheduleFrequency; time: str
     parts.FREQ === 'WEEKLY' &&
     time &&
     parts.BYDAY &&
+    /^[A-Z]{2}$/.test(parts.BYDAY) &&
     hasOnlyRruleKeys(parts, ['BYDAY', 'BYHOUR', 'BYMINUTE', 'FREQ'])
   ) {
     return { frequency: 'weekly', time, weekday: parts.BYDAY }

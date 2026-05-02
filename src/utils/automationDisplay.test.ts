@@ -105,6 +105,20 @@ describe('automationDisplay', () => {
     })
   })
 
+  it('describes Windows-style local cwd automation targets', () => {
+    expect(
+      describeAutomationTarget(
+        automationFixture({
+          targetThreadId: null,
+          cwd: 'C:\\projects\\codexUI',
+        }),
+      ),
+    ).toEqual({
+      label: 'codexUI',
+      detail: 'C:\\projects\\codexUI',
+    })
+  })
+
   it('marks failed latest runs as needing attention', () => {
     expect(describeRunHealth(automationFixture(), [automationRunFixture({ state: 'failed' })])).toEqual({
       label: 'Needs attention',
