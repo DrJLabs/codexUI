@@ -206,7 +206,7 @@ function mostRecentRun(runs: AutomationRun[]): AutomationRun | null {
 }
 
 function timestampForRun(run: AutomationRun): number {
-  return Date.parse(run.completedAtIso ?? run.startedAtIso ?? run.updatedAtIso ?? run.createdAtIso) || 0
+  return Date.parse(run.completedAtIso ?? run.updatedAtIso ?? run.startedAtIso ?? run.createdAtIso) || 0
 }
 
 function hasOnlyKeys(parts: Record<string, string>, expectedKeys: string[]): boolean {
