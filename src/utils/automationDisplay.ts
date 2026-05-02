@@ -1,4 +1,4 @@
-import type { AutomationDefinition, AutomationRun } from '../types/automations'
+import type { AutomationDefinition, AutomationRun, AutomationRunMode } from '../types/automations'
 
 type HealthTone = 'neutral' | 'good' | 'warning' | 'danger'
 
@@ -78,6 +78,47 @@ export function describeAutomationTarget(definition: AutomationDefinition): { la
   return {
     label: 'Local automation',
     detail: 'No project folder configured',
+  }
+}
+
+export function describeAutomationRunMode(mode: AutomationRunMode | null | undefined): string {
+  if (mode === 'local') return 'Local'
+  if (mode === 'worktree') return 'Worktree'
+  return 'Chat'
+}
+
+export function describeAutomationProjectLabel(definition: AutomationDefinition): string {
+  const path = definition.cwd ?? definition.projectRoot ?? definition.cwds[0] ?? null
+  if (path) return basename(path)
+  if (definition.targetThreadId) return 'Thread'
+  return 'No project'
+}
+
+export function formatAutomationRelativeTime(value: string | null | undefined, now = new Date()): string {
+  if (!value) return 'n/a'
+  const timestamp = Date.parse(value)
+  if (!Number.isFinite(timestamp)) return 'n/a'
+  const elapsedMs = Math.max(0, now.getTime() - timestamp)
+  const elapsedMinutes = Math.floor(elapsedMs / 60_000)
+  if (elapsedMinutes < 60) return `${elapsedMinutes}m`
+  const elapsedHours = Math.floor(elapsedMinutes / 60)
+  if (elapsedHours < 24) return `${elapsedHours}h`
+  return `${Math.floor(elapsedHours / 24)}d`
+}
+
+export function describeAutomationRunListItem(run: AutomationRun, now = new Date()): {
+  id: string
+  state: AutomationRun['state']
+  title: string
+  project: string
+  age: string
+} {
+  return {
+    id: run.id,
+    state: run.state,
+    title: run.automationName,
+    project: basename(run.worktreePath ?? run.cwd ?? '') || 'Thread',
+    age: formatAutomationRelativeTime(run.completedAtIso ?? run.startedAtIso ?? run.updatedAtIso ?? run.createdAtIso, now),
   }
 }
 

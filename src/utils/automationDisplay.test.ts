@@ -3,9 +3,13 @@ import type { AutomationDefinition, AutomationRun } from '../types/automations'
 import {
   buildDailyRrule,
   buildWeeklyRrule,
+  describeAutomationProjectLabel,
+  describeAutomationRunListItem,
+  describeAutomationRunMode,
   describeAutomationSchedule,
   describeAutomationTarget,
   describeRunHealth,
+  formatAutomationRelativeTime,
 } from './automationDisplay'
 
 describe('automationDisplay', () => {
@@ -112,6 +116,57 @@ describe('automationDisplay', () => {
     expect(describeRunHealth(automationFixture(), [])).toEqual({
       label: 'No runs yet',
       tone: 'neutral',
+    })
+  })
+
+  it('describes compact run mode labels', () => {
+    expect(describeAutomationRunMode('chat')).toBe('Chat')
+    expect(describeAutomationRunMode('local')).toBe('Local')
+    expect(describeAutomationRunMode('worktree')).toBe('Worktree')
+    expect(describeAutomationRunMode(null)).toBe('Chat')
+  })
+
+  it('describes compact project labels for automation definitions', () => {
+    expect(describeAutomationProjectLabel(automationFixture())).toBe('Thread')
+    expect(describeAutomationProjectLabel(automationFixture({
+      targetThreadId: null,
+      cwd: '/home/drj/projects/apollo',
+    }))).toBe('apollo')
+    expect(describeAutomationProjectLabel(automationFixture({
+      targetThreadId: null,
+      cwd: null,
+      projectRoot: '/home/drj/projects/codexUI',
+    }))).toBe('codexUI')
+    expect(describeAutomationProjectLabel(automationFixture({
+      targetThreadId: null,
+      cwd: null,
+      projectRoot: null,
+      cwds: [],
+    }))).toBe('No project')
+  })
+
+  it('formats compact relative automation times', () => {
+    const now = new Date('2026-05-02T06:00:00.000Z')
+    expect(formatAutomationRelativeTime('2026-05-02T05:31:00.000Z', now)).toBe('29m')
+    expect(formatAutomationRelativeTime('2026-05-02T05:00:00.000Z', now)).toBe('1h')
+    expect(formatAutomationRelativeTime('2026-04-30T06:00:00.000Z', now)).toBe('2d')
+    expect(formatAutomationRelativeTime('2026-05-02T07:00:00.000Z', now)).toBe('0m')
+    expect(formatAutomationRelativeTime(null, now)).toBe('n/a')
+  })
+
+  it('describes compact run list items', () => {
+    const now = new Date('2026-05-02T06:00:00.000Z')
+    expect(describeAutomationRunListItem(automationRunFixture({
+      automationName: 'hourly fixture',
+      cwd: '/home/drj/projects/apollo',
+      completedAtIso: '2026-05-02T05:31:00.000Z',
+      state: 'completed_no_findings',
+    }), now)).toEqual({
+      id: 'run_1',
+      state: 'completed_no_findings',
+      title: 'hourly fixture',
+      project: 'apollo',
+      age: '29m',
     })
   })
 })
