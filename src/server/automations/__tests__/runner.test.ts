@@ -73,6 +73,7 @@ async function createHarness(options: {
   turnStartError?: Error
   readThreadResponse?: unknown
   readThreadError?: Error
+  configReadPayload?: unknown
   beforeRpc?: (method: string) => Promise<void> | void
   afterTurnStart?: (turn: {
     threadId: string
@@ -129,6 +130,7 @@ async function createHarness(options: {
           },
         }) as T
       }
+      if (method === 'config/read') return (options.configReadPayload ?? {}) as T
       return {} as T
     },
     subscribeNotifications: vi.fn((listener) => {
@@ -235,8 +237,8 @@ describe('AutomationRunner', () => {
     })
     expect(definition.lastRunAtIso).toBe(run.startedAtIso)
     expect(definition.recentRuns?.[0]).toMatchObject({ id: run.id, state: 'running' })
-    expect(rpcCalls.map((call) => call.method)).toEqual(['thread/resume', 'turn/start'])
-    expect(rpcCalls[1]?.params).toMatchObject({
+    expect(rpcCalls.map((call) => call.method)).toEqual(['config/read', 'thread/resume', 'turn/start'])
+    expect(rpcCalls[2]?.params).toMatchObject({
       threadId: 'thread-1',
       input: [{ type: 'text', text: 'Review the thread' }],
       model: 'gpt-5.4',
@@ -264,9 +266,9 @@ describe('AutomationRunner', () => {
       threadId: 'thread_local_1',
       turnId: 'turn_1',
     })
-    expect(rpcCalls.map((call) => call.method)).toEqual(['thread/start', 'turn/start'])
-    expect(rpcCalls[0]?.params).toEqual({ cwd: '/tmp/codexui-automation-local', title: 'Daily Check' })
-    expect(rpcCalls[1]?.params).toMatchObject({
+    expect(rpcCalls.map((call) => call.method)).toEqual(['config/read', 'thread/start', 'turn/start'])
+    expect(rpcCalls[1]?.params).toEqual({ cwd: '/tmp/codexui-automation-local', title: 'Daily Check' })
+    expect(rpcCalls[2]?.params).toMatchObject({
       threadId: 'thread_local_1',
       cwd: '/tmp/codexui-automation-local',
       input: [{ type: 'text', text: 'Review the thread' }],
@@ -440,7 +442,15 @@ describe('AutomationRunner', () => {
       archivedAtIso: null,
     })
     expect(second.id).not.toBe(first.id)
-    expect(rpcCalls.map((call) => call.method)).toEqual(['thread/resume', 'turn/start', 'thread/read', 'thread/resume', 'turn/start'])
+    expect(rpcCalls.map((call) => call.method)).toEqual([
+      'config/read',
+      'thread/resume',
+      'turn/start',
+      'thread/read',
+      'config/read',
+      'thread/resume',
+      'turn/start',
+    ])
   })
 
   it('indexes a started turn before awaiting run-state persistence', async () => {
@@ -1280,6 +1290,55 @@ describe('AutomationRunner', () => {
     await expect(readFile(storedRun.logPath, 'utf8')).resolves.toContain('Scheduled run queued')
   })
 
+  it('resolves scheduled runs against config profiles when profiles are not supplied explicitly', async () => {
+    const dueAtIso = '2026-04-30T09:00:00.000Z'
+    const nextDueAtIso = '2026-05-01T09:00:00.000Z'
+    const { codexHomeDir, service, rpcCalls } = await createHarness({
+      configReadPayload: {
+        config: {
+          current_profile: 'minimal-coding',
+          model: 'gpt-5.4',
+          model_reasoning_effort: 'minimal',
+          approval_policy: 'on-failure',
+          profiles: {
+            'minimal-coding': {
+              model: 'gpt-5.5',
+              sandbox_mode: 'read-only',
+            },
+          },
+        },
+      },
+    })
+    const automationDir = await writeNative(codexHomeDir, 'daily-check-dir', nativeRecord, {
+      runMode: 'chat',
+      runProfileId: 'minimal-coding',
+    })
+    await writeScheduler(automationDir, { nextDueAtIso: dueAtIso })
+
+    const run = await service.runScheduled('daily-check', { dueAtIso, nextDueAtIso })
+
+    expect(run).toMatchObject({
+      trigger: 'schedule',
+      state: 'running',
+      runProfileId: 'minimal-coding',
+      runProfileSnapshot: {
+        id: 'minimal-coding',
+        source: 'config',
+        model: 'gpt-5.5',
+        reasoningEffort: 'minimal',
+        approvalPolicy: 'on-failure',
+        sandboxMode: 'read-only',
+      },
+    })
+    const turnStart = rpcCalls.find((call) => call.method === 'turn/start')
+    expect(turnStart?.params).toMatchObject({
+      model: 'gpt-5.5',
+      effort: 'minimal',
+      approvalPolicy: 'on-failure',
+      sandboxPolicy: { type: 'readOnly', networkAccess: false },
+    })
+  })
+
   it('does not advance scheduler state if scheduled run queue persistence fails', async () => {
     const { codexHomeDir, service, rpcCalls } = await createHarness()
     const automationDir = await writeNative(codexHomeDir, 'daily-check-dir', nativeRecord, { runMode: 'chat' })
@@ -1317,7 +1376,7 @@ describe('AutomationRunner', () => {
       inboxTitle: 'Run failed',
     })
     await expect(readFile(runs[0]!.eventsPath, 'utf8')).resolves.toContain('scheduled_run.failed')
-    expect(rpcCalls).toEqual([])
+    expect(rpcCalls.filter((call) => call.method !== 'config/read')).toEqual([])
   })
 
   it('rejects scheduled and manual starts while an active scheduled run exists', async () => {

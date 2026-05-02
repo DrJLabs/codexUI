@@ -83,7 +83,14 @@ function mergeRunProfiles(extra: CodexRunProfile[] | undefined): CodexRunProfile
 }
 
 function normalizeReasoningEffort(value: string | null): CodexRunProfile['reasoningEffort'] | '' {
-  return value === 'low' || value === 'medium' || value === 'high' || value === 'xhigh' ? value : ''
+  return value === 'none' ||
+    value === 'minimal' ||
+    value === 'low' ||
+    value === 'medium' ||
+    value === 'high' ||
+    value === 'xhigh'
+    ? value
+    : ''
 }
 
 function createAutomationPolicyError(statusCode: number, message: string): Error & { statusCode: number } {

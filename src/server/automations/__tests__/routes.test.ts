@@ -118,7 +118,7 @@ async function createHarness(options: {
   }
 }
 
-function createBridge() {
+function createBridge(configReadPayload: unknown = {}) {
   const rpcCalls: Array<{ method: string; params: unknown }> = []
   const notificationListeners: Array<(notification: CodexBridgeNotification) => void> = []
   const unsubscribe = vi.fn()
@@ -143,6 +143,7 @@ function createBridge() {
           },
         } as T
       }
+      if (method === 'config/read') return configReadPayload as T
       return {} as T
     },
     subscribeNotifications: vi.fn((listener) => {
@@ -473,6 +474,73 @@ describe('createAutomationsMiddleware', () => {
     expect(state.body.data.featureFlags.manualRun).toBe(true)
   })
 
+  it('exposes execution options from Codex config profiles with inherited top-level defaults', async () => {
+    const { bridge } = createBridge({
+      current_profile: 'minimal-coding',
+      model: 'gpt-5.4',
+      model_reasoning_effort: 'minimal',
+      sandbox_mode: 'workspace-write',
+      approval_policy: 'on-failure',
+      sandbox_workspace_write: { network_access: true },
+      profiles: {
+        'minimal-coding': {
+          model: 'gpt-5.5',
+        },
+        planning: {
+          sandbox_mode: 'read-only',
+          network_access: false,
+        },
+      },
+    })
+    const { baseUrl } = await createHarness({ bridge, policy: enabledPolicy })
+
+    const state = await requestJson<{
+      data: {
+        executionOptions: {
+          defaultRunProfileId: string
+          currentConfigProfileId: string | null
+          runProfiles: Array<{
+            id: string
+            source?: string
+            model: string
+            reasoningEffort: string
+            sandboxMode: string
+            approvalPolicy: string
+            networkAccess: boolean
+          }>
+        }
+      }
+    }>(`${baseUrl}/codex-api/automations/state`)
+
+    expect(state.status).toBe(200)
+    expect(state.body.data.executionOptions.defaultRunProfileId).toBe('minimal-coding')
+    expect(state.body.data.executionOptions.currentConfigProfileId).toBe('minimal-coding')
+    expect(state.body.data.executionOptions.runProfiles).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        id: 'workspace-coding',
+        source: 'builtin',
+      }),
+      expect.objectContaining({
+        id: 'minimal-coding',
+        source: 'config',
+        model: 'gpt-5.5',
+        reasoningEffort: 'minimal',
+        sandboxMode: 'workspace-write',
+        approvalPolicy: 'on-failure',
+        networkAccess: true,
+      }),
+      expect.objectContaining({
+        id: 'planning',
+        source: 'config',
+        model: 'gpt-5.4',
+        reasoningEffort: 'minimal',
+        sandboxMode: 'read-only',
+        approvalPolicy: 'on-failure',
+        networkAccess: false,
+      }),
+    ]))
+  })
+
   it('reports manual run and scheduler support as unavailable when execution policy is disabled', async () => {
     const { bridge } = createBridge()
     const { baseUrl } = await createHarness({
@@ -589,7 +657,65 @@ describe('createAutomationsMiddleware', () => {
     )
     expect(started.status).toBe(202)
     expect(started.body.data).toMatchObject({ state: 'running', threadId: 'thread-1', turnId: 'turn_1' })
-    expect(rpcCalls.map((call) => call.method)).toEqual(['thread/resume', 'turn/start'])
+    expect(rpcCalls.map((call) => call.method)).toEqual(['config/read', 'thread/resume', 'turn/start'])
+  })
+
+  it('resolves manual runs against the same config profiles exposed in state', async () => {
+    const { bridge, rpcCalls } = createBridge({
+      current_profile: 'minimal-coding',
+      model: 'gpt-5.4',
+      model_reasoning_effort: 'minimal',
+      approval_policy: 'on-failure',
+      profiles: {
+        'minimal-coding': {
+          model: 'gpt-5.5',
+          sandbox_mode: 'read-only',
+        },
+      },
+    })
+    const { baseUrl, codexHomeDir } = await createHarness({ bridge, policy: enabledPolicy })
+    const automationDir = await writeNative(codexHomeDir, 'daily-check-dir', nativeRecord)
+    await writeFile(join(automationDir, 'codexui.json'), `${JSON.stringify({
+      runProfileId: 'minimal-coding',
+    }, null, 2)}\n`, 'utf8')
+    const csrfHeaders = await readCsrfHeaders(baseUrl)
+
+    const started = await requestJson<{
+      data: {
+        runProfileId: string
+        runProfileSnapshot: {
+          id: string
+          source?: string
+          model: string
+          reasoningEffort: string
+          approvalPolicy: string
+          sandboxMode: string
+        }
+      }
+    }>(
+      `${baseUrl}/codex-api/automations/daily-check/run`,
+      { method: 'POST', headers: csrfHeaders, body: JSON.stringify({}) },
+    )
+
+    expect(started.status).toBe(202)
+    expect(started.body.data).toMatchObject({
+      runProfileId: 'minimal-coding',
+      runProfileSnapshot: {
+        id: 'minimal-coding',
+        source: 'config',
+        model: 'gpt-5.5',
+        reasoningEffort: 'minimal',
+        approvalPolicy: 'on-failure',
+        sandboxMode: 'read-only',
+      },
+    })
+    const turnStart = rpcCalls.find((call) => call.method === 'turn/start')
+    expect(turnStart?.params).toMatchObject({
+      model: 'gpt-5.5',
+      effort: 'minimal',
+      approvalPolicy: 'on-failure',
+      sandboxPolicy: { type: 'readOnly', networkAccess: false },
+    })
   })
 
   it('rejects manual run requests clearly when the bridge is unavailable', async () => {

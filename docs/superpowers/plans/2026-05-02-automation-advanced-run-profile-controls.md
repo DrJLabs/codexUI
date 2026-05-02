@@ -299,7 +299,7 @@ git commit -m "feat: normalize codex config profiles"
 - Modify: `src/server/automations/routes.ts`
 - Test: `src/server/automations/__tests__/routes.test.ts`
 
-- [ ] **Step 1: Add execution options to `AutomationsState`**
+- [x] **Step 1: Add execution options to `AutomationsState`**
 
 In `src/types/automations.ts`, add to `AutomationsState`:
 
@@ -311,7 +311,7 @@ In `src/types/automations.ts`, add to `AutomationsState`:
   }
 ```
 
-- [ ] **Step 2: Preserve all supported reasoning override values**
+- [x] **Step 2: Preserve all supported reasoning override values**
 
 In `src/server/automations/policy.ts`, update `normalizeReasoningEffort()`:
 
@@ -323,7 +323,7 @@ function normalizeReasoningEffort(value: string | null): CodexRunProfile['reason
 }
 ```
 
-- [ ] **Step 3: Import profile helpers in the automation service**
+- [x] **Step 3: Import profile helpers in the automation service**
 
 In `src/server/automations/service.ts`, change the imports:
 
@@ -336,7 +336,7 @@ import {
 } from '../execution/runProfiles'
 ```
 
-- [ ] **Step 4: Add a service helper to read config profiles**
+- [x] **Step 4: Add a service helper to read config profiles**
 
 Add this method inside `AutomationsService`:
 
@@ -408,7 +408,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 ```
 
-- [ ] **Step 5: Include execution options in state**
+- [x] **Step 5: Include execution options in state**
 
 Update `listState()` in `src/server/automations/service.ts`:
 
@@ -435,7 +435,7 @@ Update `listState()` in `src/server/automations/service.ts`:
   }
 ```
 
-- [ ] **Step 6: Ensure manual run uses the same profile catalog**
+- [x] **Step 6: Ensure manual run uses the same profile catalog**
 
 In `src/server/automations/routes.ts`, update the run endpoint:
 
@@ -454,7 +454,7 @@ In `src/server/automations/routes.ts`, update the run endpoint:
 
 This keeps execution consistent with the profile menu without adding a new endpoint or request body.
 
-- [ ] **Step 7: Add route tests**
+- [x] **Step 7: Add route tests**
 
 In `src/server/automations/__tests__/routes.test.ts`, add a focused test near the existing `/state` tests. Use a fake bridge:
 
@@ -507,7 +507,7 @@ expect(state.body.data.executionOptions.runProfiles).toEqual(
 )
 ```
 
-- [ ] **Step 8: Run targeted tests**
+- [x] **Step 8: Run targeted tests**
 
 Run:
 
@@ -517,7 +517,7 @@ pnpm vitest run src/server/automations/__tests__/routes.test.ts src/server/execu
 
 Expected: all tests pass.
 
-- [ ] **Step 9: Commit**
+- [x] **Step 9: Commit**
 
 ```bash
 git add src/types/automations.ts src/server/automations/policy.ts src/server/automations/service.ts src/server/automations/routes.ts src/server/automations/__tests__/routes.test.ts

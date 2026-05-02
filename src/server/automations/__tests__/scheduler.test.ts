@@ -339,7 +339,7 @@ describe('AutomationScheduler', () => {
     expect(Date.parse(schedulerState.nextDueAtIso ?? '')).toBeGreaterThan(now.getTime())
     expect(schedulerState.lastDueAtIso).toBe('2026-04-30T09:00:00.000Z')
     expect(schedulerState.lastScheduledRunId).toBe(runs[0]?.id)
-    expect(rpcCalls.map((call) => call.method)).toEqual(['thread/resume', 'turn/start'])
+    expect(rpcCalls.map((call) => call.method)).toEqual(['config/read', 'thread/resume', 'turn/start'])
   })
 
   it('skips paused definitions and unsupported monthly or yearly scheduler states', async () => {
@@ -595,7 +595,7 @@ describe('AutomationScheduler', () => {
     const secondRuns = await createAutomationRunStore(secondDir).listRuns()
     const startedCount = firstRuns.length + secondRuns.length
     expect(startedCount).toBe(1)
-    expect(rpcCalls.map((call) => call.method)).toEqual(['thread/start', 'turn/start'])
+    expect(rpcCalls.map((call) => call.method)).toEqual(['config/read', 'thread/start', 'turn/start'])
   })
 
   it('serializes overlapping ticks', async () => {
@@ -657,7 +657,7 @@ describe('AutomationScheduler', () => {
     scheduler.stop()
 
     expect(service.recoverInterruptedRuns).toHaveBeenCalledTimes(1)
-    expect(rpcCalls.map((call) => call.method)).toEqual(['thread/resume', 'turn/start'])
+    expect(rpcCalls.map((call) => call.method)).toEqual(['config/read', 'thread/resume', 'turn/start'])
   })
 
   it('retries startup recovery after a failure and then schedules due work', async () => {
@@ -686,6 +686,6 @@ describe('AutomationScheduler', () => {
     expect(service.recoverInterruptedRuns).toHaveBeenCalledTimes(2)
     expect(runs).toHaveLength(1)
     expect(runs[0]).toMatchObject({ automationId: 'daily-check', trigger: 'schedule' })
-    expect(rpcCalls.map((call) => call.method)).toEqual(['thread/resume', 'turn/start'])
+    expect(rpcCalls.map((call) => call.method)).toEqual(['config/read', 'thread/resume', 'turn/start'])
   })
 })

@@ -384,6 +384,11 @@ function stateFixture(definitions: AutomationDefinition[]): AutomationsState {
     sourceCounts: { native: definitions.filter((definition) => definition.source === 'native').length, codexui: 0 },
     diagnostics: [],
     definitions,
+    executionOptions: {
+      defaultRunProfileId: 'workspace-coding',
+      currentConfigProfileId: null,
+      runProfiles: [],
+    },
   }
 }
 

@@ -81,6 +81,11 @@ const emptyState: AutomationsState = {
   },
   diagnostics: [],
   definitions: [],
+  executionOptions: {
+    defaultRunProfileId: 'workspace-coding',
+    currentConfigProfileId: null,
+    runProfiles: [],
+  },
 }
 
 function createEmptyDraft(threadId = ''): AutomationDraft {

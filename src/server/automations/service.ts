@@ -12,6 +12,12 @@ import type {
 import type { CodexRunProfile } from '../../types/execution'
 import type { KanbanExecutionPolicy } from '../../types/kanban'
 import type { CodexBridgeRuntime } from '../codexAppServerBridge'
+import {
+  DEFAULT_CODEX_RUN_PROFILE_ID,
+  mergeCodexRunProfiles,
+  normalizeCodexConfigProfiles,
+  type CodexConfigProfileDefaults,
+} from '../execution/runProfiles'
 import { resolveKanbanConfig } from '../kanban/config'
 import { resolveKanbanDataDir } from '../kanban/paths'
 import { KanbanStorage } from '../kanban/storage'
@@ -33,7 +39,12 @@ import { AutomationRunner } from './runner'
 import { evaluateRruleSchedule } from './scheduleCalculator'
 import { createAutomationSchedulerStore, type AutomationSchedulerState } from './schedulerStore'
 import { parseAutomationSidecarRead, type AutomationCreateInput, type AutomationPatchInput, type AutomationSidecarRead } from './schema.js'
-import { isAutomationExecutionPolicyEnabled } from './policy'
+import {
+  assertAutomationExecutionPolicy,
+  assertAutomationRunProfileAllowed,
+  isAutomationExecutionPolicyEnabled,
+  resolveAutomationRunProfile,
+} from './policy'
 
 const SIDECAR_FILENAME = 'codexui.json'
 
@@ -121,6 +132,7 @@ export class AutomationsService {
 
   async listState(): Promise<AutomationsState> {
     const { definitions, diagnostics, storageRoot } = await this.listDefinitionsWithDiagnostics()
+    const executionOptions = await this.readExecutionOptions()
     return {
       storageRoot,
       featureFlags: {
@@ -135,6 +147,21 @@ export class AutomationsService {
       },
       diagnostics,
       definitions,
+      executionOptions,
+    }
+  }
+
+  async readExecutionOptions(): Promise<AutomationsState['executionOptions']> {
+    const config = await this.readCodexConfig()
+    const configProfiles = normalizeCodexConfigProfiles(
+      config?.profiles,
+      readCodexConfigProfileDefaults(config),
+    )
+    const currentConfigProfileId = readCurrentConfigProfileId(config)
+    return {
+      defaultRunProfileId: currentConfigProfileId || DEFAULT_CODEX_RUN_PROFILE_ID,
+      currentConfigProfileId,
+      runProfiles: mergeCodexRunProfiles(configProfiles),
     }
   }
 
@@ -383,13 +410,28 @@ export class AutomationsService {
       const definition = (await mapDefinition(entry, sidecarResult.sidecar, { includeRecentRuns: false })).definition
       await this.ensureInterruptedRunRecoveryBeforeCapacity(definition.id)
       await this.assertRunStartCapacity(definition)
+      assertAutomationExecutionPolicy(this.policy)
+      assertAutomationRunnerTarget(definition)
+      assertAutomationRunProfileAllowed(resolveAutomationRunProfile(definition, options), this.policy)
+      const executionOptions = options.runProfiles ? null : await this.readExecutionOptions()
       return await this.runner.runNow({
         definition,
         automationDirPath: entry.automationDirPath,
-        runProfiles: options.runProfiles,
+        runProfiles: options.runProfiles ?? executionOptions?.runProfiles,
         runProfileId: options.runProfileId,
       })
     })
+  }
+
+  private async readCodexConfig(): Promise<Record<string, unknown> | null> {
+    if (!this.options.bridge?.rpc) return null
+    try {
+      const payload = await this.options.bridge.rpc<unknown>('config/read', {})
+      const root = asRecord(payload)
+      return asRecord(root?.config) ?? root
+    } catch {
+      return null
+    }
   }
 
   async runScheduled(
@@ -409,13 +451,14 @@ export class AutomationsService {
       const definition = (await mapDefinition(entry, sidecarResult.sidecar, { includeRecentRuns: false })).definition
       await this.ensureInterruptedRunRecoveryBeforeCapacity(definition.id)
       await this.assertRunStartCapacity(definition)
+      const executionOptions = input.runProfiles ? null : await this.readExecutionOptions()
       return await this.runner.runScheduled({
         definition,
         automationDirPath: entry.automationDirPath,
         sourceDirName: entry.sourceDirName,
         dueAtIso: input.dueAtIso,
         nextDueAtIso: input.nextDueAtIso,
-        runProfiles: input.runProfiles,
+        runProfiles: input.runProfiles ?? executionOptions?.runProfiles,
         runProfileId: input.runProfileId,
       })
     })
@@ -857,6 +900,19 @@ function assertAutomationRunTarget(runMode: AutomationRunMode | null, cwd: strin
   }
 }
 
+function assertAutomationRunnerTarget(definition: AutomationDefinition): void {
+  const runMode = definition.runMode ?? 'chat'
+  if (runMode === 'chat' && !definition.targetThreadId) {
+    throw new AutomationValidationError('chat automation runs require a targetThreadId')
+  }
+  if (runMode === 'local' && (!definition.cwd || !isAbsolute(definition.cwd))) {
+    throw new AutomationValidationError('local automation runs require an absolute cwd')
+  }
+  if (runMode === 'worktree' && (!definition.cwd || !isAbsolute(definition.cwd))) {
+    throw new AutomationValidationError('worktree automation runs require an absolute cwd')
+  }
+}
+
 function dateIso(value: number | null): string {
   return new Date(value && Number.isFinite(value) ? value : 0).toISOString()
 }
@@ -947,6 +1003,60 @@ function sidecarPath(entry: NativeAutomationEntry): string {
 
 function hasOwn(input: object, field: string): boolean {
   return Object.prototype.hasOwnProperty.call(input, field)
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value !== null && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : null
+}
+
+export function readCodexConfigProfileDefaults(config: Record<string, unknown> | null): CodexConfigProfileDefaults {
+  const sandboxWorkspaceWrite = asRecord(config?.sandbox_workspace_write)
+    ?? asRecord(config?.sandboxWorkspaceWrite)
+  return {
+    model: readNonEmptyString(config?.model),
+    reasoningEffort: readOptionalReasoningEffort(config?.model_reasoning_effort ?? config?.modelReasoningEffort),
+    sandboxMode: readOptionalSandboxMode(config?.sandbox_mode ?? config?.sandboxMode),
+    approvalPolicy: readOptionalApprovalPolicy(config?.approval_policy ?? config?.approvalPolicy),
+    networkAccess: readOptionalBoolean(config?.network_access ?? config?.networkAccess)
+      ?? readOptionalBoolean(sandboxWorkspaceWrite?.network_access ?? sandboxWorkspaceWrite?.networkAccess),
+  }
+}
+
+function readCurrentConfigProfileId(config: Record<string, unknown> | null): string | null {
+  return readNonEmptyString(config?.current_profile ?? config?.currentProfile ?? config?.profile)
+}
+
+function readOptionalReasoningEffort(value: unknown): CodexConfigProfileDefaults['reasoningEffort'] {
+  return value === 'none' ||
+    value === 'minimal' ||
+    value === 'low' ||
+    value === 'medium' ||
+    value === 'high' ||
+    value === 'xhigh'
+    ? value
+    : null
+}
+
+function readOptionalSandboxMode(value: unknown): CodexConfigProfileDefaults['sandboxMode'] {
+  return value === 'read-only' || value === 'workspace-write' || value === 'danger-full-access'
+    ? value
+    : null
+}
+
+function readOptionalApprovalPolicy(value: unknown): CodexConfigProfileDefaults['approvalPolicy'] {
+  return value === 'untrusted' || value === 'on-failure' || value === 'on-request' || value === 'never'
+    ? value
+    : null
+}
+
+function readOptionalBoolean(value: unknown): boolean | null {
+  return typeof value === 'boolean' ? value : null
+}
+
+function readNonEmptyString(value: unknown): string | null {
+  if (typeof value !== 'string') return null
+  const trimmed = value.trim()
+  return trimmed || null
 }
 
 function isNodeError(error: unknown): error is NodeJS.ErrnoException {
