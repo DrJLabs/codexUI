@@ -411,6 +411,7 @@ function onDocumentPointerDown(event: PointerEvent): void {
   right: 0;
   left: 0;
   display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto auto;
   max-height: min(420px, 70vh);
   margin-top: 6px;
   border: 1px solid rgba(148, 163, 184, 0.38);
@@ -453,9 +454,12 @@ function onDocumentPointerDown(event: PointerEvent): void {
 
 .automation-thread-picker-results {
   display: grid;
+  min-height: 0;
   gap: 8px;
   padding: 8px 10px;
+  overscroll-behavior: contain;
   overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
 }
 
 .automation-thread-picker-results h4 {
@@ -563,8 +567,12 @@ function onDocumentPointerDown(event: PointerEvent): void {
 @media (max-width: 640px) {
   .automation-thread-picker-panel {
     position: fixed;
-    inset: auto 12px 12px;
-    max-height: 72vh;
+    top: max(12px, env(safe-area-inset-top));
+    right: 12px;
+    bottom: max(12px, env(safe-area-inset-bottom));
+    left: 12px;
+    max-height: none;
+    margin-top: 0;
   }
 
   .automation-thread-picker-trigger,
