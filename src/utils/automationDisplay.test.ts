@@ -208,6 +208,44 @@ describe('automationDisplay', () => {
       startedAtIso: '2026-05-02T05:00:00.000Z',
     }), now).age).toBe('29m')
   })
+
+  it('describes compact run projects across worktree, thread, and unscoped runs', () => {
+    const now = new Date('2026-05-02T06:00:00.000Z')
+    expect(describeAutomationRunListItem(automationRunFixture({
+      cwd: '/home/drj/projects/apollo',
+      worktreePath: '/tmp/worktrees/apollo-review',
+      targetThreadId: null,
+      threadId: null,
+    }), now).project).toBe('apollo-review')
+    expect(describeAutomationRunListItem(automationRunFixture({
+      cwd: null,
+      worktreePath: null,
+      targetThreadId: 'thread_1',
+      threadId: null,
+    }), now).project).toBe('Thread')
+    expect(describeAutomationRunListItem(automationRunFixture({
+      cwd: null,
+      worktreePath: null,
+      targetThreadId: null,
+      threadId: null,
+    }), now).project).toBe('No project')
+  })
+
+  it('uses queued and starting timestamps for compact run list item ages', () => {
+    const now = new Date('2026-05-02T06:00:00.000Z')
+    expect(describeAutomationRunListItem(automationRunFixture({
+      state: 'queued',
+      completedAtIso: null,
+      updatedAtIso: '2026-05-02T05:45:00.000Z',
+      startedAtIso: null,
+    }), now).age).toBe('15m')
+    expect(describeAutomationRunListItem(automationRunFixture({
+      state: 'starting',
+      completedAtIso: null,
+      updatedAtIso: '2026-05-02T05:50:00.000Z',
+      startedAtIso: '2026-05-02T05:48:00.000Z',
+    }), now).age).toBe('10m')
+  })
 })
 
 function automationFixture(overrides: Partial<AutomationDefinition> = {}): AutomationDefinition {

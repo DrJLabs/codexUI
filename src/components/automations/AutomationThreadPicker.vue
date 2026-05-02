@@ -157,11 +157,11 @@ const selectedThreadDetail = computed(() => {
   return selectedThread.value.projectName
 })
 
-const projectOptions = computed(() => {
-  const projects = new Set(knownThreads.value.map((thread) => thread.projectName).filter(Boolean))
-  if (searchRows.value.some((thread) => thread.projectName === 'Search results')) projects.add('Search results')
-  return Array.from(projects).sort((a, b) => a.localeCompare(b))
-})
+const projectOptions = computed(() =>
+  Array.from(new Set(knownThreads.value.map((thread) => thread.projectName).filter(Boolean))).sort((a, b) =>
+    a.localeCompare(b),
+  ),
+)
 
 const searchRows = computed<PickerThread[]>(() => {
   const query = searchQuery.value.trim().toLowerCase()
@@ -220,8 +220,9 @@ watch(searchQuery, (value) => {
     searchTimer = null
   }
   const query = value.trim()
+  searchRequestId += 1
+  searchResultIds.value = null
   if (query.length < 2) {
-    searchResultIds.value = null
     return
   }
   searchTimer = window.setTimeout(() => {
@@ -327,8 +328,20 @@ function mergeThreadGroups(existing: UiProjectGroup[], incoming: UiProjectGroup[
   }
   return Array.from(byProject.entries()).map(([projectName, threads]) => ({
     projectName,
-    threads: threads.sort((a, b) => Date.parse(b.updatedAtIso) - Date.parse(a.updatedAtIso)),
+    threads: threads.sort(compareThreadsByUpdatedAt),
   }))
+}
+
+function compareThreadsByUpdatedAt(a: UiThread, b: UiThread): number {
+  const aTime = parseSortableTimestamp(a.updatedAtIso)
+  const bTime = parseSortableTimestamp(b.updatedAtIso)
+  if (aTime !== bTime) return bTime - aTime
+  return a.id.localeCompare(b.id)
+}
+
+function parseSortableTimestamp(value: string): number {
+  const timestamp = Date.parse(value)
+  return Number.isFinite(timestamp) ? timestamp : 0
 }
 
 function dedupeThreads(threads: PickerThread[]): PickerThread[] {

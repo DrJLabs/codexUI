@@ -42,7 +42,7 @@
       <aside class="automations-list" aria-label="Automations">
         <div class="automations-list-header">
           <h2>Automations</h2>
-          <button type="button" :disabled="isLoading || isSaving" @click="startCreate()">New</button>
+          <button type="button" :disabled="isLoading || isSaving" @click="startCreate()">New automation</button>
         </div>
 
         <p v-if="isLoading" class="automations-status">Loading automations...</p>
@@ -145,7 +145,7 @@
               <span>{{ isRunningNow ? 'Starting...' : 'Run now' }}</span>
             </button>
             <button class="automations-primary" type="submit" :disabled="isLoading || isSaving">
-              {{ isSaving ? 'Saving...' : draft.mode === 'edit' ? 'Save' : 'Create' }}
+              {{ isSaving ? 'Saving...' : draft.mode === 'edit' ? 'Save changes' : 'Create automation' }}
             </button>
           </div>
         </div>

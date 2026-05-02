@@ -6381,6 +6381,10 @@ Automation editor keeps focused mobile text fields visible above the virtual key
 - `git diff --check` passed.
 - Follow-up regression fix keeps the thread picker search input out of the page-level mobile focus scroller and avoids aggressive `scrollIntoView` positioning.
 - Route-level fix removes custom automation focus scrolling and gives the Automations route a native mobile scroll container with keyboard-safe scroll padding.
+- Review-comment fix verification: `pnpm vitest run src/composables/useAutomations.test.ts src/utils/automationDisplay.test.ts` passed: 2 files, 45 tests.
+- Review-comment fix verification: `pnpm run build:frontend` passed.
+- Review-comment fix verification: `git diff --check` passed.
+- Button clarification update labels the draft action as `New automation` and the submit action as `Create automation`/`Save changes`.
 
 #### Rollback/Cleanup
 - Delete any temporary automation created only for this verification.

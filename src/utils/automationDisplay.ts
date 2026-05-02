@@ -121,11 +121,12 @@ export function describeAutomationRunListItem(run: AutomationRun, now = new Date
   project: string
   age: string
 } {
+  const projectPath = run.worktreePath ?? run.cwd
   return {
     id: run.id,
     state: run.state,
     title: run.automationName,
-    project: basename(run.worktreePath ?? run.cwd ?? '') || 'Thread',
+    project: projectPath ? basename(projectPath) : (run.threadId || run.targetThreadId) ? 'Thread' : 'No project',
     age: formatAutomationRelativeTime(run.completedAtIso ?? run.updatedAtIso ?? run.startedAtIso ?? run.createdAtIso, now),
   }
 }
