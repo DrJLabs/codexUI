@@ -900,12 +900,15 @@ function isAutomationTextControl(element: HTMLElement): boolean {
 
 function scheduleFocusedAutomationFieldScroll(element: HTMLElement): void {
   clearAutomationFocusTimers()
-  automationFocusTimers.push(window.setTimeout(() => scrollAutomationFieldIntoView(element), 40))
-  automationFocusTimers.push(window.setTimeout(() => scrollAutomationFieldIntoView(element), 280))
+  automationFocusTimers.push(window.setTimeout(() => scrollAutomationFieldIntoView(element), 60))
+  automationFocusTimers.push(window.setTimeout(() => scrollAutomationFieldIntoView(element), 320))
+  automationFocusTimers.push(window.setTimeout(() => scrollAutomationFieldIntoView(element), 700))
 }
 
 function scrollAutomationFieldIntoView(element: HTMLElement): void {
   if (document.activeElement !== element || !isMobileAutomationViewport()) return
+
+  element.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'auto' })
 
   const viewport = window.visualViewport
   const visibleTop = viewport?.offsetTop ?? 0
@@ -930,10 +933,10 @@ function scrollAutomationFieldIntoView(element: HTMLElement): void {
 
   const scroller = findScrollableAncestor(element)
   if (scroller) {
-    scroller.scrollBy({ top: delta, behavior: 'smooth' })
+    scroller.scrollBy({ top: delta, behavior: 'auto' })
     return
   }
-  document.scrollingElement?.scrollBy({ top: delta, behavior: 'smooth' })
+  document.scrollingElement?.scrollBy({ top: delta, behavior: 'auto' })
 }
 
 function findScrollableAncestor(element: HTMLElement): HTMLElement | null {
@@ -941,10 +944,14 @@ function findScrollableAncestor(element: HTMLElement): HTMLElement | null {
   while (parent && parent !== document.body && parent !== document.documentElement) {
     const style = window.getComputedStyle(parent)
     const overflowY = style.overflowY
-    const canScroll = overflowY !== 'visible' && overflowY !== 'clip' && parent.scrollHeight > parent.clientHeight
+    const canScroll = ['auto', 'scroll', 'overlay'].includes(overflowY) && parent.scrollHeight > parent.clientHeight
     if (canScroll) return parent
     parent = parent.parentElement
   }
+  const contentBody = element.closest<HTMLElement>('.content-body')
+  if (contentBody && contentBody.scrollHeight > contentBody.clientHeight) return contentBody
+  const automationPage = element.closest<HTMLElement>('.automations-page')
+  if (automationPage && automationPage.scrollHeight > automationPage.clientHeight) return automationPage
   return null
 }
 
@@ -1832,6 +1839,10 @@ function onAutomationVisualViewportChange(): void {
 @media (max-width: 640px) {
   .automations-page {
     padding: 12px;
+  }
+
+  :global(.content-root.is-virtual-keyboard-open) .automations-page {
+    padding-bottom: max(12px, calc(var(--virtual-keyboard-inset, 0px) + 12px));
   }
 
   .automations-card-header,
