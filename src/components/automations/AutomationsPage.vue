@@ -1407,6 +1407,7 @@ function shouldShowReadAction(run: AutomationRun): boolean {
   }
 
   .automations-workspace {
+    flex: 0 0 auto;
     overflow: visible;
   }
 

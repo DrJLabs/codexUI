@@ -6248,3 +6248,36 @@ Menu-based automation execution settings in Advanced details.
 #### Rollback/Cleanup
 - Revert saved automation changes or delete the test automation.
 - Stop the local dev server used only for this check.
+
+---
+
+### Automations Mobile Workspace Container Alignment
+
+#### Feature/Change Name
+Mobile automation editor workspace section expands around the full form.
+
+#### Prerequisites/Setup
+1. Use `${WORKTREE_ROOT}` on `feature/automation-advanced-execution-settings-dev`.
+2. Start the dev server from this worktree at `http://127.0.0.1:5173`.
+
+#### Steps
+1. Open `/automations` in a 393x852 mobile viewport.
+2. Start creating an automation.
+3. Scroll to the Project folder field.
+4. Repeat in dark theme.
+
+#### Expected Results
+- The outer Automations workspace section border encloses the Project folder field and the rest of the editor.
+- The Project folder input does not overlap or escape below the section border.
+- Light and dark themes both keep readable field surfaces.
+- The mobile page does not create horizontal overflow.
+
+#### Observed Verification
+- Playwright checked `http://127.0.0.1:5173/#/automations` at 393x852 in light and dark themes.
+- The Project folder field and editor bottom were inside `.automations-workspace`; `document.body.scrollWidth` matched the viewport width.
+- Screenshots:
+  - `output/playwright/automation-project-folder-alignment-mobile.png`
+  - `output/playwright/automation-project-folder-alignment-dark-mobile.png`
+
+#### Rollback/Cleanup
+- Stop the local dev server used only for this check.
