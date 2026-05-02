@@ -432,8 +432,6 @@ export class AutomationsService {
       await this.assertRunStartCapacity(definition)
       assertAutomationExecutionPolicy(this.policy)
       assertAutomationRunnerTarget(definition)
-      const preflightRunProfile = resolveAutomationRunProfileForPreflight(definition, options)
-      if (preflightRunProfile) assertAutomationRunProfileAllowed(preflightRunProfile, this.policy)
       const executionOptions = options.runProfiles
         ? null
         : await this.readExecutionOptions([definition.cwd], { preferCwdDefault: true })
@@ -1051,17 +1049,6 @@ function hasOwn(input: object, field: string): boolean {
 
 function asRecord(value: unknown): Record<string, unknown> | null {
   return value !== null && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : null
-}
-
-function resolveAutomationRunProfileForPreflight(
-  definition: AutomationDefinition,
-  input: { runProfiles?: CodexRunProfile[]; runProfileId?: string | null },
-): CodexRunProfile | null {
-  const explicitProfileId = (input.runProfileId ?? definition.runProfileId ?? '').trim()
-  if (input.runProfiles || !explicitProfileId) return null
-  const builtInProfiles = mergeCodexRunProfiles()
-  if (!builtInProfiles.some((profile) => profile.id === explicitProfileId)) return null
-  return resolveAutomationRunProfile(definition, { ...input, runProfiles: builtInProfiles })
 }
 
 export function readCodexConfigProfileDefaults(config: Record<string, unknown> | null): CodexConfigProfileDefaults {

@@ -317,6 +317,34 @@ describe('AutomationRunner', () => {
     expect(rpcCalls.map((call) => call.method)).toEqual(['config/read'])
   })
 
+  it('allows config overrides to make built-in run profile ids satisfy policy', async () => {
+    const { codexHomeDir, service, rpcCalls } = await createHarness({
+      configReadPayload: {
+        config: {
+          profiles: {
+            'workspace-coding-network': {
+              sandbox_mode: 'workspace-write',
+              network_access: false,
+            },
+          },
+        },
+      },
+    })
+    await writeNative(codexHomeDir, 'daily-check-dir', nativeRecord, {
+      runMode: 'chat',
+      runProfileId: 'workspace-coding-network',
+    })
+
+    const run = await service.runNow('daily-check')
+
+    expect(run.runProfileSnapshot).toMatchObject({
+      id: 'workspace-coding-network',
+      source: 'config',
+      networkAccess: false,
+    })
+    expect(rpcCalls.map((call) => call.method)).toEqual(['config/read', 'thread/resume', 'turn/start'])
+  })
+
   it('surfaces non-missing sidecar read failures for definition reads', async () => {
     const { codexHomeDir, service } = await createHarness()
     const automationDir = await writeNative(codexHomeDir, 'daily-check-dir', nativeRecord, { runMode: 'chat' })
@@ -1224,7 +1252,7 @@ describe('AutomationRunner', () => {
       runProfileId: FULL_ACCESS_CODEX_RUN_PROFILE_ID,
     })
     await expect(danger.service.runNow('daily-check')).rejects.toThrow('danger-full-access')
-    expect(danger.rpcCalls).toEqual([])
+    expect(danger.rpcCalls.map((call) => call.method)).toEqual(['config/read'])
 
     const neverProfile: CodexRunProfile = {
       id: 'approval-never',
@@ -1249,7 +1277,7 @@ describe('AutomationRunner', () => {
       runProfileId: 'workspace-coding-network',
     })
     await expect(network.service.runNow('daily-check')).rejects.toThrow('network access')
-    expect(network.rpcCalls).toEqual([])
+    expect(network.rpcCalls.map((call) => call.method)).toEqual(['config/read'])
   })
 
   it('lists persisted runs newest-first', async () => {

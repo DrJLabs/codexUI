@@ -23,10 +23,10 @@ const WEEKDAY_CODES: Record<string, string> = {
 }
 
 const TIME_INPUT_ERROR = 'Expected time in HH:MM format from 00:00 through 23:59'
-const SIMPLE_DAILY_KEYS = ['BYHOUR', 'BYMINUTE', 'FREQ']
-const SIMPLE_DAILY_KEYS_WITH_INTERVAL = ['BYHOUR', 'BYMINUTE', 'FREQ', 'INTERVAL']
-const SIMPLE_WEEKLY_KEYS = ['BYDAY', 'BYHOUR', 'BYMINUTE', 'FREQ']
-const SIMPLE_WEEKLY_KEYS_WITH_INTERVAL = ['BYDAY', 'BYHOUR', 'BYMINUTE', 'FREQ', 'INTERVAL']
+const SIMPLE_DAILY_KEYS = ['BYHOUR', 'BYMINUTE', 'FREQ'].sort()
+const SIMPLE_DAILY_KEYS_WITH_INTERVAL = ['BYHOUR', 'BYMINUTE', 'FREQ', 'INTERVAL'].sort()
+const SIMPLE_WEEKLY_KEYS = ['BYDAY', 'BYHOUR', 'BYMINUTE', 'FREQ'].sort()
+const SIMPLE_WEEKLY_KEYS_WITH_INTERVAL = ['BYDAY', 'BYHOUR', 'BYMINUTE', 'FREQ', 'INTERVAL'].sort()
 
 export function describeAutomationSchedule(rrule: string): string {
   const parts = parseRrule(rrule)
