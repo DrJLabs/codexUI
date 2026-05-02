@@ -137,7 +137,7 @@ export class AutomationsService {
 
   async listState(): Promise<AutomationsState> {
     const { definitions, diagnostics, storageRoot } = await this.listDefinitionsWithDiagnostics()
-    const executionOptions = await this.readExecutionOptions(definitions.map((definition) => definition.cwd))
+    const executionOptions = await this.readExecutionOptions()
     return {
       storageRoot,
       featureFlags: {

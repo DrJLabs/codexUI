@@ -202,7 +202,7 @@ function basename(path: string): string {
 
 function mostRecentRun(runs: AutomationRun[]): AutomationRun | null {
   if (runs.length === 0) return null
-  return [...runs].sort((a, b) => timestampForRun(b) - timestampForRun(a))[0] ?? null
+  return runs.reduce((latest, current) => timestampForRun(current) > timestampForRun(latest) ? current : latest)
 }
 
 function timestampForRun(run: AutomationRun): number {

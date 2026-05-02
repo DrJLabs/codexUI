@@ -562,12 +562,14 @@ const automationCards = computed(() =>
   }),
 )
 const nextScheduledRunLabel = computed(() => {
-  const next = definitions.value
-    .filter((definition) => definition.status === 'active' && definition.nextRunAtIso)
-    .map((definition) => Date.parse(definition.nextRunAtIso ?? ''))
-    .filter((timestamp) => Number.isFinite(timestamp))
-    .sort((a, b) => a - b)[0]
-  return next ? formatTimestamp(new Date(next).toISOString()) : 'Not scheduled'
+  let next: number | null = null
+  for (const definition of definitions.value) {
+    if (definition.status !== 'active' || !definition.nextRunAtIso) continue
+    const timestamp = Date.parse(definition.nextRunAtIso)
+    if (!Number.isFinite(timestamp)) continue
+    next = next === null ? timestamp : Math.min(next, timestamp)
+  }
+  return next === null ? 'Not scheduled' : formatTimestamp(new Date(next).toISOString())
 })
 const nextRunLabel = computed(() => formatTimestamp(selectedAutomation.value?.nextRunAtIso ?? null))
 const lastRunLabel = computed(() =>
