@@ -1502,6 +1502,7 @@
 :root.dark .automations-summary,
 :root.dark .automations-workspace,
 :root.dark .automations-diagnostics,
+:root.dark .automations-advanced,
 :root.dark .automations-error {
   border-color: rgba(71, 85, 105, 0.72);
   background: rgba(15, 23, 42, 0.86);
@@ -1515,6 +1516,11 @@
 :root.dark .automations-field,
 :root.dark .automations-storage dt {
   color: #94a3b8;
+}
+
+:root.dark .automations-advanced summary,
+:root.dark .automations-storage dd {
+  color: #e5e7eb;
 }
 
 :root.dark .automations-list {
@@ -1533,15 +1539,23 @@
 :root.dark .automations-row-button,
 :root.dark .automations-field input,
 :root.dark .automations-field textarea,
+:root.dark .automations-field select,
 :root.dark .automations-page button {
   color: #e5e7eb;
 }
 
 :root.dark .automations-field input,
 :root.dark .automations-field textarea,
+:root.dark .automations-field select,
 :root.dark .automations-page button {
   border-color: rgba(71, 85, 105, 0.82);
   background: rgba(2, 6, 23, 0.7);
+  color-scheme: dark;
+}
+
+:root.dark .automations-field select option {
+  background: #020617;
+  color: #e5e7eb;
 }
 
 :root.dark .automations-page button.automations-primary {

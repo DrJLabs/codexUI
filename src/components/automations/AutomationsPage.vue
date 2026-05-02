@@ -1357,6 +1357,12 @@ function shouldShowReadAction(run: AutomationRun): boolean {
   border-color: rgba(71, 85, 105, 0.82);
   background: rgba(2, 6, 23, 0.7);
   color: #e5e7eb;
+  color-scheme: dark;
+}
+
+:global(:root.dark) .automations-field select option {
+  background: #020617;
+  color: #e5e7eb;
 }
 
 :global(:root.dark) .automations-page button.automations-primary {
