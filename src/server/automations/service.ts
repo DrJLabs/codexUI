@@ -164,6 +164,10 @@ export class AutomationsService {
     )
     const uniqueCwds = Array.from(new Set(cwds.map((value) => value?.trim()).filter(Boolean)))
     const cwdConfigReads = await Promise.all(uniqueCwds.map((cwd) => this.readCodexConfig(cwd)))
+    let currentConfigProfileId = readCurrentConfigProfileId(configRead.config)
+    if (cwdConfigReads.length === 1) {
+      currentConfigProfileId = readCurrentConfigProfileId(cwdConfigReads[0]?.config) ?? currentConfigProfileId
+    }
     for (const cwdConfigRead of cwdConfigReads) {
       const cwdProfiles = normalizeCodexConfigProfiles(
         cwdConfigRead.config?.profiles,
@@ -171,7 +175,6 @@ export class AutomationsService {
       )
       configProfiles.push(...cwdProfiles)
     }
-    const currentConfigProfileId = readCurrentConfigProfileId(configRead.config)
     return {
       defaultRunProfileId: currentConfigProfileId || DEFAULT_CODEX_RUN_PROFILE_ID,
       currentConfigProfileId,
@@ -480,13 +483,21 @@ export class AutomationsService {
       await this.ensureInterruptedRunRecoveryBeforeCapacity(definition.id)
       await this.assertRunStartCapacity(definition)
       const executionOptions = input.runProfiles ? null : await this.readExecutionOptions([definition.cwd])
+      const runProfiles = input.runProfiles ?? executionOptions?.runProfiles
+      assertAutomationExecutionPolicy(this.policy)
+      assertAutomationRunnerTarget(definition)
+      assertAutomationRunProfileAllowed(resolveAutomationRunProfile(definition, {
+        ...input,
+        defaultRunProfileId: executionOptions?.defaultRunProfileId,
+        runProfiles,
+      }), this.policy)
       return await this.runner.runScheduled({
         definition,
         automationDirPath: entry.automationDirPath,
         sourceDirName: entry.sourceDirName,
         dueAtIso: input.dueAtIso,
         nextDueAtIso: input.nextDueAtIso,
-        runProfiles: input.runProfiles ?? executionOptions?.runProfiles,
+        runProfiles,
         defaultRunProfileId: executionOptions?.defaultRunProfileId,
         runProfileId: input.runProfileId,
       })

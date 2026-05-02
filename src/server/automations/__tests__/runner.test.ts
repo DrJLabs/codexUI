@@ -1386,6 +1386,7 @@ describe('AutomationRunner', () => {
       configReadPayload: (params: unknown) => readRecord(params).cwd === '/tmp/codexui-project'
         ? {
             config: {
+              current_profile: 'project-profile',
               profiles: {
                 'project-profile': {
                   model: 'gpt-5.5',
@@ -1412,7 +1413,6 @@ describe('AutomationRunner', () => {
     await writeNative(codexHomeDir, 'daily-check-dir', nativeRecord, {
       runMode: 'local',
       cwd: '/tmp/codexui-project',
-      runProfileId: 'project-profile',
     })
 
     const run = await service.runNow('daily-check')
