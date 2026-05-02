@@ -6331,6 +6331,8 @@ Existing automation editor uses a compact editable status/details sidebar.
 - PR review fix verification after follow-up review comments: `git diff --check` passed.
 - Duplicate create/advanced field fix verification: `pnpm run build:frontend` passed.
 - Duplicate create/advanced field fix verification: `git diff --check` passed.
+- Thread picker create/edit field verification: `pnpm run build:frontend` passed.
+- Thread picker create/edit field verification: `git diff --check` passed.
 - `pnpm run build:frontend` passed.
 - Playwright checked `http://127.0.0.1:5173/#/automations` with a temporary project automation at desktop 1440x1000 light/dark and mobile 393x852.
 - Playwright confirmed compact Status and Details sections render, Advanced is closed, Previous runs is collapsed, compact controls use dark surfaces in dark theme, and mobile has no horizontal overflow.

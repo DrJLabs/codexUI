@@ -174,10 +174,13 @@
               <input v-model="draft.name" type="text" required />
             </label>
 
-            <label v-if="draft.runMode === 'chat'" class="automations-field">
+            <div v-if="draft.runMode === 'chat'" class="automations-field">
               <span>Thread</span>
-              <input v-model="draft.targetThreadId" type="text" :required="draft.mode === 'create' && draft.runMode === 'chat'" />
-            </label>
+              <AutomationThreadPicker
+                v-model="draft.targetThreadId"
+                :required="draft.mode === 'create' && draft.runMode === 'chat'"
+              />
+            </div>
 
             <label class="automations-field automations-field-wide">
               <span>Prompt</span>
@@ -367,10 +370,10 @@
                   <input v-model="draft.name" type="text" required />
                 </label>
 
-                <label v-if="draft.mode === 'edit' && draft.runMode === 'chat'" class="automations-field">
+                <div v-if="draft.mode === 'edit' && draft.runMode === 'chat'" class="automations-field">
                   <span>Thread</span>
-                  <input v-model="draft.targetThreadId" type="text" required />
-                </label>
+                  <AutomationThreadPicker v-model="draft.targetThreadId" required />
+                </div>
 
                 <label v-if="draft.mode === 'edit'" class="automations-field automations-field-wide">
                   <span>Prompt</span>
@@ -437,6 +440,7 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { useAutomations } from '../../composables/useAutomations'
+import AutomationThreadPicker from './AutomationThreadPicker.vue'
 import IconTablerPlayerPause from '../icons/IconTablerPlayerPause.vue'
 import IconTablerPlayerPlay from '../icons/IconTablerPlayerPlay.vue'
 import IconTablerTrash from '../icons/IconTablerTrash.vue'
