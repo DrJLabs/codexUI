@@ -93,16 +93,60 @@
       </aside>
 
       <form class="automations-editor" aria-label="Automation editor" @submit.prevent="saveDraft">
-        <div class="automations-editor-header">
+        <div class="automations-editor-header automations-compact-header">
           <div>
-            <h2>{{ draft.mode === 'edit' ? 'Edit automation' : 'Create automation' }}</h2>
+            <h2>{{ draft.mode === 'edit' ? draft.name || 'Automation' : 'Create automation' }}</h2>
             <p v-if="prefilledThreadId">
               Prefilled from thread <code>{{ prefilledThreadId }}</code>
             </p>
           </div>
-          <span v-if="selectedAutomation" class="automations-status-pill" :data-status="selectedAutomation.status">
-            {{ selectedAutomation.status }}
-          </span>
+          <div class="automations-editor-actions automations-editor-actions-top">
+            <button
+              v-if="draft.mode === 'edit' && selectedAutomation?.status === 'active'"
+              type="button"
+              class="automations-icon-button"
+              :disabled="isSaving"
+              aria-label="Pause automation"
+              title="Pause automation"
+              @click="pauseSelected"
+            >
+              II
+            </button>
+            <button
+              v-else-if="draft.mode === 'edit' && selectedAutomation?.status === 'paused'"
+              type="button"
+              class="automations-icon-button"
+              :disabled="isSaving"
+              aria-label="Resume automation"
+              title="Resume automation"
+              @click="resumeSelected"
+            >
+              ▶
+            </button>
+            <button
+              v-if="draft.mode === 'edit'"
+              type="button"
+              class="automations-icon-button automations-danger-icon"
+              :disabled="isSaving"
+              aria-label="Delete automation"
+              title="Delete automation"
+              @click="confirmDelete"
+            >
+              ×
+            </button>
+            <button
+              v-if="draft.mode === 'edit'"
+              type="button"
+              class="automations-run-now-button"
+              :disabled="isSaving || isRunningNow || !manualRunsEnabled"
+              @click="runSelectedNow"
+            >
+              {{ isRunningNow ? 'Starting...' : '▷ Run now' }}
+            </button>
+            <button class="automations-primary" type="submit" :disabled="isLoading || isSaving">
+              {{ isSaving ? 'Saving...' : draft.mode === 'edit' ? 'Save' : 'Create' }}
+            </button>
+          </div>
         </div>
 
         <p v-if="mutationError" class="automations-error-inline" role="alert">{{ mutationError }}</p>
@@ -122,88 +166,235 @@
             </div>
           </section>
 
-          <div class="automations-field-grid">
+          <section v-if="draft.mode === 'create'" class="automations-compact-section" aria-label="Automation basics">
+            <h3>Basics</h3>
             <label class="automations-field">
               <span>Name</span>
               <input v-model="draft.name" type="text" required />
             </label>
 
-            <label class="automations-field">
+            <label v-if="draft.runMode === 'chat'" class="automations-field">
               <span>Thread</span>
               <input v-model="draft.targetThreadId" type="text" :required="draft.mode === 'create' && draft.runMode === 'chat'" />
             </label>
 
-            <label class="automations-field">
-              <span>Run mode</span>
+            <label class="automations-field automations-field-wide">
+              <span>Prompt</span>
+              <textarea v-model="draft.prompt" rows="6" required />
+            </label>
+          </section>
+
+          <section class="automations-compact-section" aria-label="Automation status">
+            <h3>Status</h3>
+            <div class="automations-compact-row">
+              <span>Status</span>
+              <strong v-if="selectedAutomation" class="automations-status-pill" :data-status="selectedAutomation.status">
+                {{ selectedAutomation.status }}
+              </strong>
+              <strong v-else class="automations-status-pill" data-status="draft">Draft</strong>
+            </div>
+            <div class="automations-compact-row">
+              <span>Next run</span>
+              <strong>{{ nextRunLabel }}</strong>
+            </div>
+            <div class="automations-compact-row">
+              <span>Last ran</span>
+              <strong>{{ lastRunLabel }}</strong>
+            </div>
+          </section>
+
+          <section class="automations-compact-section" aria-label="Automation details">
+            <h3>Details</h3>
+            <label class="automations-compact-row automations-compact-control">
+              <span>Runs in</span>
               <select v-model="draft.runMode">
                 <option value="chat">Chat</option>
-                <option value="local">Local project</option>
-                <option value="worktree">Managed worktree</option>
+                <option value="local">Local</option>
+                <option value="worktree">Worktree</option>
               </select>
             </label>
 
-            <label class="automations-field" :data-required="requiresCwd">
-              <span>Project folder <em v-if="requiresCwd">required</em></span>
+            <label class="automations-compact-row automations-compact-control" :data-required="requiresCwd">
+              <span>Project <em v-if="requiresCwd">required</em></span>
               <input
                 v-model="draft.cwd"
                 type="text"
-                placeholder="/absolute/project/path"
+                :placeholder="selectedAutomationProjectLabel"
                 :required="requiresCwd"
               />
             </label>
 
-            <label class="automations-field automations-field-wide">
-              <span>Prompt</span>
-              <textarea v-model="draft.prompt" rows="8" required />
-            </label>
-
-            <div class="automations-schedule-builder automations-field-wide">
-              <label class="automations-field">
-                <span>Frequency</span>
+            <div class="automations-compact-row automations-compact-control">
+              <span>Repeats</span>
+              <div class="automations-inline-controls">
                 <select v-model="scheduleFrequency">
                   <option value="daily">Daily</option>
                   <option value="weekly">Weekly</option>
                   <option value="custom">Custom</option>
                 </select>
-              </label>
-
-              <label class="automations-field">
-                <span>Time</span>
-                <input v-model="scheduleTime" type="time" />
-              </label>
-
-              <label v-if="scheduleFrequency === 'weekly'" class="automations-field">
-                <span>Weekday</span>
-                <select v-model="scheduleWeekday">
+                <select v-if="scheduleFrequency === 'weekly'" v-model="scheduleWeekday" aria-label="Schedule weekday">
                   <option v-for="day in weekdayOptions" :key="day.value" :value="day.value">
                     {{ day.label }}
                   </option>
                 </select>
-              </label>
+                <input v-if="scheduleFrequency !== 'custom'" v-model="scheduleTime" type="time" aria-label="Schedule time" />
+              </div>
             </div>
 
-            <label v-if="showRawRrule" class="automations-field automations-field-wide">
-              <span>Custom schedule rule</span>
-              <input v-model="draft.rrule" type="text" required />
-              <small class="automations-field-help">
-                RRULE format, for example FREQ=DAILY;BYHOUR=9;BYMINUTE=0.
-              </small>
+            <label class="automations-compact-row automations-compact-control">
+              <span>Model</span>
+              <select v-model="draft.model">
+                <option v-for="option in modelSelectOptions" :key="option.value" :value="option.value">
+                  {{ option.label }}
+                </option>
+              </select>
             </label>
 
-            <label class="automations-field">
-              <span>Description</span>
-              <input v-model="draft.description" type="text" />
+            <label class="automations-compact-row automations-compact-control">
+              <span>Reasoning</span>
+              <select v-model="draft.reasoningEffort">
+                <option v-for="option in reasoningEffortSelectOptions" :key="option.value" :value="option.value">
+                  {{ option.label }}
+                </option>
+              </select>
             </label>
+          </section>
 
-            <label class="automations-field automations-field-wide">
-              <span>Notes</span>
-              <textarea v-model="draft.notes" rows="4" />
-            </label>
-          </div>
+          <details v-if="draft.mode === 'edit'" class="automations-runs" aria-label="Previous automation runs">
+            <summary>
+              <span>Previous runs</span>
+              <small>{{ runHistory.length }}</small>
+            </summary>
+            <div class="automations-runs-toolbar">
+              <button type="button" :disabled="isSaving || isRunHistoryLoading" @click="loadRunHistory()">
+                {{ isRunHistoryLoading ? 'Refreshing...' : 'Refresh' }}
+              </button>
+            </div>
+            <p v-if="runHistoryError" class="automations-error-inline" role="alert">{{ runHistoryError }}</p>
+            <p v-else-if="runHistory.length === 0" class="automations-empty">
+              Runs will appear here after the schedule fires or manual runs are enabled.
+            </p>
+            <ul v-else class="automations-run-list automations-run-list-compact">
+              <li v-for="item in compactRunItems" :key="item.id" class="automations-run-item automations-run-item-compact">
+                <div class="automations-run-compact-main">
+                  <span class="automations-run-state-dot" :data-status="item.state" aria-hidden="true"></span>
+                  <strong>{{ item.title }}</strong>
+                  <span>{{ item.project }}</span>
+                  <time>{{ item.age }}</time>
+                </div>
+                <details class="automations-run-more">
+                  <summary>Run details</summary>
+                  <div v-if="item.run.inboxTitle || item.run.inboxSummary" class="automations-run-inbox">
+                    <strong v-if="item.run.inboxTitle">{{ item.run.inboxTitle }}</strong>
+                    <p v-if="item.run.inboxSummary">{{ item.run.inboxSummary }}</p>
+                  </div>
+                  <div v-if="item.run.errorMessage || item.run.resultSummary" class="automations-run-summary" :data-tone="item.run.errorMessage ? 'danger' : 'neutral'">
+                    <strong>{{ item.run.errorMessage ? 'Failure summary' : 'Run summary' }}</strong>
+                    <p>{{ item.run.errorMessage || item.run.resultSummary }}</p>
+                  </div>
+                  <div class="automations-run-actions" aria-label="Run triage actions">
+                    <button
+                      v-if="shouldShowReadAction(item.run)"
+                      type="button"
+                      :disabled="isSaving"
+                      @click="markRunRead(item.run.id)"
+                    >
+                      Read
+                    </button>
+                    <button
+                      v-if="item.run.archivedAtIso === null"
+                      type="button"
+                      :disabled="isSaving"
+                      @click="archiveRun(item.run.id)"
+                    >
+                      Archive
+                    </button>
+                    <button
+                      v-else
+                      type="button"
+                      :disabled="isSaving"
+                      @click="unarchiveRun(item.run.id)"
+                    >
+                      Unarchive
+                    </button>
+                  </div>
+                  <dl>
+                    <div>
+                      <dt>Thread</dt>
+                      <dd><code>{{ item.run.threadId || item.run.targetThreadId || 'n/a' }}</code></dd>
+                    </div>
+                    <div>
+                      <dt>Turn</dt>
+                      <dd><code>{{ item.run.turnId || 'n/a' }}</code></dd>
+                    </div>
+                    <div>
+                      <dt>Project</dt>
+                      <dd><code>{{ item.run.worktreePath || item.run.cwd || 'n/a' }}</code></dd>
+                    </div>
+                    <div>
+                      <dt>Run record</dt>
+                      <dd><code>{{ item.run.runJsonPath }}</code></dd>
+                    </div>
+                    <div>
+                      <dt>Events</dt>
+                      <dd><code>{{ item.run.eventsPath }}</code></dd>
+                    </div>
+                    <div>
+                      <dt>Log</dt>
+                      <dd><code>{{ item.run.logPath }}</code></dd>
+                    </div>
+                    <div>
+                      <dt>Started</dt>
+                      <dd>{{ formatTimestamp(item.run.startedAtIso) }}</dd>
+                    </div>
+                    <div>
+                      <dt>Completed</dt>
+                      <dd>{{ formatTimestamp(item.run.completedAtIso) }}</dd>
+                    </div>
+                  </dl>
+                </details>
+              </li>
+            </ul>
+          </details>
 
-          <details class="automations-advanced" open>
-            <summary>Advanced details</summary>
+          <details class="automations-advanced">
+            <summary>Advanced</summary>
             <div class="automations-advanced-content">
+              <div class="automations-field-grid">
+                <label class="automations-field">
+                  <span>Name</span>
+                  <input v-model="draft.name" type="text" required />
+                </label>
+
+                <label class="automations-field">
+                  <span>Thread</span>
+                  <input v-model="draft.targetThreadId" type="text" :required="draft.mode === 'create' && draft.runMode === 'chat'" />
+                </label>
+
+                <label class="automations-field automations-field-wide">
+                  <span>Prompt</span>
+                  <textarea v-model="draft.prompt" rows="8" required />
+                </label>
+
+                <label v-if="showRawRrule" class="automations-field automations-field-wide">
+                  <span>Custom schedule rule</span>
+                  <input v-model="draft.rrule" type="text" required />
+                  <small class="automations-field-help">
+                    RRULE format, for example FREQ=DAILY;BYHOUR=9;BYMINUTE=0.
+                  </small>
+                </label>
+
+                <label class="automations-field">
+                  <span>Description</span>
+                  <input v-model="draft.description" type="text" />
+                </label>
+
+                <label class="automations-field automations-field-wide">
+                  <span>Notes</span>
+                  <textarea v-model="draft.notes" rows="4" />
+                </label>
+              </div>
+
               <div class="automations-execution-settings" aria-label="Automation execution settings">
                 <label class="automations-field">
                   <span>Run profile</span>
@@ -217,24 +408,6 @@
                     </option>
                   </select>
                   <small class="automations-field-help">{{ selectedRunProfileHelp }}</small>
-                </label>
-
-                <label class="automations-field">
-                  <span>Model override</span>
-                  <select v-model="draft.model">
-                    <option v-for="option in modelSelectOptions" :key="option.value" :value="option.value">
-                      {{ option.label }}
-                    </option>
-                  </select>
-                </label>
-
-                <label class="automations-field">
-                  <span>Reasoning override</span>
-                  <select v-model="draft.reasoningEffort">
-                    <option v-for="option in reasoningEffortSelectOptions" :key="option.value" :value="option.value">
-                      {{ option.label }}
-                    </option>
-                  </select>
                 </label>
               </div>
 
@@ -250,137 +423,8 @@
             </div>
           </details>
 
-          <section v-if="draft.mode === 'edit'" class="automations-runs" aria-label="Recent automation runs">
-            <div class="automations-runs-header">
-              <h3>Recent runs</h3>
-              <button type="button" :disabled="isSaving || isRunHistoryLoading" @click="loadRunHistory()">
-                {{ isRunHistoryLoading ? 'Refreshing...' : 'Refresh' }}
-              </button>
-            </div>
-            <p v-if="runHistoryError" class="automations-error-inline" role="alert">{{ runHistoryError }}</p>
-            <p v-else-if="runHistory.length === 0" class="automations-empty">
-              Runs will appear here after the schedule fires or manual runs are enabled.
-            </p>
-            <ul v-else class="automations-run-list">
-              <li v-for="run in runHistory" :key="run.id" class="automations-run-item">
-                <div class="automations-run-main">
-                  <span class="automations-status-pill" :data-status="run.state">{{ formatStateLabel(run.state) }}</span>
-                  <strong>{{ run.trigger }}</strong>
-                  <span>{{ formatTimestamp(run.createdAtIso) }}</span>
-                </div>
-                <div v-if="run.inboxTitle || run.inboxSummary" class="automations-run-inbox">
-                  <strong v-if="run.inboxTitle">{{ run.inboxTitle }}</strong>
-                  <p v-if="run.inboxSummary">{{ run.inboxSummary }}</p>
-                </div>
-                <div v-if="run.errorMessage || run.resultSummary" class="automations-run-summary" :data-tone="run.errorMessage ? 'danger' : 'neutral'">
-                  <strong>{{ run.errorMessage ? 'Failure summary' : 'Run summary' }}</strong>
-                  <p>{{ run.errorMessage || run.resultSummary }}</p>
-                </div>
-                <div class="automations-run-actions" aria-label="Run triage actions">
-                  <button
-                    v-if="shouldShowReadAction(run)"
-                    type="button"
-                    :disabled="isSaving"
-                    @click="markRunRead(run.id)"
-                  >
-                    Read
-                  </button>
-                  <button
-                    v-if="run.archivedAtIso === null"
-                    type="button"
-                    :disabled="isSaving"
-                    @click="archiveRun(run.id)"
-                  >
-                    Archive
-                  </button>
-                  <button
-                    v-else
-                    type="button"
-                    :disabled="isSaving"
-                    @click="unarchiveRun(run.id)"
-                  >
-                    Unarchive
-                  </button>
-                </div>
-                <dl>
-                  <div>
-                    <dt>Thread</dt>
-                    <dd><code>{{ run.threadId || run.targetThreadId || 'n/a' }}</code></dd>
-                  </div>
-                  <div>
-                    <dt>Turn</dt>
-                    <dd><code>{{ run.turnId || 'n/a' }}</code></dd>
-                  </div>
-                  <div>
-                    <dt>Project</dt>
-                    <dd><code>{{ run.worktreePath || run.cwd || 'n/a' }}</code></dd>
-                  </div>
-                  <div>
-                    <dt>Run record</dt>
-                    <dd><code>{{ run.runJsonPath }}</code></dd>
-                  </div>
-                  <div>
-                    <dt>Events</dt>
-                    <dd><code>{{ run.eventsPath }}</code></dd>
-                  </div>
-                  <div>
-                    <dt>Log</dt>
-                    <dd><code>{{ run.logPath }}</code></dd>
-                  </div>
-                  <div>
-                    <dt>Started</dt>
-                    <dd>{{ formatTimestamp(run.startedAtIso) }}</dd>
-                  </div>
-                  <div>
-                    <dt>Completed</dt>
-                    <dd>{{ formatTimestamp(run.completedAtIso) }}</dd>
-                  </div>
-                </dl>
-              </li>
-            </ul>
-          </section>
-
           <div v-if="!manualRunsEnabled" class="automations-manual-disabled">
             Manual runs are disabled in this environment. Scheduled runs are unchanged.
-          </div>
-
-          <div class="automations-editor-actions">
-            <button class="automations-primary" type="submit" :disabled="isLoading || isSaving">
-              {{ isSaving ? 'Saving...' : draft.mode === 'edit' ? 'Save' : 'Create' }}
-            </button>
-            <button
-              v-if="draft.mode === 'edit'"
-              type="button"
-              :disabled="isSaving || isRunningNow || !manualRunsEnabled"
-              @click="runSelectedNow"
-            >
-              {{ isRunningNow ? 'Starting...' : 'Run now' }}
-            </button>
-            <button
-              v-if="selectedAutomation?.status === 'active'"
-              type="button"
-              :disabled="isSaving"
-              @click="pauseSelected"
-            >
-              Pause
-            </button>
-            <button
-              v-else-if="selectedAutomation?.status === 'paused'"
-              type="button"
-              :disabled="isSaving"
-              @click="resumeSelected"
-            >
-              Resume
-            </button>
-            <button
-              v-if="draft.mode === 'edit'"
-              class="automations-danger"
-              type="button"
-              :disabled="isSaving"
-              @click="confirmDelete"
-            >
-              Delete automation
-            </button>
           </div>
         </fieldset>
       </form>
@@ -396,9 +440,12 @@ import type { AutomationRun, AutomationRunMode } from '../../types/automations'
 import {
   buildDailyRrule,
   buildWeeklyRrule,
+  describeAutomationProjectLabel,
+  describeAutomationRunListItem,
   describeAutomationSchedule,
   describeAutomationTarget,
   describeRunHealth,
+  formatAutomationRelativeTime,
 } from '../../utils/automationDisplay'
 
 type ScheduleFrequency = 'daily' | 'weekly' | 'custom'
@@ -520,6 +567,21 @@ const nextScheduledRunLabel = computed(() => {
     .sort((a, b) => a - b)[0]
   return next ? formatTimestamp(new Date(next).toISOString()) : 'Not scheduled'
 })
+const nextRunLabel = computed(() => formatTimestamp(selectedAutomation.value?.nextRunAtIso ?? null))
+const lastRunLabel = computed(() =>
+  selectedAutomation.value?.lastRunAtIso
+    ? formatAutomationRelativeTime(selectedAutomation.value.lastRunAtIso)
+    : 'n/a',
+)
+const selectedAutomationProjectLabel = computed(() =>
+  selectedAutomation.value ? describeAutomationProjectLabel(selectedAutomation.value) : '/absolute/project/path',
+)
+const compactRunItems = computed(() =>
+  runHistory.value.map((run) => ({
+    ...describeAutomationRunListItem(run),
+    run,
+  })),
+)
 const currentRruleClassification = computed(() => classifyRrule(draft.value.rrule))
 const showRawRrule = computed(() => scheduleFrequency.value === 'custom' || currentRruleClassification.value.frequency === 'custom')
 const modelSelectOptions = computed(() => ensureOption(baseModelOptions, draft.value.model, 'Current model'))
@@ -1013,6 +1075,7 @@ function shouldShowReadAction(run: AutomationRun): boolean {
 }
 
 .automations-status-pill[data-status='paused'],
+.automations-status-pill[data-status='draft'],
 .automations-health-pill[data-tone='neutral'] {
   background: rgba(148, 163, 184, 0.18);
   color: #475569;
@@ -1075,7 +1138,9 @@ function shouldShowReadAction(run: AutomationRun): boolean {
 
 .automations-field input,
 .automations-field textarea,
-.automations-field select {
+.automations-field select,
+.automations-compact-control input,
+.automations-compact-control select {
   width: 100%;
   min-width: 0;
   border: 1px solid rgba(148, 163, 184, 0.42);
@@ -1085,6 +1150,107 @@ function shouldShowReadAction(run: AutomationRun): boolean {
   font: inherit;
   font-weight: 400;
   padding: 8px 9px;
+}
+
+.automations-compact-header {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  margin: -14px -14px 0;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.22);
+  padding: 12px 14px;
+  background: rgba(255, 255, 255, 0.94);
+  backdrop-filter: blur(10px);
+}
+
+.automations-editor-actions-top {
+  justify-content: flex-end;
+  margin-top: 0;
+}
+
+.automations-run-now-button {
+  min-height: 34px;
+}
+
+.automations-icon-button {
+  width: 34px;
+  min-width: 34px;
+  height: 34px;
+  padding: 0;
+  text-align: center;
+}
+
+.automations-danger-icon {
+  color: #b91c1c;
+}
+
+.automations-compact-section {
+  display: grid;
+  min-width: 0;
+  gap: 10px;
+  margin-top: 18px;
+}
+
+.automations-compact-section h3 {
+  margin: 0 0 2px;
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.automations-compact-row {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: minmax(104px, 0.72fr) minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+  color: #475569;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.automations-compact-row > strong,
+.automations-compact-row > .automations-status-pill {
+  justify-self: end;
+}
+
+.automations-compact-row > strong {
+  min-width: 0;
+  color: #0f172a;
+  font-size: 13px;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+  text-align: right;
+}
+
+.automations-compact-control em {
+  color: #b45309;
+  font-style: normal;
+}
+
+.automations-compact-control input,
+.automations-compact-control select {
+  justify-self: end;
+  max-width: 220px;
+  font-size: 13px;
+  font-weight: 700;
+  text-align: right;
+}
+
+.automations-inline-controls {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.automations-inline-controls select,
+.automations-inline-controls input {
+  width: auto;
+  min-width: 92px;
+  max-width: 138px;
 }
 
 .automations-field em {
@@ -1172,37 +1338,109 @@ function shouldShowReadAction(run: AutomationRun): boolean {
 
 .automations-runs {
   margin-top: 16px;
-}
-
-.automations-runs-header h3 {
-  margin: 0;
-  font-size: 14px;
-}
-
-.automations-run-list {
-  display: grid;
-  gap: 8px;
-  margin: 10px 0 0;
-  padding: 0;
-  list-style: none;
-}
-
-.automations-run-item {
+  min-width: 0;
   border: 1px solid rgba(148, 163, 184, 0.24);
   border-radius: 8px;
-  padding: 10px;
-  background: rgba(248, 250, 252, 0.72);
+  background: rgba(248, 250, 252, 0.52);
 }
 
-.automations-run-main {
-  justify-content: flex-start;
+.automations-runs > summary {
+  display: flex;
+  min-width: 0;
+  cursor: pointer;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 12px;
+  color: #334155;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.automations-runs > summary small {
   color: #64748b;
   font-size: 12px;
 }
 
-.automations-run-main strong {
+.automations-runs-toolbar {
+  display: flex;
+  justify-content: flex-end;
+  padding: 0 12px 8px;
+}
+
+.automations-run-list {
+  display: grid;
+  gap: 2px;
+  margin: 0;
+  padding: 0 12px 12px;
+  list-style: none;
+}
+
+.automations-run-item {
+  min-width: 0;
+  border-top: 1px solid rgba(148, 163, 184, 0.16);
+  padding: 8px 0;
+}
+
+.automations-run-item:first-child {
+  border-top: 0;
+}
+
+.automations-run-compact-main {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: 16px minmax(0, 1fr) minmax(48px, auto) minmax(34px, auto);
+  align-items: center;
+  gap: 8px;
+  color: #64748b;
+  font-size: 12px;
+}
+
+.automations-run-compact-main strong {
+  min-width: 0;
   color: #0f172a;
-  text-transform: capitalize;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+.automations-run-compact-main time {
+  color: #64748b;
+  font-weight: 700;
+  text-align: right;
+}
+
+.automations-run-state-dot {
+  display: inline-flex;
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  background: #93c5fd;
+}
+
+.automations-run-state-dot[data-status='completed_no_findings'],
+.automations-run-state-dot[data-status='completed_with_findings'] {
+  background: #9ca3af;
+}
+
+.automations-run-state-dot[data-status='failed'] {
+  background: #ef4444;
+}
+
+.automations-run-state-dot[data-status='running'],
+.automations-run-state-dot[data-status='queued'],
+.automations-run-state-dot[data-status='starting'] {
+  background: #60a5fa;
+}
+
+.automations-run-more {
+  margin: 6px 0 0 24px;
+}
+
+.automations-run-more > summary {
+  cursor: pointer;
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 700;
 }
 
 .automations-run-inbox,
@@ -1322,6 +1560,8 @@ function shouldShowReadAction(run: AutomationRun): boolean {
 :global(:root.dark) .automations-empty,
 :global(:root.dark) .automations-field,
 :global(:root.dark) .automations-field-help,
+:global(:root.dark) .automations-compact-section h3,
+:global(:root.dark) .automations-compact-row,
 :global(:root.dark) .automations-storage dt,
 :global(:root.dark) .automations-run-item dt,
 :global(:root.dark) .automations-run-item dd,
@@ -1338,11 +1578,16 @@ function shouldShowReadAction(run: AutomationRun): boolean {
 }
 
 :global(:root.dark) .automations-card,
-:global(:root.dark) .automations-run-item,
+:global(:root.dark) .automations-runs,
 :global(:root.dark) .automations-advanced {
   border-color: rgba(71, 85, 105, 0.72);
   background: rgba(2, 6, 23, 0.42);
   color: #e5e7eb;
+}
+
+:global(:root.dark) .automations-compact-header {
+  border-bottom-color: rgba(71, 85, 105, 0.72);
+  background: rgba(15, 23, 42, 0.94);
 }
 
 :global(:root.dark) .automations-card[data-active='true'] {
@@ -1353,6 +1598,8 @@ function shouldShowReadAction(run: AutomationRun): boolean {
 :global(:root.dark) .automations-field input,
 :global(:root.dark) .automations-field textarea,
 :global(:root.dark) .automations-field select,
+:global(:root.dark) .automations-compact-control input,
+:global(:root.dark) .automations-compact-control select,
 :global(:root.dark) .automations-page button {
   border-color: rgba(71, 85, 105, 0.82);
   background: rgba(2, 6, 23, 0.7);
@@ -1384,8 +1631,11 @@ function shouldShowReadAction(run: AutomationRun): boolean {
 }
 
 :global(:root.dark) .automations-run-main,
+:global(:root.dark) .automations-run-compact-main strong,
+:global(:root.dark) .automations-compact-row > strong,
 :global(:root.dark) .automations-run-inbox,
 :global(:root.dark) .automations-run-summary,
+:global(:root.dark) .automations-runs > summary,
 :global(:root.dark) .automations-advanced summary,
 :global(:root.dark) .automations-storage dd {
   color: #e5e7eb;
@@ -1449,9 +1699,42 @@ function shouldShowReadAction(run: AutomationRun): boolean {
 
   .automations-field input,
   .automations-field textarea,
-  .automations-field select {
+  .automations-field select,
+  .automations-compact-control input,
+  .automations-compact-control select {
     font-size: 16px;
     line-height: 1.4;
+  }
+
+  .automations-compact-header {
+    position: static;
+    align-items: stretch;
+  }
+
+  .automations-editor-actions-top {
+    justify-content: flex-start;
+  }
+
+  .automations-run-now-button,
+  .automations-editor-actions-top .automations-primary {
+    flex: 1 1 132px;
+  }
+
+  .automations-compact-row {
+    grid-template-columns: minmax(92px, 0.58fr) minmax(0, 1fr);
+  }
+
+  .automations-compact-control input,
+  .automations-compact-control select {
+    max-width: 100%;
+  }
+
+  .automations-run-compact-main {
+    grid-template-columns: 14px minmax(0, 1fr) minmax(36px, auto);
+  }
+
+  .automations-run-compact-main span {
+    display: none;
   }
 
   .automations-storage div,
