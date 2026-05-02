@@ -19,6 +19,25 @@ it('prefills create draft from a thread shortcut when no matching automation exi
   expect(automations.draft.value.targetThreadId).toBe('thread_123')
 })
 
+it('applies the loaded default run profile to new drafts', async () => {
+  const gateway = createGatewayFixture([])
+  vi.mocked(gateway.loadAutomationsState).mockResolvedValue({
+    ...stateFixture([]),
+    executionOptions: {
+      defaultRunProfileId: 'network-coding',
+      currentConfigProfileId: 'network-coding',
+      runProfiles: [],
+    },
+  })
+  const automations = useAutomations({ gateway })
+
+  await automations.loadAll()
+  expect(automations.draft.value.runProfileId).toBe('network-coding')
+
+  automations.startCreate('thread_123')
+  expect(automations.draft.value.runProfileId).toBe('network-coding')
+})
+
 it('preserves a route thread prefill across the initial async load', async () => {
   const deferred = createDeferredState([automationFixture({ id: 'auto_1', targetThreadId: 'other_thread' })])
   const automations = useAutomations({ gateway: createGatewayFixture([], { deferredState: deferred.promise }) })
@@ -62,7 +81,7 @@ it('normalizes optional blank draft fields before save', async () => {
     description: null,
     cwd: null,
     runMode: 'chat',
-    runProfileId: null,
+    runProfileId: 'workspace-coding',
     model: null,
     reasoningEffort: null,
     notes: '',

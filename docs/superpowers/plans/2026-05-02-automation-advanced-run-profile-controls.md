@@ -532,7 +532,7 @@ git commit -m "feat: expose automation run profile options"
 - Modify: `src/composables/useAutomations.ts`
 - Modify: `src/components/automations/AutomationsPage.vue`
 
-- [ ] **Step 1: Make empty drafts prefer the state default profile**
+- [x] **Step 1: Make empty drafts prefer the state default profile**
 
 In `src/composables/useAutomations.ts`, leave `createEmptyDraft()` storage-compatible by defaulting to an empty string, but add a helper that can apply the state default after load:
 
@@ -545,7 +545,7 @@ function applyDefaultRunProfileToDraft(): void {
 
 Call it after `loadAll()` finishes and in `startCreate()`.
 
-- [ ] **Step 2: Remove model/reasoning from the primary form grid**
+- [x] **Step 2: Remove model/reasoning from the primary form grid**
 
 In `src/components/automations/AutomationsPage.vue`, delete these labels from the main `.automations-field-grid`:
 
@@ -568,7 +568,7 @@ In `src/components/automations/AutomationsPage.vue`, delete these labels from th
 </label>
 ```
 
-- [ ] **Step 3: Replace the Advanced free-text profile input with select controls**
+- [x] **Step 3: Replace the Advanced free-text profile input with select controls**
 
 In the `<details class="automations-advanced">` content, replace the current `Run profile id` input with:
 
@@ -622,7 +622,7 @@ const baseReasoningEffortOptions = [
 ] as const
 ```
 
-- [ ] **Step 4: Add computed options and selected-profile summary**
+- [x] **Step 4: Add computed options and selected-profile summary**
 
 In `<script setup>`, add:
 
@@ -656,7 +656,7 @@ const selectedRunProfileHelp = computed(() => {
 
 Use `ensureOption()` for models/reasoning exactly as today so existing unknown values remain selectable.
 
-- [ ] **Step 5: Open Advanced by default**
+- [x] **Step 5: Open Advanced by default**
 
 Change:
 
@@ -672,7 +672,7 @@ to:
 
 This satisfies "visible in the advanced tab" while keeping the main editor focused on name, target, prompt, and schedule.
 
-- [ ] **Step 6: Update CSS**
+- [x] **Step 6: Update CSS**
 
 In `AutomationsPage.vue`, add:
 
@@ -692,7 +692,7 @@ In `AutomationsPage.vue`, add:
 
 Keep the existing mobile `font-size: 16px` form-control rule so select focus does not reintroduce mobile zoom.
 
-- [ ] **Step 7: Run frontend tests/build**
+- [x] **Step 7: Run frontend tests/build**
 
 Run:
 
@@ -703,7 +703,7 @@ pnpm run build:frontend
 
 Expected: tests and build pass.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add src/composables/useAutomations.ts src/components/automations/AutomationsPage.vue

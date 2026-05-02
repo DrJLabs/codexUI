@@ -152,24 +152,6 @@
               />
             </label>
 
-            <label class="automations-field">
-              <span>Model</span>
-              <select v-model="draft.model">
-                <option v-for="option in modelSelectOptions" :key="option.value" :value="option.value">
-                  {{ option.label }}
-                </option>
-              </select>
-            </label>
-
-            <label class="automations-field">
-              <span>Reasoning effort</span>
-              <select v-model="draft.reasoningEffort">
-                <option v-for="option in reasoningEffortSelectOptions" :key="option.value" :value="option.value">
-                  {{ option.label }}
-                </option>
-              </select>
-            </label>
-
             <label class="automations-field automations-field-wide">
               <span>Prompt</span>
               <textarea v-model="draft.prompt" rows="8" required />
@@ -219,9 +201,43 @@
             </label>
           </div>
 
-          <details class="automations-advanced">
+          <details class="automations-advanced" open>
             <summary>Advanced details</summary>
             <div class="automations-advanced-content">
+              <div class="automations-execution-settings" aria-label="Automation execution settings">
+                <label class="automations-field">
+                  <span>Run profile</span>
+                  <select v-model="draft.runProfileId">
+                    <option
+                      v-for="profile in runProfileOptions"
+                      :key="profile.value"
+                      :value="profile.value"
+                    >
+                      {{ profile.label }}
+                    </option>
+                  </select>
+                  <small class="automations-field-help">{{ selectedRunProfileHelp }}</small>
+                </label>
+
+                <label class="automations-field">
+                  <span>Model override</span>
+                  <select v-model="draft.model">
+                    <option v-for="option in modelSelectOptions" :key="option.value" :value="option.value">
+                      {{ option.label }}
+                    </option>
+                  </select>
+                </label>
+
+                <label class="automations-field">
+                  <span>Reasoning override</span>
+                  <select v-model="draft.reasoningEffort">
+                    <option v-for="option in reasoningEffortSelectOptions" :key="option.value" :value="option.value">
+                      {{ option.label }}
+                    </option>
+                  </select>
+                </label>
+              </div>
+
               <dl class="automations-storage">
                 <div v-for="detail in advancedDetails" :key="detail.label">
                   <dt>{{ detail.label }}</dt>
@@ -231,11 +247,6 @@
                   </dd>
                 </div>
               </dl>
-
-              <label class="automations-field automations-advanced-run-profile">
-                <span>Run profile id</span>
-                <input v-model="draft.runProfileId" type="text" />
-              </label>
             </div>
           </details>
 
@@ -451,6 +462,8 @@ const baseModelOptions = [
 ] as const
 const baseReasoningEffortOptions = [
   { value: '', label: 'Default reasoning' },
+  { value: 'none', label: 'None' },
+  { value: 'minimal', label: 'Minimal' },
   { value: 'low', label: 'Low' },
   { value: 'medium', label: 'Medium' },
   { value: 'high', label: 'High' },
@@ -513,6 +526,39 @@ const modelSelectOptions = computed(() => ensureOption(baseModelOptions, draft.v
 const reasoningEffortSelectOptions = computed(() =>
   ensureOption(baseReasoningEffortOptions, draft.value.reasoningEffort, 'Current reasoning effort'),
 )
+const runProfileOptions = computed(() => {
+  const options = state.value.executionOptions.runProfiles.map((profile) => ({
+    value: profile.id,
+    label: profile.source === 'config'
+      ? `${profile.name} (${profile.id})`
+      : profile.name,
+  }))
+  const requested = draft.value.runProfileId.trim()
+  if (requested && !options.some((option) => option.value === requested)) {
+    options.unshift({ value: requested, label: `Current profile: ${requested} (unavailable)` })
+  }
+  return options
+})
+const selectedRunProfile = computed(() => {
+  const requested = draft.value.runProfileId.trim()
+  if (requested) {
+    return state.value.executionOptions.runProfiles.find((profile) => profile.id === requested) ?? null
+  }
+  return state.value.executionOptions.runProfiles.find((profile) => profile.id === state.value.executionOptions.defaultRunProfileId)
+    ?? state.value.executionOptions.runProfiles[0]
+    ?? null
+})
+const selectedRunProfileHelp = computed(() => {
+  const profile = selectedRunProfile.value
+  if (draft.value.runProfileId.trim() && !profile) {
+    return `Configured profile "${draft.value.runProfileId.trim()}" is not available in current Codex config.`
+  }
+  if (!profile) return 'No run profiles are available.'
+  const model = draft.value.model.trim() || profile.model.trim() || 'default model'
+  const reasoning = draft.value.reasoningEffort.trim() || profile.reasoningEffort || 'default reasoning'
+  const network = profile.networkAccess ? 'network on' : 'network off'
+  return `${profile.sandboxMode}, ${profile.approvalPolicy}, ${network}, ${model}, ${reasoning}`
+})
 const advancedDetails = computed(() => [
   { label: 'Native storage root', value: state.value.storageRoot || 'Unavailable', mono: true },
   { label: 'Feature flags', value: featureFlagSummary.value || 'Unavailable', mono: false },
@@ -1088,8 +1134,11 @@ function shouldShowReadAction(run: AutomationRun): boolean {
   padding: 0 12px 12px;
 }
 
-.automations-advanced-run-profile {
-  margin-top: 0;
+.automations-execution-settings {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr) minmax(0, 1fr);
+  gap: 1rem;
 }
 
 .automations-storage {
@@ -1369,7 +1418,8 @@ function shouldShowReadAction(run: AutomationRun): boolean {
 
 @media (max-width: 720px) {
   .automations-card-grid,
-  .automations-schedule-builder {
+  .automations-schedule-builder,
+  .automations-execution-settings {
     grid-template-columns: 1fr;
   }
 }
