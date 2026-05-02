@@ -292,6 +292,11 @@ Production-readiness pass for the Automations route.
 - 2026-05-01: `pnpm exec vitest run src/utils/automationDisplay.test.ts src/composables/useAutomations.test.ts src/api/automationsGateway.test.ts` passed with 3 files and 43 tests.
 - 2026-05-01: `pnpm run build:frontend` passed.
 - 2026-05-01: `pnpm run build:frontend` passed after moving model/reasoning effort to main-form selects and adding mobile-safe form-control sizing.
+- 2026-05-01: Headless mobile Playwright at `375x812` passed after removing the nested mobile editor scrollbar:
+  - focused and typed `profile-mobile-focus` into `Run profile id`
+  - `.automations-editor` used `overflow-y: visible`
+  - no horizontal overflow was detected
+  - screenshot: `output/playwright/automation-mobile-focus-run-profile.png`
 - 2026-05-01: Headless Playwright against `http://127.0.0.1:5174/#/automations` with temporary `CODEX_HOME=/tmp/codexui-automation-prod-ui-8Pcn17` passed:
   - desktop light screenshot: `output/playwright/automation-production-desktop-light-final.png`
   - desktop dark screenshot: `output/playwright/automation-production-desktop-dark-final.png`

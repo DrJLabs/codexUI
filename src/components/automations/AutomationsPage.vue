@@ -1351,6 +1351,16 @@ function shouldShowReadAction(run: AutomationRun): boolean {
     grid-template-columns: 1fr;
   }
 
+  .automations-workspace {
+    overflow: visible;
+  }
+
+  .automations-list,
+  .automations-editor {
+    max-height: none;
+    overflow: visible;
+  }
+
   .automations-list {
     border-right: 0;
     border-bottom: 1px solid rgba(148, 163, 184, 0.28);
