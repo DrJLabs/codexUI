@@ -717,7 +717,7 @@ git commit -m "feat: make automation execution settings selectable"
 **Files:**
 - Modify: `tests.md`
 
-- [ ] **Step 1: Update manual test documentation**
+- [x] **Step 1: Update manual test documentation**
 
 Append/update a section in `tests.md`:
 
@@ -754,7 +754,7 @@ Append/update a section in `tests.md`:
 - Revert the saved automation changes or delete the test automation.
 ```
 
-- [ ] **Step 2: Restart the requested dev server before browser verification**
+- [x] **Step 2: Restart the requested dev server before browser verification**
 
 If the user still wants port `5173`, run from the final target worktree:
 
@@ -765,7 +765,7 @@ pnpm run dev -- --host 0.0.0.0 --port 5173
 
 Expected: Vite serves the worktree code at `http://127.0.0.1:5173`.
 
-- [ ] **Step 3: Run Playwright checks**
+- [x] **Step 3: Run Playwright checks**
 
 Use CJS Playwright from the repo root. Verify:
 
@@ -781,7 +781,7 @@ output/playwright/automation-advanced-execution-dark.png
 output/playwright/automation-advanced-execution-mobile.png
 ```
 
-- [ ] **Step 4: Run final static checks**
+- [x] **Step 4: Run final static checks**
 
 Run:
 
@@ -793,7 +793,7 @@ git diff --check
 
 Expected: all commands pass.
 
-- [ ] **Step 5: Commit docs and any verification harness changes**
+- [x] **Step 5: Commit docs and any verification harness changes**
 
 ```bash
 git add tests.md output/playwright
@@ -811,4 +811,5 @@ Do not commit screenshots if this repo normally leaves `output/playwright` untra
 - Built-in run profiles remain as fallback choices so existing automations with `workspace-coding`, `read-only-planning`, or `workspace-coding-network` continue to work even when no config profiles exist.
 - If a config profile uses the same ID as a built-in profile, the config profile wins. That matches the user expectation that actual configured profiles should drive the menu.
 - The model/reasoning overrides still take precedence over profile defaults at execution time, matching current automation policy behavior.
+- Final review tightened config semantics after the UI work: `config/read` now requests raw layers and automation `cwd`, partial config profiles inherit from raw config layers instead of the active profile's effective values, and explicit missing run profile IDs fail clearly rather than falling back to `workspace-coding`.
 - A later enhancement could reuse the same config-profile catalog in Kanban metadata, but this plan deliberately limits scope to Automations.

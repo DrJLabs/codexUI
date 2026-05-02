@@ -6235,8 +6235,9 @@ Menu-based automation execution settings in Advanced details.
 - Mobile select focus does not zoom, jump back to the page top, or create horizontal overflow.
 
 #### Observed Verification
-- `pnpm vitest run src/server/automations/__tests__ src/server/execution/__tests__/runProfiles.test.ts src/composables/useAutomations.test.ts src/utils/automationDisplay.test.ts` passed: 13 files, 215 tests.
+- `pnpm vitest run src/server/automations src/server/execution/__tests__/runProfiles.test.ts src/composables/useAutomations.test.ts src/utils/automationDisplay.test.ts` passed: 13 files, 217 tests.
 - `pnpm run build:frontend` passed.
+- Server tests include raw-layer config profile defaults, cwd-specific config profile resolution for local automations, and explicit missing profile rejection instead of fallback to the workspace default.
 - Playwright checked `http://127.0.0.1:5173/#/automations` at 1440x1000 in light and dark themes, and 375x812 in mobile light theme.
 - Playwright confirmed Advanced is open by default; Run profile, Model override, and Reasoning override are selects; no raw run-profile text input remains; Model and Reasoning controls are absent from the main grid; Reasoning options include Default, None, Minimal, Low, Medium, High, and Extra High; and mobile select focus keeps `window.scrollY` stable with no horizontal overflow.
 - Screenshots:

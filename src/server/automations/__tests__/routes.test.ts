@@ -474,23 +474,43 @@ describe('createAutomationsMiddleware', () => {
     expect(state.body.data.featureFlags.manualRun).toBe(true)
   })
 
-  it('exposes execution options from Codex config profiles with inherited top-level defaults', async () => {
+  it('exposes execution options from Codex config profiles with inherited raw-layer defaults', async () => {
     const { bridge } = createBridge({
-      current_profile: 'minimal-coding',
-      model: 'gpt-5.4',
-      model_reasoning_effort: 'minimal',
-      sandbox_mode: 'workspace-write',
-      approval_policy: 'on-failure',
-      sandbox_workspace_write: { network_access: true },
-      profiles: {
-        'minimal-coding': {
-          model: 'gpt-5.5',
-        },
-        planning: {
-          sandbox_mode: 'read-only',
-          network_access: false,
+      config: {
+        current_profile: 'minimal-coding',
+        model: 'gpt-5.5',
+        model_reasoning_effort: 'minimal',
+        sandbox_mode: 'workspace-write',
+        approval_policy: 'on-failure',
+        sandbox_workspace_write: { network_access: true },
+        profiles: {
+          'minimal-coding': {
+            model: 'gpt-5.5',
+          },
+          planning: {
+            sandbox_mode: 'read-only',
+            network_access: false,
+          },
         },
       },
+      layers: [{
+        config: {
+          model: 'gpt-5.4',
+          model_reasoning_effort: 'minimal',
+          sandbox_mode: 'workspace-write',
+          approval_policy: 'on-failure',
+          sandbox_workspace_write: { network_access: true },
+          profiles: {
+            'minimal-coding': {
+              model: 'gpt-5.5',
+            },
+            planning: {
+              sandbox_mode: 'read-only',
+              network_access: false,
+            },
+          },
+        },
+      }],
     })
     const { baseUrl } = await createHarness({ bridge, policy: enabledPolicy })
 
@@ -662,16 +682,31 @@ describe('createAutomationsMiddleware', () => {
 
   it('resolves manual runs against the same config profiles exposed in state', async () => {
     const { bridge, rpcCalls } = createBridge({
-      current_profile: 'minimal-coding',
-      model: 'gpt-5.4',
-      model_reasoning_effort: 'minimal',
-      approval_policy: 'on-failure',
-      profiles: {
-        'minimal-coding': {
-          model: 'gpt-5.5',
-          sandbox_mode: 'read-only',
+      config: {
+        current_profile: 'minimal-coding',
+        model: 'gpt-5.5',
+        model_reasoning_effort: 'minimal',
+        approval_policy: 'on-failure',
+        profiles: {
+          'minimal-coding': {
+            model: 'gpt-5.5',
+            sandbox_mode: 'read-only',
+          },
         },
       },
+      layers: [{
+        config: {
+          model: 'gpt-5.4',
+          model_reasoning_effort: 'minimal',
+          approval_policy: 'on-failure',
+          profiles: {
+            'minimal-coding': {
+              model: 'gpt-5.5',
+              sandbox_mode: 'read-only',
+            },
+          },
+        },
+      }],
     })
     const { baseUrl, codexHomeDir } = await createHarness({ bridge, policy: enabledPolicy })
     const automationDir = await writeNative(codexHomeDir, 'daily-check-dir', nativeRecord)

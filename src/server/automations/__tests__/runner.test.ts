@@ -73,7 +73,7 @@ async function createHarness(options: {
   turnStartError?: Error
   readThreadResponse?: unknown
   readThreadError?: Error
-  configReadPayload?: unknown
+  configReadPayload?: unknown | ((params: unknown) => unknown | Promise<unknown>)
   beforeRpc?: (method: string) => Promise<void> | void
   afterTurnStart?: (turn: {
     threadId: string
@@ -130,7 +130,12 @@ async function createHarness(options: {
           },
         }) as T
       }
-      if (method === 'config/read') return (options.configReadPayload ?? {}) as T
+      if (method === 'config/read') {
+        if (typeof options.configReadPayload === 'function') {
+          return await options.configReadPayload(params) as T
+        }
+        return (options.configReadPayload ?? {}) as T
+      }
       return {} as T
     },
     subscribeNotifications: vi.fn((listener) => {
@@ -266,9 +271,11 @@ describe('AutomationRunner', () => {
       threadId: 'thread_local_1',
       turnId: 'turn_1',
     })
-    expect(rpcCalls.map((call) => call.method)).toEqual(['config/read', 'thread/start', 'turn/start'])
-    expect(rpcCalls[1]?.params).toEqual({ cwd: '/tmp/codexui-automation-local', title: 'Daily Check' })
-    expect(rpcCalls[2]?.params).toMatchObject({
+    expect(rpcCalls.map((call) => call.method)).toEqual(['config/read', 'config/read', 'thread/start', 'turn/start'])
+    expect(rpcCalls[0]?.params).toEqual({ includeLayers: true })
+    expect(rpcCalls[1]?.params).toEqual({ includeLayers: true, cwd: '/tmp/codexui-automation-local' })
+    expect(rpcCalls[2]?.params).toEqual({ cwd: '/tmp/codexui-automation-local', title: 'Daily Check' })
+    expect(rpcCalls[3]?.params).toMatchObject({
       threadId: 'thread_local_1',
       cwd: '/tmp/codexui-automation-local',
       input: [{ type: 'text', text: 'Review the thread' }],
@@ -1297,7 +1304,7 @@ describe('AutomationRunner', () => {
       configReadPayload: {
         config: {
           current_profile: 'minimal-coding',
-          model: 'gpt-5.4',
+          model: 'gpt-5.5',
           model_reasoning_effort: 'minimal',
           approval_policy: 'on-failure',
           profiles: {
@@ -1307,6 +1314,19 @@ describe('AutomationRunner', () => {
             },
           },
         },
+        layers: [{
+          config: {
+            model: 'gpt-5.4',
+            model_reasoning_effort: 'minimal',
+            approval_policy: 'on-failure',
+            profiles: {
+              'minimal-coding': {
+                model: 'gpt-5.5',
+                sandbox_mode: 'read-only',
+              },
+            },
+          },
+        }],
       },
     })
     const automationDir = await writeNative(codexHomeDir, 'daily-check-dir', nativeRecord, {
@@ -1337,6 +1357,78 @@ describe('AutomationRunner', () => {
       approvalPolicy: 'on-failure',
       sandboxPolicy: { type: 'readOnly', networkAccess: false },
     })
+  })
+
+  it('resolves local automation run profiles against cwd-specific Codex config', async () => {
+    const { codexHomeDir, service, rpcCalls } = await createHarness({
+      configReadPayload: (params: unknown) => readRecord(params).cwd === '/tmp/codexui-project'
+        ? {
+            config: {
+              profiles: {
+                'project-profile': {
+                  model: 'gpt-5.5',
+                  sandbox_mode: 'read-only',
+                },
+              },
+            },
+            layers: [{
+              config: {
+                model: 'gpt-5.4',
+                model_reasoning_effort: 'low',
+                approval_policy: 'on-failure',
+                profiles: {
+                  'project-profile': {
+                    model: 'gpt-5.5',
+                    sandbox_mode: 'read-only',
+                  },
+                },
+              },
+            }],
+          }
+        : { config: {}, layers: [{ config: {} }] },
+    })
+    await writeNative(codexHomeDir, 'daily-check-dir', nativeRecord, {
+      runMode: 'local',
+      cwd: '/tmp/codexui-project',
+      runProfileId: 'project-profile',
+    })
+
+    const run = await service.runNow('daily-check')
+
+    expect(rpcCalls.filter((call) => call.method === 'config/read').map((call) => call.params)).toEqual([
+      { includeLayers: true },
+      { includeLayers: true, cwd: '/tmp/codexui-project' },
+    ])
+    expect(run).toMatchObject({
+      runProfileId: 'project-profile',
+      runProfileSnapshot: {
+        id: 'project-profile',
+        source: 'config',
+        model: 'gpt-5.5',
+        reasoningEffort: 'low',
+        approvalPolicy: 'on-failure',
+        sandboxMode: 'read-only',
+      },
+    })
+    const turnStart = rpcCalls.find((call) => call.method === 'turn/start')
+    expect(turnStart?.params).toMatchObject({
+      model: 'gpt-5.5',
+      effort: 'low',
+      approvalPolicy: 'on-failure',
+      sandboxPolicy: { type: 'readOnly', networkAccess: false },
+    })
+  })
+
+  it('rejects explicit unavailable run profiles instead of falling back to the workspace default', async () => {
+    const { codexHomeDir, service, rpcCalls } = await createHarness({ configReadPayload: { config: {}, layers: [{ config: {} }] } })
+    await writeNative(codexHomeDir, 'daily-check-dir', nativeRecord, {
+      runMode: 'chat',
+      runProfileId: 'locked-down-prod',
+    })
+
+    await expect(service.runNow('daily-check')).rejects.toThrow('Codex run profile "locked-down-prod" is not available')
+    expect(rpcCalls.map((call) => call.method)).toEqual(['config/read'])
+    await expect(service.listRuns('daily-check')).resolves.toEqual([])
   })
 
   it('does not advance scheduler state if scheduled run queue persistence fails', async () => {

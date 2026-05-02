@@ -49,10 +49,13 @@ export function resolveAutomationRunProfile(
   input: AutomationRunProfileInput,
 ): CodexRunProfile {
   const profiles = mergeRunProfiles(input.runProfiles)
-  const requestedId = (input.runProfileId ?? definition.runProfileId ?? DEFAULT_CODEX_RUN_PROFILE_ID).trim()
-  const profileId = profiles.some((profile) => profile.id === requestedId)
-    ? requestedId
-    : DEFAULT_CODEX_RUN_PROFILE_ID
+  const explicitProfileId = (input.runProfileId ?? definition.runProfileId ?? '').trim()
+  const requestedId = explicitProfileId || DEFAULT_CODEX_RUN_PROFILE_ID
+  const profileExists = profiles.some((profile) => profile.id === requestedId)
+  if (explicitProfileId && !profileExists) {
+    throw createAutomationPolicyError(400, `Codex run profile "${explicitProfileId}" is not available`)
+  }
+  const profileId = profileExists ? requestedId : DEFAULT_CODEX_RUN_PROFILE_ID
   const baseProfile = profiles.find((profile) => profile.id === profileId)
     ?? profiles.find((profile) => profile.id === DEFAULT_CODEX_RUN_PROFILE_ID)
     ?? BUILTIN_CODEX_RUN_PROFILES.find((profile) => profile.id === DEFAULT_CODEX_RUN_PROFILE_ID)!

@@ -595,7 +595,11 @@ describe('AutomationScheduler', () => {
     const secondRuns = await createAutomationRunStore(secondDir).listRuns()
     const startedCount = firstRuns.length + secondRuns.length
     expect(startedCount).toBe(1)
-    expect(rpcCalls.map((call) => call.method)).toEqual(['config/read', 'thread/start', 'turn/start'])
+    expect(rpcCalls.map((call) => call.method)).toEqual(['config/read', 'config/read', 'thread/start', 'turn/start'])
+    expect(rpcCalls.filter((call) => call.method === 'config/read').map((call) => call.params)).toEqual([
+      { includeLayers: true },
+      { includeLayers: true, cwd: repo },
+    ])
   })
 
   it('serializes overlapping ticks', async () => {
