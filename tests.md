@@ -6379,6 +6379,7 @@ Automation editor keeps focused mobile text fields visible above the virtual key
 #### Observed Verification
 - `pnpm run build:frontend` passed.
 - `git diff --check` passed.
+- Follow-up regression fix keeps the thread picker search input out of the page-level mobile focus scroller and avoids aggressive `scrollIntoView` positioning.
 
 #### Rollback/Cleanup
 - Delete any temporary automation created only for this verification.

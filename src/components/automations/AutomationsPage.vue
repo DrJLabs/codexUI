@@ -887,6 +887,7 @@ function shouldShowReadAction(run: AutomationRun): boolean {
 function onAutomationFieldFocusIn(event: FocusEvent): void {
   const target = event.target
   if (!(target instanceof HTMLElement) || !isAutomationTextControl(target)) return
+  if (target.closest('.automation-thread-picker')) return
   focusedAutomationField = target
   scheduleFocusedAutomationFieldScroll(target)
 }
@@ -908,26 +909,20 @@ function scheduleFocusedAutomationFieldScroll(element: HTMLElement): void {
 function scrollAutomationFieldIntoView(element: HTMLElement): void {
   if (document.activeElement !== element || !isMobileAutomationViewport()) return
 
-  element.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'auto' })
-
   const viewport = window.visualViewport
   const visibleTop = viewport?.offsetTop ?? 0
   const visibleHeight = viewport?.height ?? window.innerHeight
   const visibleBottom = visibleTop + visibleHeight
-  const topPadding = 24
-  const bottomPadding = 28
-  const targetTop = visibleTop + Math.max(topPadding, Math.round(visibleHeight * 0.28))
+  const topPadding = 16
+  const bottomPadding = 92
   const targetBottom = visibleBottom - bottomPadding
   const rect = element.getBoundingClientRect()
-  const keyboardLikelyOpen = viewport ? window.innerHeight - viewport.height > 120 : false
 
   let delta = 0
   if (rect.top < visibleTop + topPadding) {
-    delta = rect.top - targetTop
+    delta = rect.top - (visibleTop + topPadding)
   } else if (rect.bottom > targetBottom) {
     delta = rect.bottom - targetBottom
-  } else if (keyboardLikelyOpen && rect.top > targetTop) {
-    delta = rect.top - targetTop
   }
   if (Math.abs(delta) < 2) return
 
