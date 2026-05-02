@@ -362,17 +362,17 @@
             <summary>Advanced</summary>
             <div class="automations-advanced-content">
               <div class="automations-field-grid">
-                <label class="automations-field">
+                <label v-if="draft.mode === 'edit'" class="automations-field">
                   <span>Name</span>
                   <input v-model="draft.name" type="text" required />
                 </label>
 
-                <label class="automations-field">
+                <label v-if="draft.mode === 'edit' && draft.runMode === 'chat'" class="automations-field">
                   <span>Thread</span>
-                  <input v-model="draft.targetThreadId" type="text" :required="draft.mode === 'create' && draft.runMode === 'chat'" />
+                  <input v-model="draft.targetThreadId" type="text" required />
                 </label>
 
-                <label class="automations-field automations-field-wide">
+                <label v-if="draft.mode === 'edit'" class="automations-field automations-field-wide">
                   <span>Prompt</span>
                   <textarea v-model="draft.prompt" rows="8" required />
                 </label>
