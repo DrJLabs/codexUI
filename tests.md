@@ -6197,3 +6197,43 @@ Desktop-compatible automation TOML parsing, writeback, listing, and scheduling.
 - Remove `$CODEX_HOME/automations/hourly-fixture/` from the disposable profile.
 - Remove `$CODEX_HOME/automations/playwright-desktop-cron/` from the disposable profile.
 - Stop any local server used only for this check.
+
+---
+
+### Automations Advanced Execution Settings
+
+#### Feature/Change Name
+Menu-based automation execution settings in Advanced details.
+
+#### Prerequisites/Setup
+1. Use `${WORKTREE_ROOT}` on `feature/automation-advanced-execution-settings-dev`.
+2. Reuse an existing compatible dependency install if this worktree does not already have dependencies.
+3. Start the dev server from this worktree at `http://127.0.0.1:5173`.
+4. Use an automation state with either built-in run profiles only or at least one Codex `config.toml` profile under `[profiles.<name>]`.
+
+#### Steps
+1. Run `pnpm vitest run src/server/automations/__tests__ src/server/execution/__tests__/runProfiles.test.ts src/composables/useAutomations.test.ts src/utils/automationDisplay.test.ts`.
+2. Run `pnpm run build:frontend`.
+3. Open `/automations` in light theme.
+4. Select an existing automation or create a new automation.
+5. Confirm Advanced details is expanded by default.
+6. Confirm Run profile is a dropdown, not a free-text profile ID input.
+7. Change Run profile from the dropdown.
+8. Change Model override and Reasoning override from dropdowns.
+9. Save the automation.
+10. Reload the page and reselect the automation.
+11. Switch to dark theme and repeat steps 4-8.
+12. Use a 375x812 mobile viewport, scroll to Advanced details, and tap each execution-settings dropdown.
+
+#### Expected Results
+- Run profile, Model override, and Reasoning override are readily editable inside Advanced details.
+- Config profiles from Codex `config.toml` appear in the Run profile menu with their profile IDs.
+- Saved run profile, model, and reasoning choices persist after reload.
+- Existing unknown run profile IDs remain visible as unavailable current-profile options instead of silently falling back.
+- Light theme renders the execution settings with readable labels, values, and helper text.
+- Dark theme renders the execution settings with dark input surfaces and readable text.
+- Mobile select focus does not zoom, jump back to the page top, or create horizontal overflow.
+
+#### Rollback/Cleanup
+- Revert saved automation changes or delete the test automation.
+- Stop the local dev server used only for this check.
