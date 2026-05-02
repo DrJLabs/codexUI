@@ -567,7 +567,7 @@ function onDocumentPointerDown(event: PointerEvent): void {
 @media (max-width: 640px) {
   .automation-thread-picker-panel {
     position: fixed;
-    top: max(12px, env(safe-area-inset-top));
+    top: max(96px, calc(env(safe-area-inset-top) + 72px));
     right: 12px;
     bottom: max(12px, env(safe-area-inset-bottom));
     left: 12px;
