@@ -66,7 +66,7 @@
                   <span v-if="item.definition.description">{{ item.definition.description }}</span>
                 </span>
                 <span class="automations-status-pill" :data-status="item.definition.status">
-                  {{ item.definition.status }}
+                  {{ formatStateLabel(item.definition.status) }}
                 </span>
               </span>
               <span class="automations-card-grid">
@@ -193,7 +193,7 @@
             <div class="automations-compact-row">
               <span>Status</span>
               <strong v-if="selectedAutomation" class="automations-status-pill" :data-status="selectedAutomation.status">
-                {{ selectedAutomation.status }}
+                {{ formatStateLabel(selectedAutomation.status) }}
               </strong>
               <strong v-else class="automations-status-pill" data-status="draft">Draft</strong>
             </div>
@@ -1000,9 +1000,7 @@ function shouldShowReadAction(run: AutomationRun): boolean {
 
 .automations-list-header,
 .automations-editor-header,
-.automations-editor-actions,
-.automations-runs-header,
-.automations-run-main {
+.automations-editor-actions {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -1199,6 +1197,7 @@ function shouldShowReadAction(run: AutomationRun): boolean {
   border-bottom: 1px solid rgba(148, 163, 184, 0.22);
   padding: 12px 14px;
   background: rgba(255, 255, 255, 0.94);
+  -webkit-backdrop-filter: blur(10px);
   backdrop-filter: blur(10px);
 }
 
@@ -1683,7 +1682,6 @@ function shouldShowReadAction(run: AutomationRun): boolean {
   color: #fbbf24;
 }
 
-:global(:root.dark) .automations-run-main,
 :global(:root.dark) .automations-run-compact-main strong,
 :global(:root.dark) .automations-compact-row > strong,
 :global(:root.dark) .automations-run-inbox,
@@ -1691,10 +1689,6 @@ function shouldShowReadAction(run: AutomationRun): boolean {
 :global(:root.dark) .automations-runs > summary,
 :global(:root.dark) .automations-advanced summary,
 :global(:root.dark) .automations-storage dd {
-  color: #e5e7eb;
-}
-
-:global(:root.dark) .automations-run-main strong {
   color: #e5e7eb;
 }
 
@@ -1740,7 +1734,6 @@ function shouldShowReadAction(run: AutomationRun): boolean {
   }
 
   .automations-card-header,
-  .automations-runs-header,
   .automations-editor-header {
     align-items: flex-start;
     flex-direction: column;

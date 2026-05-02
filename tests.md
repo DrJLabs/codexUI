@@ -6385,6 +6385,9 @@ Automation editor keeps focused mobile text fields visible above the virtual key
 - Review-comment fix verification: `pnpm run build:frontend` passed.
 - Review-comment fix verification: `git diff --check` passed.
 - Button clarification update labels the draft action as `New automation` and the submit action as `Create automation`/`Save changes`.
+- Follow-up review-comment fix verification: `pnpm vitest run src/composables/useAutomations.test.ts src/utils/automationDisplay.test.ts` passed: 2 files, 45 tests.
+- Follow-up review-comment fix verification: `pnpm run build:frontend` passed.
+- Follow-up review-comment fix verification: `git diff --check` passed.
 
 #### Rollback/Cleanup
 - Delete any temporary automation created only for this verification.

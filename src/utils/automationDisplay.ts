@@ -122,12 +122,15 @@ export function describeAutomationRunListItem(run: AutomationRun, now = new Date
   age: string
 } {
   const projectPath = run.worktreePath ?? run.cwd
+  const liveTimestamp = run.state === 'running' || run.state === 'queued' || run.state === 'starting'
+    ? run.updatedAtIso ?? run.startedAtIso
+    : null
   return {
     id: run.id,
     state: run.state,
     title: run.automationName,
     project: projectPath ? basename(projectPath) : (run.threadId || run.targetThreadId) ? 'Thread' : 'No project',
-    age: formatAutomationRelativeTime(run.completedAtIso ?? run.updatedAtIso ?? run.startedAtIso ?? run.createdAtIso, now),
+    age: formatAutomationRelativeTime(run.completedAtIso ?? liveTimestamp ?? run.createdAtIso, now),
   }
 }
 
