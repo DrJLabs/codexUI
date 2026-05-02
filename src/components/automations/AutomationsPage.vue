@@ -713,8 +713,9 @@ function applyTemplate(templateId: string): void {
       description: 'Recurring check-in for a thread.',
       prompt: 'Review this thread and report anything that needs attention.',
       runMode: 'chat',
-      frequency: 'daily',
-      time: '09:00',
+      frequency: 'custom',
+      time: '00:15',
+      rrule: 'FREQ=MINUTELY;INTERVAL=15',
     })
     return
   }
@@ -726,7 +727,7 @@ function applyTemplate(templateId: string): void {
       prompt: 'Run the scheduled project check and summarize anything that needs follow-up.',
       runMode: 'local',
       frequency: 'daily',
-      time: '09:00',
+      time: '02:00',
       clearThread: true,
     })
     return
@@ -737,9 +738,10 @@ function applyTemplate(templateId: string): void {
     description: 'Weekly worktree status check.',
     prompt: 'Check the worktree status and report blockers, uncommitted changes, or failed checks.',
     runMode: 'worktree',
-    frequency: 'weekly',
-    time: '09:00',
+    frequency: 'custom',
+    time: '00:30',
     weekday: 'MO',
+    rrule: 'FREQ=HOURLY;INTERVAL=6',
     clearThread: true,
   })
 }
@@ -752,6 +754,7 @@ function applyTemplateValues(values: {
   frequency: ScheduleFrequency
   time: string
   weekday?: string
+  rrule?: string
   clearThread?: boolean
 }): void {
   draft.value.name = values.name
@@ -762,6 +765,10 @@ function applyTemplateValues(values: {
   scheduleFrequency.value = values.frequency
   scheduleTime.value = values.time
   scheduleWeekday.value = values.weekday ?? scheduleWeekday.value
+  if (values.rrule) {
+    draft.value.rrule = values.rrule
+    return
+  }
   writeScheduleFromControls()
 }
 

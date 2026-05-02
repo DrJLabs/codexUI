@@ -6337,6 +6337,8 @@ Existing automation editor uses a compact editable status/details sidebar.
 - Mobile thread picker long-list focus fix verification: `git diff --check` passed.
 - Mobile thread picker header clearance adjustment verification: `pnpm run build:frontend` passed.
 - Mobile thread picker header clearance adjustment verification: `git diff --check` passed.
+- Template cadence preset verification: `pnpm run build:frontend` passed.
+- Template cadence preset verification: `git diff --check` passed.
 - `pnpm run build:frontend` passed.
 - Playwright checked `http://127.0.0.1:5173/#/automations` with a temporary project automation at desktop 1440x1000 light/dark and mobile 393x852.
 - Playwright confirmed compact Status and Details sections render, Advanced is closed, Previous runs is collapsed, compact controls use dark surfaces in dark theme, and mobile has no horizontal overflow.
