@@ -6,6 +6,7 @@ import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { writeFile } from 'node:fs/promises'
 import { resolvePythonCommand, resolveSkillInstallerScriptPath } from '../commandResolution.js'
+import { getSpawnInvocation } from '../utils/commandInvocation.js'
 
 type AppServerLike = {
   rpc(method: string, params: unknown): Promise<unknown>
@@ -114,11 +115,14 @@ function getSkillsInstallDir(): string {
 }
 
 const DEFAULT_COMMAND_TIMEOUT_MS = 120_000
+const SKILL_SEARCH_METADATA_LIMIT = 20
+const SKILL_SEARCH_METADATA_CONCURRENCY = 4
 
 async function runCommand(command: string, args: string[], options: { cwd?: string; timeoutMs?: number } = {}): Promise<void> {
   const timeout = options.timeoutMs ?? DEFAULT_COMMAND_TIMEOUT_MS
   await new Promise<void>((resolve, reject) => {
-    const proc = spawn(command, args, {
+    const invocation = getSpawnInvocation(command, args)
+    const proc = spawn(invocation.command, invocation.args, {
       cwd: options.cwd,
       env: process.env,
       stdio: ['ignore', 'pipe', 'pipe'],
@@ -158,7 +162,8 @@ async function runCommand(command: string, args: string[], options: { cwd?: stri
 async function runCommandWithOutput(command: string, args: string[], options: { cwd?: string; timeoutMs?: number } = {}): Promise<string> {
   const timeout = options.timeoutMs ?? DEFAULT_COMMAND_TIMEOUT_MS
   return await new Promise<string>((resolve, reject) => {
-    const proc = spawn(command, args, {
+    const invocation = getSpawnInvocation(command, args)
+    const proc = spawn(invocation.command, invocation.args, {
       cwd: options.cwd,
       env: process.env,
       stdio: ['ignore', 'pipe', 'pipe'],
@@ -245,8 +250,10 @@ type SkillHubEntry = {
   avatarUrl: string
   url: string
   installed: boolean
+  source?: string
   path?: string
   enabled?: boolean
+  installCountLabel?: string
 }
 
 async function runGitFetchWithRefLockRetry(repoDir: string, args: string[] = ['fetch', 'origin']): Promise<void> {
@@ -263,11 +270,17 @@ async function runGitFetchWithRefLockRetry(repoDir: string, args: string[] = ['f
   }
 }
 
-function buildLocalHubEntry(info: InstalledSkillInfo): SkillHubEntry {
+async function buildLocalHubEntry(info: InstalledSkillInfo): Promise<SkillHubEntry> {
+  let description = ''
+  if (info.path) {
+    try {
+      description = extractSkillDescriptionFromMarkdown(await readFile(info.path, 'utf8'))
+    } catch {}
+  }
   return {
     name: info.name,
     owner: 'local',
-    description: '',
+    description,
     displayName: '',
     publishedAt: 0,
     avatarUrl: '',
@@ -276,6 +289,156 @@ function buildLocalHubEntry(info: InstalledSkillInfo): SkillHubEntry {
     path: info.path,
     enabled: info.enabled,
   }
+}
+
+function stripAnsi(value: string): string {
+  return value.replace(/\x1B\[[0-?]*[ -/]*[@-~]/gu, '')
+}
+
+function parseNpxSkillsFindOutput(output: string, installedMap: Map<string, InstalledSkillInfo>): SkillHubEntry[] {
+  const lines = stripAnsi(output).split(/\r?\n/u).map((line) => line.trim()).filter(Boolean)
+  const results: SkillHubEntry[] = []
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index] ?? ''
+    const match = line.match(/^(.+?@[^@\s]+)\s+([\d.]+[KMB]?)\s+installs$/iu)
+    if (!match) continue
+    const source = match[1]?.trim() ?? ''
+    const installs = match[2]?.trim() ?? ''
+    const atIndex = source.lastIndexOf('@')
+    if (atIndex <= 0 || atIndex >= source.length - 1) continue
+    const owner = source.slice(0, atIndex)
+    const name = source.slice(atIndex + 1)
+    let url = ''
+    const next = lines[index + 1] ?? ''
+    const urlMatch = next.match(/(?:^└\s*)?(https?:\/\/\S+)$/u)
+    if (urlMatch?.[1]) {
+      url = urlMatch[1]
+      index += 1
+    }
+    const installedInfo = installedMap.get(name)
+    results.push({
+      name,
+      owner,
+      displayName: name,
+      description: installs ? `${installs} installs` : '',
+      installCountLabel: installs ? `${installs} installs` : '',
+      publishedAt: 0,
+      avatarUrl: '',
+      url,
+      installed: Boolean(installedInfo),
+      source,
+      path: installedInfo?.path,
+      enabled: installedInfo?.enabled,
+    })
+  }
+  return results
+}
+
+function parseGithubSkillSource(source: string): { ownerRepo: string; skillName: string } | null {
+  const atIndex = source.lastIndexOf('@')
+  if (atIndex <= 0 || atIndex >= source.length - 1) return null
+  const ownerRepo = source.slice(0, atIndex).trim()
+  const skillName = source.slice(atIndex + 1).trim()
+  const ownerRepoParts = ownerRepo.split('/').filter(Boolean)
+  if (ownerRepoParts.length !== 2 || skillName.length === 0) return null
+  if (ownerRepoParts.some((part) => part.includes(':') || part.includes(' '))) return null
+  return { ownerRepo, skillName }
+}
+
+function getGithubOwnerAvatarUrl(source: string): string {
+  const parsed = parseGithubSkillSource(source)
+  if (!parsed) return ''
+  const owner = parsed.ownerRepo.split('/')[0] ?? ''
+  return owner ? `https://github.com/${encodeURIComponent(owner)}.png?size=64` : ''
+}
+
+function buildGithubSkillRawCandidates(source: string): string[] {
+  const parsed = parseGithubSkillSource(source)
+  if (!parsed) return []
+  const ownerRepo = parsed.ownerRepo.split('/').map(encodeURIComponent).join('/')
+  const skillName = encodeURIComponent(parsed.skillName)
+  const branches = ['main', 'master']
+  const paths = [
+    `skills/${skillName}/SKILL.md`,
+    `${skillName}/SKILL.md`,
+    'SKILL.md',
+  ]
+  return branches.flatMap((branch) => paths.map((path) => `https://raw.githubusercontent.com/${ownerRepo}/${branch}/${path}`))
+}
+
+async function fetchTextWithTimeout(url: string, timeoutMs: number): Promise<string> {
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), timeoutMs)
+  try {
+    const resp = await fetch(url, {
+      headers: { 'User-Agent': 'codex-web-local' },
+      signal: controller.signal,
+    })
+    if (!resp.ok) return ''
+    return await resp.text()
+  } finally {
+    clearTimeout(timeout)
+  }
+}
+
+function resolveSkillIconUrl(icon: string, markdownUrl: string): string {
+  const value = icon.trim().replace(/^['"]|['"]$/gu, '')
+  if (!value) return ''
+  if (/^https?:\/\//iu.test(value)) return value
+  try {
+    return new URL(value, markdownUrl).toString()
+  } catch {
+    return ''
+  }
+}
+
+async function fetchGithubSkillMetadata(source: string): Promise<Partial<Pick<SkillHubEntry, 'avatarUrl' | 'description'>>> {
+  for (const candidate of buildGithubSkillRawCandidates(source)) {
+    try {
+      const markdown = await fetchTextWithTimeout(candidate, 4_000)
+      if (!markdown) continue
+      const description = extractSkillDescriptionFromMarkdown(markdown)
+      const icon = extractSkillFrontmatterField(markdown, 'icon')
+      const avatarUrl = icon ? resolveSkillIconUrl(icon, candidate) : getGithubOwnerAvatarUrl(source)
+      if (description || avatarUrl) return { description, avatarUrl }
+    } catch {}
+  }
+  return { avatarUrl: getGithubOwnerAvatarUrl(source) }
+}
+
+async function mapWithConcurrency<T, R>(
+  items: T[],
+  concurrency: number,
+  mapper: (item: T, index: number) => Promise<R>,
+): Promise<R[]> {
+  const results = new Array<R>(items.length)
+  let nextIndex = 0
+  const workerCount = Math.max(1, Math.min(concurrency, items.length))
+  await Promise.all(Array.from({ length: workerCount }, async () => {
+    while (nextIndex < items.length) {
+      const index = nextIndex
+      nextIndex += 1
+      results[index] = await mapper(items[index] as T, index)
+    }
+  }))
+  return results
+}
+
+async function enrichSkillSearchDescriptions(results: SkillHubEntry[]): Promise<SkillHubEntry[]> {
+  const enrichedHead = await mapWithConcurrency(
+    results.slice(0, SKILL_SEARCH_METADATA_LIMIT),
+    SKILL_SEARCH_METADATA_CONCURRENCY,
+    async (result) => {
+    if (!result.source) return result
+    const metadata = await fetchGithubSkillMetadata(result.source)
+    return {
+      ...result,
+      description: metadata.description || result.description,
+      avatarUrl: metadata.avatarUrl || result.avatarUrl,
+    }
+    },
+  )
+  return [...enrichedHead, ...results.slice(SKILL_SEARCH_METADATA_LIMIT)]
 }
 
 type RpcSkillRecord = {
@@ -423,7 +586,41 @@ async function scanInstalledSkillsFromDisk(): Promise<Map<string, InstalledSkill
   return map
 }
 
+async function collectInstalledSkillsMap(appServer: AppServerLike): Promise<Map<string, InstalledSkillInfo>> {
+  const installedMap = await scanInstalledSkillsFromDisk()
+  try {
+    const result = await appServer.rpc('skills/list', {}) as { data?: Array<{ skills?: RpcSkillRecord[] }> }
+    for (const entry of result.data ?? []) {
+      for (const skill of groupRpcSkillRecords(entry.skills ?? [])) {
+        if (skill.name) {
+          installedMap.set(skill.name, { name: skill.name, path: skill.path ?? '', enabled: skill.enabled !== false })
+        }
+      }
+    }
+  } catch {}
+  return installedMap
+}
+
+function extractSkillFrontmatterField(markdown: string, fieldName: string): string {
+  const lines = markdown.split(/\r?\n/)
+  if (lines[0]?.trim() !== '---') return ''
+  const frontmatter: string[] = []
+  for (let index = 1; index < lines.length; index += 1) {
+    const line = lines[index] ?? ''
+    if (line.trim() === '---') break
+    frontmatter.push(line)
+  }
+  const escapedFieldName = fieldName.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&')
+  const fieldPattern = new RegExp(`^${escapedFieldName}\\s*:`, 'iu')
+  const valuePattern = new RegExp(`^${escapedFieldName}\\s*:\\s*`, 'iu')
+  const fieldLine = frontmatter.find((line) => fieldPattern.test(line.trim()))
+  if (!fieldLine) return ''
+  return fieldLine.replace(valuePattern, '').replace(/^['"]|['"]$/gu, '').trim()
+}
+
 function extractSkillDescriptionFromMarkdown(markdown: string): string {
+  const frontmatterDescription = extractSkillFrontmatterField(markdown, 'description')
+  if (frontmatterDescription) return frontmatterDescription
   const lines = markdown.split(/\r?\n/)
   let inCodeFence = false
   for (const rawLine of lines) {
@@ -1140,28 +1337,29 @@ export async function handleSkillsRoutes(
   const { appServer, readJsonBody } = context
   if (req.method === 'GET' && url.pathname === '/codex-api/skills-hub') {
     try {
-      const installedMap = await scanInstalledSkillsFromDisk()
-      try {
-        const result = (await appServer.rpc('skills/list', {})) as {
-          data?: Array<{ skills?: Array<{ name?: string; path?: string; enabled?: boolean }> }>
-        }
-        for (const entry of result.data ?? []) {
-          for (const skill of groupRpcSkillRecords(entry.skills ?? [])) {
-            if (skill.name) {
-              installedMap.set(skill.name, { name: skill.name, path: skill.path ?? '', enabled: skill.enabled !== false })
-            }
-          }
-        }
-      } catch {}
-
-      const installed: SkillHubEntry[] = []
-      for (const [, info] of installedMap) {
-        installed.push(buildLocalHubEntry(info))
-      }
+      const installedMap = await collectInstalledSkillsMap(appServer)
+      const installed = await Promise.all([...installedMap.values()].map((info) => buildLocalHubEntry(info)))
       installed.sort((a, b) => a.name.localeCompare(b.name))
       setJson(res, 200, { installed })
     } catch (error) {
       setJson(res, 502, { error: getErrorMessage(error, 'Failed to fetch skills hub') })
+    }
+    return true
+  }
+
+  if (req.method === 'GET' && url.pathname === '/codex-api/skills-hub/search') {
+    try {
+      const query = (url.searchParams.get('q') || '').trim()
+      if (query.length < 2) {
+        setJson(res, 200, { results: [] })
+        return true
+      }
+      const installedMap = await collectInstalledSkillsMap(appServer)
+      const output = await runCommandWithOutput('npx', ['--yes', 'skills', 'find', query], { timeoutMs: 60_000 })
+      const results = await enrichSkillSearchDescriptions(parseNpxSkillsFindOutput(output, installedMap))
+      setJson(res, 200, { results })
+    } catch (error) {
+      setJson(res, 502, { error: getErrorMessage(error, 'Failed to search skills') })
     }
     return true
   }
@@ -1275,7 +1473,7 @@ export async function handleSkillsRoutes(
         return true
       }
       const local = await collectLocalSyncedSkills(appServer)
-      const installedMap = await scanInstalledSkillsFromDisk()
+      const installedMap = await collectInstalledSkillsMap(appServer)
       await writeRemoteSkillsManifest(state.githubToken, state.repoOwner, state.repoName, local)
       await syncInstalledSkillsFolderToRepo(state.githubToken, state.repoOwner, state.repoName, installedMap)
       setJson(res, 200, { ok: true, data: { synced: local.length } })
@@ -1380,7 +1578,29 @@ export async function handleSkillsRoutes(
   }
 
   if (req.method === 'POST' && url.pathname === '/codex-api/skills-hub/install') {
-    setJson(res, 410, { error: 'Remote Skills Hub installation is disabled.' })
+    try {
+      const payload = asRecord(await readJsonBody(req))
+      const source = typeof payload?.source === 'string' ? payload.source.trim() : ''
+      const owner = typeof payload?.owner === 'string' ? payload.owner.trim() : ''
+      const name = typeof payload?.name === 'string' ? payload.name.trim() : ''
+      const installSource = source || (owner && name ? `${owner}@${name}` : '')
+      if (!installSource || !/^[A-Za-z0-9._/-]+@[A-Za-z0-9._-]+$/u.test(installSource)) {
+        setJson(res, 400, { error: 'Missing or invalid skill source' })
+        return true
+      }
+      await runCommand('npx', ['--yes', 'skills', 'add', installSource, '--yes', '--global'], { timeoutMs: 120_000 })
+      try { await withTimeout(appServer.rpc('skills/list', { forceReload: true }), 10_000, 'skills/list reload') } catch {}
+      const installedMap = await collectInstalledSkillsMap(appServer)
+      const installed = installedMap.get(name || installSource.slice(installSource.lastIndexOf('@') + 1))
+      if (!installed?.path) {
+        throw new Error(`Skill install completed but ${installSource} was not found in local installed skills`)
+      }
+      await ensureInstalledSkillIsValid(appServer, installed.path)
+      autoPushSyncedSkills(appServer).catch(() => {})
+      setJson(res, 200, { ok: true, path: installed.path })
+    } catch (error) {
+      setJson(res, 502, { error: getErrorMessage(error, 'Failed to install skill') })
+    }
     return true
   }
 
