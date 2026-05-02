@@ -523,6 +523,7 @@
               :options="terminalHeaderDropdownOptions"
               :placeholder="terminalCommandPlaceholder"
               :selected-prefix-icon="IconTablerTerminal"
+              :icon-only="true"
               :empty-label="t('No commands')"
               @update:model-value="onSelectHeaderTerminalCommand"
             />
@@ -532,6 +533,8 @@
               :class="{ 'is-review-open': isReviewPaneOpen }"
               :model-value="contentHeaderBranchDropdownValue"
               :options="contentHeaderBranchDropdownOptions"
+              :selected-prefix-icon="contentHeaderBranchDropdownIcon"
+              :icon-only="contentHeaderBranchDropdownValue === '__detached_head__'"
               :disabled="isLoadingThreadBranches || isSwitchingThreadBranch"
               :enable-search="true"
               :search-placeholder="t('Search branches...')"
@@ -1022,6 +1025,7 @@ import ComposerDropdown from './components/content/ComposerDropdown.vue'
 import ComposerRuntimeDropdown from './components/content/ComposerRuntimeDropdown.vue'
 import SidebarThreadControls from './components/sidebar/SidebarThreadControls.vue'
 import IconTablerBolt from './components/icons/IconTablerBolt.vue'
+import IconTablerGitFork from './components/icons/IconTablerGitFork.vue'
 import IconTablerLayoutKanban from './components/icons/IconTablerLayoutKanban.vue'
 import IconTablerLayoutSidebar from './components/icons/IconTablerLayoutSidebar.vue'
 import IconTablerLayoutSidebarFilled from './components/icons/IconTablerLayoutSidebarFilled.vue'
@@ -1836,6 +1840,9 @@ const terminalHeaderDropdownOptions = computed(() => [
   { label: 'Add command...', value: ADD_TERMINAL_COMMAND_VALUE },
   { label: isComposerTerminalOpen.value ? t('Hide terminal') : t('Open terminal'), value: TOGGLE_TERMINAL_COMMAND_VALUE },
 ])
+const contentHeaderBranchDropdownIcon = computed(() => {
+  return IconTablerGitFork
+})
 const contentStyle = computed(() => {
   const preset = CHAT_WIDTH_PRESETS[chatWidth.value]
   const keyboardInset = Math.max(
@@ -4649,8 +4656,22 @@ async function loadWorktreeBranches(sourceCwd: string): Promise<void> {
   }
 }
 
+.content-header-terminal-command :deep(.composer-dropdown-trigger) {
+  @apply px-2.5 py-1.5;
+}
+
+.content-header-terminal-command :deep(.composer-dropdown-prefix-icon),
+.content-header-branch-dropdown :deep(.composer-dropdown-prefix-icon) {
+  @apply h-4 w-4 text-zinc-600;
+}
+
+.content-header-terminal-command :deep(.composer-dropdown-trigger),
 .content-header-branch-dropdown :deep(.composer-dropdown-trigger) {
-  @apply rounded-full border border-zinc-200 bg-white px-3 py-1.5 text-xs text-zinc-700 transition hover:bg-zinc-50;
+  @apply gap-0.5;
+}
+
+.content-header-branch-dropdown :deep(.composer-dropdown-trigger) {
+  @apply rounded-full border border-zinc-200 bg-white px-2.5 py-1.5 text-xs text-zinc-700 transition hover:bg-zinc-50;
 }
 
 .content-header-branch-dropdown :deep(.composer-dropdown-value) {
