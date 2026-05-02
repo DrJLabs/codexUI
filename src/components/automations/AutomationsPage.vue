@@ -450,6 +450,8 @@ import {
 
 type ScheduleFrequency = 'daily' | 'weekly' | 'custom'
 
+const DEFAULT_RUN_PROFILE_ID = 'workspace-coding'
+
 const route = useRoute()
 const {
   state,
@@ -590,6 +592,7 @@ const reasoningEffortSelectOptions = computed(() =>
 )
 const runProfileOptions = computed(() => {
   const defaultProfile = state.value.executionOptions.runProfiles.find((profile) => profile.id === state.value.executionOptions.defaultRunProfileId)
+    ?? state.value.executionOptions.runProfiles.find((profile) => profile.id === DEFAULT_RUN_PROFILE_ID)
     ?? state.value.executionOptions.runProfiles[0]
     ?? null
   const options = state.value.executionOptions.runProfiles.map((profile) => ({
@@ -614,6 +617,7 @@ const selectedRunProfile = computed(() => {
     return state.value.executionOptions.runProfiles.find((profile) => profile.id === requested) ?? null
   }
   return state.value.executionOptions.runProfiles.find((profile) => profile.id === state.value.executionOptions.defaultRunProfileId)
+    ?? state.value.executionOptions.runProfiles.find((profile) => profile.id === DEFAULT_RUN_PROFILE_ID)
     ?? state.value.executionOptions.runProfiles[0]
     ?? null
 })
@@ -777,8 +781,14 @@ function classifyRrule(rrule: string): { frequency: ScheduleFrequency; time: str
   const time = hour === null || minute === null || hour > 23 || minute > 59
     ? null
     : `${hour.toString().padStart(2, '0')}:${minute.toString().padStart(2, '0')}`
+  const hasDefaultInterval = !parts.INTERVAL || parts.INTERVAL === '1'
 
-  if (parts.FREQ === 'DAILY' && time && hasOnlyRruleKeys(parts, ['BYHOUR', 'BYMINUTE', 'FREQ'])) {
+  if (
+    parts.FREQ === 'DAILY' &&
+    time &&
+    hasDefaultInterval &&
+    hasOnlyRruleKeys(parts, parts.INTERVAL ? ['BYHOUR', 'BYMINUTE', 'FREQ', 'INTERVAL'] : ['BYHOUR', 'BYMINUTE', 'FREQ'])
+  ) {
     return { frequency: 'daily', time, weekday: null }
   }
 
@@ -786,8 +796,9 @@ function classifyRrule(rrule: string): { frequency: ScheduleFrequency; time: str
     parts.FREQ === 'WEEKLY' &&
     time &&
     parts.BYDAY &&
+    hasDefaultInterval &&
     /^[A-Z]{2}$/.test(parts.BYDAY) &&
-    hasOnlyRruleKeys(parts, ['BYDAY', 'BYHOUR', 'BYMINUTE', 'FREQ'])
+    hasOnlyRruleKeys(parts, parts.INTERVAL ? ['BYDAY', 'BYHOUR', 'BYMINUTE', 'FREQ', 'INTERVAL'] : ['BYDAY', 'BYHOUR', 'BYMINUTE', 'FREQ'])
   ) {
     return { frequency: 'weekly', time, weekday: parts.BYDAY }
   }
@@ -1743,7 +1754,7 @@ function shouldShowReadAction(run: AutomationRun): boolean {
     grid-template-columns: 14px minmax(0, 1fr) minmax(36px, auto);
   }
 
-  .automations-run-compact-main span {
+  .automations-run-compact-main > span:not(.automations-run-state-dot) {
     display: none;
   }
 

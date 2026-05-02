@@ -15,10 +15,16 @@ import {
 describe('automationDisplay', () => {
   it('describes daily RRULE schedules', () => {
     expect(describeAutomationSchedule('FREQ=DAILY;BYHOUR=9;BYMINUTE=0')).toBe('Daily at 9:00 AM')
+    expect(describeAutomationSchedule('FREQ=DAILY;INTERVAL=1;BYHOUR=9;BYMINUTE=0')).toBe(
+      'Daily at 9:00 AM',
+    )
   })
 
   it('describes weekly RRULE schedules', () => {
     expect(describeAutomationSchedule('FREQ=WEEKLY;BYDAY=MO;BYHOUR=10;BYMINUTE=30')).toBe(
+      'Weekly on Monday at 10:30 AM',
+    )
+    expect(describeAutomationSchedule('FREQ=WEEKLY;INTERVAL=1;BYDAY=MO;BYHOUR=10;BYMINUTE=30')).toBe(
       'Weekly on Monday at 10:30 AM',
     )
   })

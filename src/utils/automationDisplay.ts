@@ -24,7 +24,9 @@ const WEEKDAY_CODES: Record<string, string> = {
 
 const TIME_INPUT_ERROR = 'Expected time in HH:MM format from 00:00 through 23:59'
 const SIMPLE_DAILY_KEYS = ['BYHOUR', 'BYMINUTE', 'FREQ']
+const SIMPLE_DAILY_KEYS_WITH_INTERVAL = ['BYHOUR', 'BYMINUTE', 'FREQ', 'INTERVAL']
 const SIMPLE_WEEKLY_KEYS = ['BYDAY', 'BYHOUR', 'BYMINUTE', 'FREQ']
+const SIMPLE_WEEKLY_KEYS_WITH_INTERVAL = ['BYDAY', 'BYHOUR', 'BYMINUTE', 'FREQ', 'INTERVAL']
 
 export function describeAutomationSchedule(rrule: string): string {
   const parts = parseRrule(rrule)
@@ -33,13 +35,17 @@ export function describeAutomationSchedule(rrule: string): string {
   const time = hour !== null && minute !== null && hour >= 0 && hour <= 23 && minute >= 0 && minute <= 59
     ? { hour, minute }
     : null
+  const hasDefaultInterval = !parts.INTERVAL || parts.INTERVAL === '1'
+  const dailyKeys = parts.INTERVAL ? SIMPLE_DAILY_KEYS_WITH_INTERVAL : SIMPLE_DAILY_KEYS
+  const weeklyKeys = parts.INTERVAL ? SIMPLE_WEEKLY_KEYS_WITH_INTERVAL : SIMPLE_WEEKLY_KEYS
 
-  if (hasOnlyKeys(parts, SIMPLE_DAILY_KEYS) && parts.FREQ === 'DAILY' && time) {
+  if (hasDefaultInterval && hasOnlyKeys(parts, dailyKeys) && parts.FREQ === 'DAILY' && time) {
     return `Daily at ${formatTime(time.hour, time.minute)}`
   }
 
   if (
-    hasOnlyKeys(parts, SIMPLE_WEEKLY_KEYS) &&
+    hasDefaultInterval &&
+    hasOnlyKeys(parts, weeklyKeys) &&
     parts.FREQ === 'WEEKLY' &&
     parts.BYDAY &&
     time
