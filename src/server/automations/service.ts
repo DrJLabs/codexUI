@@ -156,7 +156,10 @@ export class AutomationsService {
     }
   }
 
-  async readExecutionOptions(cwds: Array<string | null | undefined> = []): Promise<AutomationsState['executionOptions']> {
+  async readExecutionOptions(
+    cwds: Array<string | null | undefined> = [],
+    options: { preferCwdDefault?: boolean } = {},
+  ): Promise<AutomationsState['executionOptions']> {
     const configRead = await this.readCodexConfig()
     const configProfiles = normalizeCodexConfigProfiles(
       configRead.config?.profiles,
@@ -165,7 +168,7 @@ export class AutomationsService {
     const uniqueCwds = Array.from(new Set(cwds.map((value) => value?.trim()).filter(Boolean)))
     const cwdConfigReads = await Promise.all(uniqueCwds.map((cwd) => this.readCodexConfig(cwd)))
     let currentConfigProfileId = readCurrentConfigProfileId(configRead.config)
-    if (cwdConfigReads.length === 1) {
+    if (options.preferCwdDefault && cwdConfigReads.length === 1) {
       currentConfigProfileId = readCurrentConfigProfileId(cwdConfigReads[0]?.config) ?? currentConfigProfileId
     }
     for (const cwdConfigRead of cwdConfigReads) {
@@ -431,7 +434,9 @@ export class AutomationsService {
       assertAutomationRunnerTarget(definition)
       const preflightRunProfile = resolveAutomationRunProfileForPreflight(definition, options)
       if (preflightRunProfile) assertAutomationRunProfileAllowed(preflightRunProfile, this.policy)
-      const executionOptions = options.runProfiles ? null : await this.readExecutionOptions([definition.cwd])
+      const executionOptions = options.runProfiles
+        ? null
+        : await this.readExecutionOptions([definition.cwd], { preferCwdDefault: true })
       const runProfiles = options.runProfiles ?? executionOptions?.runProfiles
       assertAutomationRunProfileAllowed(resolveAutomationRunProfile(definition, {
         ...options,
@@ -482,7 +487,9 @@ export class AutomationsService {
       const definition = (await mapDefinition(entry, sidecarResult.sidecar, { includeRecentRuns: false })).definition
       await this.ensureInterruptedRunRecoveryBeforeCapacity(definition.id)
       await this.assertRunStartCapacity(definition)
-      const executionOptions = input.runProfiles ? null : await this.readExecutionOptions([definition.cwd])
+      const executionOptions = input.runProfiles
+        ? null
+        : await this.readExecutionOptions([definition.cwd], { preferCwdDefault: true })
       const runProfiles = input.runProfiles ?? executionOptions?.runProfiles
       assertAutomationExecutionPolicy(this.policy)
       assertAutomationRunnerTarget(definition)
@@ -945,11 +952,8 @@ function assertAutomationRunnerTarget(definition: AutomationDefinition): void {
   if (runMode === 'chat' && !definition.targetThreadId) {
     throw new AutomationValidationError('chat automation runs require a targetThreadId')
   }
-  if (runMode === 'local' && (!definition.cwd || !isAbsolute(definition.cwd))) {
-    throw new AutomationValidationError('local automation runs require an absolute cwd')
-  }
-  if (runMode === 'worktree' && (!definition.cwd || !isAbsolute(definition.cwd))) {
-    throw new AutomationValidationError('worktree automation runs require an absolute cwd')
+  if ((runMode === 'local' || runMode === 'worktree') && (!definition.cwd || !isAbsolute(definition.cwd))) {
+    throw new AutomationValidationError(`${runMode} automation runs require an absolute cwd`)
   }
 }
 

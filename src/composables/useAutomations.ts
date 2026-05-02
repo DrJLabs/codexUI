@@ -157,11 +157,6 @@ export function useAutomations(options: UseAutomationsOptions = {}) {
     definitions.value.find((definition) => definition.id === selectedAutomationId.value) ?? null,
   )
 
-  function applyDefaultRunProfileToDraft(): void {
-    if (draft.value.runProfileId.trim()) return
-    draft.value.runProfileId = state.value.executionOptions.defaultRunProfileId
-  }
-
   async function loadAll(preferredAutomationId = selectedAutomationId.value): Promise<void> {
     isLoading.value = true
     errorMessage.value = ''
@@ -185,7 +180,6 @@ export function useAutomations(options: UseAutomationsOptions = {}) {
         await selectAutomation(first.id)
       } else {
         startCreate()
-        applyDefaultRunProfileToDraft()
       }
     } catch (error) {
       errorMessage.value = error instanceof Error ? error.message : 'Failed to load automations'
@@ -211,7 +205,6 @@ export function useAutomations(options: UseAutomationsOptions = {}) {
     pendingThreadPrefill.value = ''
     selectedAutomationId.value = ''
     draft.value = createEmptyDraft(threadId)
-    applyDefaultRunProfileToDraft()
     runHistory.value = []
     runHistoryError.value = ''
     mutationError.value = ''
@@ -317,7 +310,6 @@ export function useAutomations(options: UseAutomationsOptions = {}) {
     runHistoryRequestId += 1
     selectedAutomationId.value = ''
     draft.value = createEmptyDraft(normalizedThreadId)
-    applyDefaultRunProfileToDraft()
     runHistory.value = []
     runHistoryError.value = ''
     mutationError.value = ''

@@ -589,12 +589,19 @@ const reasoningEffortSelectOptions = computed(() =>
   ensureOption(baseReasoningEffortOptions, draft.value.reasoningEffort, 'Current reasoning effort'),
 )
 const runProfileOptions = computed(() => {
+  const defaultProfile = state.value.executionOptions.runProfiles.find((profile) => profile.id === state.value.executionOptions.defaultRunProfileId)
+    ?? state.value.executionOptions.runProfiles[0]
+    ?? null
   const options = state.value.executionOptions.runProfiles.map((profile) => ({
     value: profile.id,
     label: profile.source === 'config'
       ? `${profile.name} (${profile.id})`
       : profile.name,
   }))
+  options.unshift({
+    value: '',
+    label: defaultProfile ? `Default (${defaultProfile.name})` : 'Default',
+  })
   const requested = draft.value.runProfileId.trim()
   if (requested && !options.some((option) => option.value === requested)) {
     options.unshift({ value: requested, label: `Current profile: ${requested} (unavailable)` })
