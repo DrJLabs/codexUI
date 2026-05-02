@@ -6281,3 +6281,49 @@ Mobile automation editor workspace section expands around the full form.
 
 #### Rollback/Cleanup
 - Stop the local dev server used only for this check.
+
+---
+
+### Automations Compact Editable Sidebar
+
+#### Feature/Change Name
+Existing automation editor uses a compact editable status/details sidebar.
+
+#### Prerequisites/Setup
+1. Use `${WORKTREE_ROOT}` on `feature/automation-compact-sidebar-dev`.
+2. Start the dev server from this worktree at `http://127.0.0.1:5173`.
+3. Have at least one automation selected, or create a temporary project automation and delete it after verification.
+
+#### Steps
+1. Run `pnpm vitest run src/utils/automationDisplay.test.ts src/composables/useAutomations.test.ts`.
+2. Run `pnpm run build:frontend`.
+3. Open `/automations` in desktop light theme.
+4. Select an automation.
+5. Confirm the editor shows top actions, Status rows, Details rows, collapsed Previous runs, and closed Advanced.
+6. Change Runs in, Project, Repeats, Model, and Reasoning in place.
+7. Open Advanced and confirm Name, Thread, Prompt, Description, Notes, Run profile, custom RRULE, and storage metadata remain available.
+8. Switch to dark theme and repeat steps 4-7.
+9. Open `/automations` in a 375x812 or 393x852 mobile viewport and repeat steps 4-7.
+
+#### Expected Results
+- Existing automations open into a compact editable panel instead of a full form-first editor.
+- Status, Next run, and Last ran are visible near the top.
+- Runs in, Project, Repeats, Model, and Reasoning are editable in place.
+- Advanced is closed by default and contains lower-frequency fields and metadata.
+- Previous runs is collapsed by default and uses dense rows when opened.
+- Mobile has no horizontal overflow, uses 16px inputs/selects, and keeps top actions reachable.
+- Light and dark themes both use readable panel, row, and control surfaces.
+
+#### Observed Verification
+- `pnpm vitest run src/utils/automationDisplay.test.ts src/composables/useAutomations.test.ts` passed: 2 files, 38 tests.
+- `pnpm run build:frontend` passed.
+- Playwright checked `http://127.0.0.1:5173/#/automations` with a temporary project automation at desktop 1440x1000 light/dark and mobile 393x852.
+- Playwright confirmed compact Status and Details sections render, Advanced is closed, Previous runs is collapsed, compact controls use dark surfaces in dark theme, and mobile has no horizontal overflow.
+- Screenshots:
+  - `output/playwright/automation-compact-sidebar-light.png`
+  - `output/playwright/automation-compact-sidebar-dark.png`
+  - `output/playwright/automation-compact-sidebar-mobile.png`
+
+#### Rollback/Cleanup
+- Delete any temporary automation created only for this verification.
+- Stop the local dev server used only for this check.

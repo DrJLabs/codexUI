@@ -69,7 +69,7 @@
 - Modify: `src/utils/automationDisplay.ts`
 - Modify: `src/utils/automationDisplay.test.ts`
 
-- [ ] **Step 1: Write failing utility tests**
+- [x] **Step 1: Write failing utility tests**
 
 Add tests for:
 
@@ -82,7 +82,7 @@ formatAutomationRelativeTime('2026-05-02T05:31:00.000Z', new Date('2026-05-02T06
 describeAutomationRunListItem(run, now) returns { state, title, project, age }
 ```
 
-- [ ] **Step 2: Verify red**
+- [x] **Step 2: Verify red**
 
 Run:
 
@@ -92,7 +92,7 @@ pnpm vitest run src/utils/automationDisplay.test.ts
 
 Expected: FAIL because helper exports do not exist.
 
-- [ ] **Step 3: Implement helpers**
+- [x] **Step 3: Implement helpers**
 
 Implementation rules:
 
@@ -101,7 +101,7 @@ Implementation rules:
 - `formatAutomationRelativeTime` returns `m`, `h`, or `d` compact strings; future timestamps return `0m`; invalid/null returns `n/a`.
 - `describeAutomationRunListItem` uses `run.automationName`, project basename from `worktreePath || cwd`, and age from `completedAtIso || startedAtIso || updatedAtIso || createdAtIso`.
 
-- [ ] **Step 4: Verify green**
+- [x] **Step 4: Verify green**
 
 Run:
 
@@ -111,7 +111,7 @@ pnpm vitest run src/utils/automationDisplay.test.ts
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/utils/automationDisplay.ts src/utils/automationDisplay.test.ts
@@ -125,7 +125,7 @@ git commit -m "feat: add compact automation display helpers"
 **Files:**
 - Modify: `src/components/automations/AutomationsPage.vue`
 
-- [ ] **Step 1: Add script computed values**
+- [x] **Step 1: Add script computed values**
 
 Add computed values:
 
@@ -137,7 +137,7 @@ Add computed values:
 
 Import the new helpers from `automationDisplay.ts`.
 
-- [ ] **Step 2: Replace the edit-mode field grid with compact sections**
+- [x] **Step 2: Replace the edit-mode field grid with compact sections**
 
 For existing automations, render in this order:
 
@@ -162,7 +162,7 @@ For existing automations, render in this order:
 
 Do not create separate read-only/edit modes.
 
-- [ ] **Step 3: Keep create mode usable**
+- [x] **Step 3: Keep create mode usable**
 
 Create mode should:
 
@@ -174,7 +174,7 @@ Create mode should:
   - Thread when run mode is chat
 - Use Advanced for less-common optional fields.
 
-- [ ] **Step 4: Move heavyweight fields to Advanced**
+- [x] **Step 4: Move heavyweight fields to Advanced**
 
 Advanced contains:
 
@@ -189,7 +189,7 @@ Advanced contains:
 
 Advanced must be closed by default.
 
-- [ ] **Step 5: Make Previous runs dense and collapsible**
+- [x] **Step 5: Make Previous runs dense and collapsible**
 
 Each run row should show:
 
@@ -200,7 +200,7 @@ Each run row should show:
 
 Per-run verbose details go inside nested `<details>`.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add src/components/automations/AutomationsPage.vue
@@ -215,7 +215,7 @@ git commit -m "feat: make automation sidebar compact and editable"
 - Modify: `src/components/automations/AutomationsPage.vue`
 - Modify: `src/style.css` only if scoped dark selectors are insufficient
 
-- [ ] **Step 1: Style compact sections**
+- [x] **Step 1: Style compact sections**
 
 CSS goals:
 
@@ -225,7 +225,7 @@ CSS goals:
 - Buttons use icons where possible: pause/resume, trash, run.
 - Text and controls do not overflow at 375px.
 
-- [ ] **Step 2: Mobile rules**
+- [x] **Step 2: Mobile rules**
 
 At `max-width: 640px`:
 
@@ -235,7 +235,7 @@ At `max-width: 640px`:
 - Previous runs is collapsed by default using markup/CSS defaults.
 - Inputs/selects keep `font-size: 16px` to prevent iOS zoom.
 
-- [ ] **Step 3: Dark theme**
+- [x] **Step 3: Dark theme**
 
 Ensure dark theme:
 
@@ -244,7 +244,7 @@ Ensure dark theme:
 - avoids bright card backgrounds,
 - keeps status/run icons legible.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add src/components/automations/AutomationsPage.vue src/style.css
@@ -258,7 +258,7 @@ git commit -m "style: polish compact automation sidebar"
 **Files:**
 - Modify: `tests.md`
 
-- [ ] **Step 1: Add tests.md section**
+- [x] **Step 1: Add tests.md section**
 
 Document:
 
@@ -270,7 +270,7 @@ Document:
 - Advanced closed by default,
 - in-place edit rows.
 
-- [ ] **Step 2: Run unit/build checks**
+- [x] **Step 2: Run unit/build checks**
 
 Run:
 
@@ -282,7 +282,7 @@ git diff --check
 
 Expected: all pass.
 
-- [ ] **Step 3: Rebuild port 5173 from this child worktree**
+- [x] **Step 3: Rebuild port 5173 from this child worktree**
 
 Run:
 
@@ -294,7 +294,7 @@ curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:5173/#/automations
 
 Expected: `200`, and `/proc/<pid>/cwd` points to `/home/drj/projects/codexUI-automation-compact-sidebar-dev`.
 
-- [ ] **Step 4: Playwright verification**
+- [x] **Step 4: Playwright verification**
 
 Use CJS Playwright to verify:
 
@@ -310,7 +310,7 @@ output/playwright/automation-compact-sidebar-dark.png
 output/playwright/automation-compact-sidebar-mobile.png
 ```
 
-- [ ] **Step 5: Commit docs**
+- [x] **Step 5: Commit docs**
 
 ```bash
 git add tests.md
