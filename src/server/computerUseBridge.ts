@@ -1,4 +1,4 @@
-import { accessSync, constants } from 'node:fs'
+import { accessSync, constants, promises as fsPromises } from 'node:fs'
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { dirname, join } from 'node:path'
@@ -18,7 +18,7 @@ export type ComputerUseRouteContext = {
 
 type McpJsonRpcResponse = {
   jsonrpc?: '2.0'
-  id?: number
+  id?: number | string | null
   result?: unknown
   error?: { code: number, message: string }
 }
@@ -111,6 +111,39 @@ function inspectBinary(path: string, source: ComputerUseBinaryResolution['source
   }
 }
 
+async function inspectBinaryAsync(path: string, source: ComputerUseBinaryResolution['source']): Promise<ComputerUseBinaryResolution> {
+  try {
+    await fsPromises.access(path, constants.F_OK)
+  } catch (error) {
+    return {
+      path,
+      source,
+      exists: false,
+      executable: false,
+      error: error instanceof Error ? error.message : 'Binary does not exist',
+    }
+  }
+
+  try {
+    await fsPromises.access(path, constants.X_OK)
+    return {
+      path,
+      source,
+      exists: true,
+      executable: true,
+      error: null,
+    }
+  } catch (error) {
+    return {
+      path,
+      source,
+      exists: true,
+      executable: false,
+      error: error instanceof Error ? error.message : 'Binary is not executable',
+    }
+  }
+}
+
 export function resolveComputerUseBinary(env: NodeJS.ProcessEnv = process.env): ComputerUseBinaryResolution {
   const forcedPath = env.CODEXUI_COMPUTER_USE_BINARY?.trim()
   if (forcedPath) return inspectBinary(forcedPath, 'env')
@@ -118,6 +151,26 @@ export function resolveComputerUseBinary(env: NodeJS.ProcessEnv = process.env): 
   const candidates = getCandidateBinaries(env)
   for (const candidate of candidates) {
     const inspected = inspectBinary(candidate.path, candidate.source)
+    if (inspected.executable) return inspected
+  }
+
+  const fallback = candidates[0] ?? CANDIDATE_BINARIES[0]
+  return {
+    path: fallback.path,
+    source: 'missing',
+    exists: false,
+    executable: false,
+    error: 'No executable Computer Use binary found',
+  }
+}
+
+export async function resolveComputerUseBinaryAsync(env: NodeJS.ProcessEnv = process.env): Promise<ComputerUseBinaryResolution> {
+  const forcedPath = env.CODEXUI_COMPUTER_USE_BINARY?.trim()
+  if (forcedPath) return inspectBinaryAsync(forcedPath, 'env')
+
+  const candidates = getCandidateBinaries(env)
+  for (const candidate of candidates) {
+    const inspected = await inspectBinaryAsync(candidate.path, candidate.source)
     if (inspected.executable) return inspected
   }
 
@@ -369,7 +422,7 @@ export class ComputerUseMcpClient {
 
   private async start(): Promise<void> {
     this.dispose()
-    const binary = resolveComputerUseBinary()
+    const binary = await resolveComputerUseBinaryAsync()
     if (!binary.executable) {
       this.lastError = binary.error ?? 'Computer Use binary is not executable'
       throw new Error(this.lastError)
@@ -482,7 +535,14 @@ export class ComputerUseMcpClient {
       return
     }
 
-    if (typeof response.id !== 'number') return
+    if (response.id === undefined || response.id === null) {
+      // Server-to-client MCP notifications do not require a response.
+      return
+    }
+    if (typeof response.id !== 'number') {
+      this.appendLastError(`Invalid Computer Use MCP response id: ${String(response.id).slice(0, 80)}`)
+      return
+    }
     const pending = this.pendingResponses.get(response.id)
     if (!pending) return
 
@@ -553,10 +613,11 @@ export async function handleComputerUseRoutes(
   const disabled = process.env.CODEXUI_COMPUTER_USE_DISABLED === '1'
 
   if (req.method === 'GET' && url.pathname === '/codex-api/computer-use/status') {
+    const binary = await resolveComputerUseBinaryAsync()
     if (disabled) {
       setJson(res, 200, {
         disabled,
-        binary: resolveComputerUseBinary(),
+        binary,
         mcp: sharedComputerUseClient.getStatus(),
         doctor: null,
         error: 'Computer Use bridge is disabled',
@@ -568,14 +629,14 @@ export async function handleComputerUseRoutes(
       const doctor = await sharedComputerUseClient.callTool('doctor', {})
       setJson(res, 200, {
         disabled,
-        binary: resolveComputerUseBinary(),
+        binary,
         mcp: sharedComputerUseClient.getStatus(),
         doctor,
       })
     } catch (error) {
       setJson(res, 200, {
         disabled,
-        binary: resolveComputerUseBinary(),
+        binary,
         mcp: sharedComputerUseClient.getStatus(),
         doctor: null,
         error: getErrorMessage(error, 'Failed to load Computer Use status'),

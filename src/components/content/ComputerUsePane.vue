@@ -271,18 +271,17 @@ function waitForActionRefresh(delayMs: number): Promise<void> {
 }
 
 async function refreshStateAfterAction(): Promise<void> {
-  let didRefresh = false
   let lastRefreshError: unknown = null
   for (const delayMs of actionRefreshDelaysMs) {
     await waitForActionRefresh(delayMs)
     try {
       await refreshState()
-      didRefresh = true
+      return
     } catch (error) {
       lastRefreshError = error
     }
   }
-  if (!didRefresh) throw lastRefreshError
+  throw lastRefreshError
 }
 
 function selectTarget(id: string): void {
