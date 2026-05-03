@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import {
   canRunComputerUseAction,
-  isLoopbackHost,
+  isLoopbackAddress,
   mapDragPayload,
   mapTargetPayload,
   parseComputerUseToolResult,
@@ -47,18 +47,31 @@ describe('parseComputerUseToolResult', () => {
     expect(result.result).toEqual({ ok: true, checks: [{ name: 'ydotool', ok: true }] })
     expect(result.rawContent).toHaveLength(1)
   })
+
+  it('marks MCP isError tool results as failed', () => {
+    const result = parseComputerUseToolResult('click', {
+      isError: true,
+      content: [{ type: 'text', text: '{"message":"click failed"}' }],
+    })
+    expect(result.ok).toBe(false)
+    expect(result.error).toBe('click failed')
+    expect(result.result).toEqual({ message: 'click failed' })
+  })
 })
 
 describe('Computer Use action safety and payload mapping', () => {
-  it('allows loopback hosts for action routes', () => {
-    expect(isLoopbackHost('127.0.0.1:5173')).toBe(true)
-    expect(isLoopbackHost('localhost:5173')).toBe(true)
-    expect(isLoopbackHost('[::1]:5173')).toBe(true)
-    expect(isLoopbackHost('100.127.77.25:5173')).toBe(false)
+  it('allows only loopback socket addresses for action routes', () => {
+    expect(isLoopbackAddress('127.0.0.1')).toBe(true)
+    expect(isLoopbackAddress('::1')).toBe(true)
+    expect(isLoopbackAddress('::ffff:127.0.0.1')).toBe(true)
+    expect(isLoopbackAddress('100.127.77.25')).toBe(false)
   })
 
   it('allows remote actions only with explicit env flag', () => {
-    const req = { headers: { host: '100.127.77.25:5173' } } as never
+    const req = {
+      headers: { host: '127.0.0.1:5173' },
+      socket: { remoteAddress: '100.127.77.25' },
+    } as never
     expect(canRunComputerUseAction(req, {})).toBe(false)
     expect(canRunComputerUseAction(req, { CODEXUI_COMPUTER_USE_ALLOW_REMOTE: '1' })).toBe(true)
   })

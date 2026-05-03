@@ -6,7 +6,7 @@ import { createInterface, type Interface } from 'node:readline'
 
 export type ComputerUseBinaryResolution = {
   path: string
-  source: 'env' | 'desktop-opt' | 'desktop-lab' | 'desktop-app' | 'cargo-release' | 'missing'
+  source: 'env' | 'desktop-opt' | 'missing'
   exists: boolean
   executable: boolean
   error: string | null
@@ -41,18 +41,6 @@ const CANDIDATE_BINARIES: Array<{ source: ComputerUseBinaryResolution['source'],
   {
     source: 'desktop-opt',
     path: '/opt/codex-desktop/resources/plugins/openai-bundled/plugins/computer-use/bin/codex-computer-use-linux',
-  },
-  {
-    source: 'desktop-lab',
-    path: '/home/drj/tools/codex-desktop-linux/codex-cua-lab-app/resources/plugins/openai-bundled/plugins/computer-use/bin/codex-computer-use-linux',
-  },
-  {
-    source: 'desktop-app',
-    path: '/home/drj/tools/codex-desktop-linux/codex-app/resources/plugins/openai-bundled/plugins/computer-use/bin/codex-computer-use-linux',
-  },
-  {
-    source: 'cargo-release',
-    path: '/home/drj/tools/codex-desktop-linux/target/release/codex-computer-use-linux',
   },
 ]
 
@@ -110,6 +98,7 @@ export function resolveComputerUseBinary(env: NodeJS.ProcessEnv = process.env): 
 
 export function parseComputerUseToolResult(tool: string, payload: unknown): ComputerUseToolResult {
   const record = payload && typeof payload === 'object' ? payload as Record<string, unknown> : {}
+  const isError = record.isError === true
   const rawContent = Array.isArray(record.content) ? record.content : []
   const firstTextItem = rawContent
     .map((item) => item && typeof item === 'object' ? item as Record<string, unknown> : null)
@@ -126,24 +115,35 @@ export function parseComputerUseToolResult(tool: string, payload: unknown): Comp
   }
 
   try {
+    const result = JSON.parse(firstText) as unknown
     return {
-      ok: true,
+      ok: !isError,
       tool,
-      result: JSON.parse(firstText) as unknown,
+      result,
       rawContent,
+      error: isError ? getToolErrorMessage(result, 'MCP tool returned an error') : undefined,
     }
   } catch {
     return {
-      ok: true,
+      ok: !isError,
       tool,
       result: firstText,
       rawContent,
+      error: isError ? firstText : undefined,
     }
   }
 }
 
 function getErrorMessage(error: unknown, fallback: string): string {
   return error instanceof Error ? error.message : fallback
+}
+
+function getToolErrorMessage(value: unknown, fallback: string): string {
+  if (typeof value === 'string' && value.trim()) return value
+  const record = value && typeof value === 'object' ? value as Record<string, unknown> : {}
+  if (typeof record.error === 'string' && record.error.trim()) return record.error
+  if (typeof record.message === 'string' && record.message.trim()) return record.message
+  return fallback
 }
 
 function setJson(res: ServerResponse, statusCode: number, payload: unknown): void {
@@ -185,20 +185,15 @@ function mapElementSelectorPayload(payload: Record<string, unknown>): Record<str
   }, ['elementIndex', 'elementIdentifier', 'nodeId']))
 }
 
-export function isLoopbackHost(hostHeader: string | string[] | undefined): boolean {
-  const value = Array.isArray(hostHeader) ? hostHeader[0] : hostHeader
-  const rawHost = (value ?? '').trim().toLowerCase()
-  const bracketEnd = rawHost.indexOf(']')
-  const host = rawHost === '::1'
-    ? rawHost
-    : rawHost.startsWith('[') && bracketEnd >= 0
-      ? rawHost.slice(0, bracketEnd + 1)
-      : rawHost.split(':')[0]
-  return host === 'localhost' || host === '127.0.0.1' || host === '::1' || host === '[::1]'
+export function isLoopbackAddress(address: string | undefined | null): boolean {
+  const normalized = (address ?? '').trim().toLowerCase()
+  return normalized === '127.0.0.1'
+    || normalized === '::1'
+    || normalized === '::ffff:127.0.0.1'
 }
 
 export function canRunComputerUseAction(req: IncomingMessage, env: NodeJS.ProcessEnv = process.env): boolean {
-  return env.CODEXUI_COMPUTER_USE_ALLOW_REMOTE === '1' || isLoopbackHost(req.headers.host)
+  return env.CODEXUI_COMPUTER_USE_ALLOW_REMOTE === '1' || isLoopbackAddress(req.socket.remoteAddress)
 }
 
 export function mapDragPayload(payload: Record<string, unknown>): Record<string, unknown> {
@@ -355,7 +350,9 @@ export class ComputerUseMcpClient {
 
     child.stderr.on('data', (chunk: Buffer) => {
       const message = chunk.toString('utf8').trim()
-      if (message) this.lastError = message
+      if (message) {
+        this.lastError = this.lastError ? `${this.lastError}\n${message}` : message
+      }
     })
     child.on('error', (error) => {
       this.lastError = error.message
