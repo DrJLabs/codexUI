@@ -133,6 +133,17 @@ describe('getComputerUseApps', () => {
 
     await expect(getComputerUseApps()).rejects.toThrow('accessibility unavailable')
   })
+
+  it('surfaces non-JSON Computer Use failures without a syntax error', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('proxy unavailable', {
+      status: 502,
+      headers: {
+        'Content-Type': 'text/plain',
+      },
+    })))
+
+    await expect(getComputerUseApps()).rejects.toThrow('proxy unavailable')
+  })
 })
 
 describe('getComputerUseStatus', () => {

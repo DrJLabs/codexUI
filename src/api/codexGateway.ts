@@ -996,10 +996,11 @@ function normalizeComputerUseScreenshot(value: unknown): UiComputerUseScreenshot
 function normalizeComputerUseBounds(value: unknown): UiComputerUseAccessibilityNode['bounds'] {
   const record = asRecord(value)
   if (!record) return null
-  const x = readNumber(record.x) ?? 0
-  const y = readNumber(record.y) ?? 0
-  const width = readNumber(record.width) ?? 0
-  const height = readNumber(record.height) ?? 0
+  const x = readNumber(record.x)
+  const y = readNumber(record.y)
+  const width = readNumber(record.width)
+  const height = readNumber(record.height)
+  if (x === null || y === null || width === null || height === null || width <= 0 || height <= 0) return null
   return { x, y, width, height }
 }
 
@@ -2717,8 +2718,19 @@ export async function getReviewSnapshot(
 
 async function fetchComputerUseJson<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, init)
-  const payload = (await response.json()) as unknown
+  const rawPayload = await response.text()
+  let payload: unknown = null
+  let parsedJson = false
+  if (rawPayload.trim().length > 0) {
+    try {
+      payload = JSON.parse(rawPayload) as unknown
+      parsedJson = true
+    } catch {
+      payload = { error: rawPayload.trim() }
+    }
+  }
   if (!response.ok) throw new Error(getErrorMessageFromPayload(payload, 'Computer Use request failed'))
+  if (!parsedJson) throw new Error('Computer Use request returned invalid JSON')
   return payload as T
 }
 

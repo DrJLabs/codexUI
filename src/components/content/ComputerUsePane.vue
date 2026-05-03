@@ -210,7 +210,12 @@ const filteredTargets = computed(() => {
 })
 
 const selectedTarget = computed(() => targets.value.find((target) => target.id === selectedTargetId.value) ?? null)
-const actionsDisabled = computed(() => isActionRunning.value || status.value?.readiness === 'unavailable' || !state.value?.screenshot)
+const actionsDisabled = computed(() => {
+  return isActionRunning.value
+    || status.value?.readiness === 'unavailable'
+    || !selectedTarget.value
+    || !state.value?.screenshot
+})
 const lastActionMarkerStyle = computed(() => {
   if (!lastAction.value || !state.value?.screenshot || lastAction.value.x === undefined || lastAction.value.y === undefined) return {}
   return {
@@ -234,6 +239,8 @@ async function refreshAll(): Promise<void> {
       apps.value = []
       windows.value = []
       state.value = null
+      selectedNodeId.value = ''
+      dragStart.value = null
       return
     }
     const [nextApps, nextWindows] = await Promise.all([
@@ -252,7 +259,13 @@ async function refreshAll(): Promise<void> {
 
 async function refreshState(): Promise<void> {
   const selected = selectedTarget.value
-  if (!selected) return
+  if (!selected) {
+    selectedTargetId.value = ''
+    state.value = null
+    selectedNodeId.value = ''
+    dragStart.value = null
+    return
+  }
   state.value = await getComputerUseState({
     appName: selected.kind === 'apps' && selected.pid === null ? selected.label : undefined,
     pid: selected.kind === 'apps' ? selected.pid ?? undefined : undefined,
@@ -338,13 +351,13 @@ async function onScreenshotPointerUp(event: PointerEvent): Promise<void> {
     }
     const start = dragStart.value
     dragStart.value = null
-    await runAction(() => computerUseDrag({ ...buildTargetPayload(), startX: start.x, startY: start.y, endX: x, endY: y }))
-    lastAction.value = { kind: 'drag', x, y, atIso: new Date().toISOString() }
+    const dragResult = await runAction(() => computerUseDrag({ ...buildTargetPayload(), startX: start.x, startY: start.y, endX: x, endY: y }))
+    if (dragResult) lastAction.value = { kind: 'drag', x, y, atIso: new Date().toISOString() }
     return
   }
 
-  await runAction(() => computerUseClick({ ...buildTargetPayload(), x, y, button: 'left', clickCount: 1 }))
-  lastAction.value = { kind: 'click', x, y, atIso: new Date().toISOString() }
+  const clickResult = await runAction(() => computerUseClick({ ...buildTargetPayload(), x, y, button: 'left', clickCount: 1 }))
+  if (clickResult) lastAction.value = { kind: 'click', x, y, atIso: new Date().toISOString() }
 }
 
 async function runScroll(direction: 'up' | 'down'): Promise<void> {
@@ -352,8 +365,8 @@ async function runScroll(direction: 'up' | 'down'): Promise<void> {
   if (!screenshot) return
   const x = Math.round(screenshot.width / 2)
   const y = Math.round(screenshot.height / 2)
-  await runAction(() => computerUseScroll({ ...buildTargetPayload(), x, y, direction, pages: 1 }))
-  lastAction.value = { kind: `scroll-${direction}`, x, y, atIso: new Date().toISOString() }
+  const scrollResult = await runAction(() => computerUseScroll({ ...buildTargetPayload(), x, y, direction, pages: 1 }))
+  if (scrollResult) lastAction.value = { kind: `scroll-${direction}`, x, y, atIso: new Date().toISOString() }
 }
 
 async function sendText(): Promise<void> {
