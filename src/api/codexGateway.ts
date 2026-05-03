@@ -918,7 +918,8 @@ function normalizeComputerUseStatus(payload: unknown): UiComputerUseStatus {
   const binaryExecutable = readBoolean(binary?.executable) ?? false
   const initialized = readBoolean(mcp?.initialized) ?? false
   const toolCount = readNumber(mcp?.toolCount) ?? 0
-  const readiness: UiComputerUseReadiness = disabled || !binaryExecutable || !initialized
+  const statusError = readString(envelope?.error) ?? readString(doctorEnvelope?.error)
+  const readiness: UiComputerUseReadiness = disabled || !binaryExecutable || !initialized || statusError
     ? 'unavailable'
     : blockers.length > 0
       ? 'limited'
@@ -935,7 +936,7 @@ function normalizeComputerUseStatus(payload: unknown): UiComputerUseStatus {
     initialized,
     toolCount,
     doctor,
-    lastError: readString(mcp?.lastError) ?? readString(envelope?.error) ?? readString(doctorEnvelope?.error),
+    lastError: readString(mcp?.lastError) ?? statusError,
   }
 }
 

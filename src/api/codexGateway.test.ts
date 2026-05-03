@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   getComputerUseApps,
+  getComputerUseStatus,
   listDirectoryComposioConnectors,
   mapComputerUseClientPointToScreenshotPoint,
   startThreadTurn,
@@ -131,5 +132,31 @@ describe('getComputerUseApps', () => {
     })))
 
     await expect(getComputerUseApps()).rejects.toThrow('accessibility unavailable')
+  })
+})
+
+describe('getComputerUseStatus', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('marks status error payloads as unavailable', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({
+      disabled: false,
+      binary: { executable: true },
+      mcp: { initialized: true, running: true, toolCount: 15 },
+      doctor: null,
+      error: 'doctor failed',
+    }), {
+      status: 200,
+      headers: {
+        'Content-Type': 'application/json',
+      },
+    })))
+
+    await expect(getComputerUseStatus()).resolves.toMatchObject({
+      readiness: 'unavailable',
+      lastError: 'doctor failed',
+    })
   })
 })
