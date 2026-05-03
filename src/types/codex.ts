@@ -188,6 +188,64 @@ export type UiReviewResult = {
   findings: UiReviewFinding[]
 }
 
+export type UiComputerUseReadiness = 'ready' | 'limited' | 'unavailable'
+
+export type UiComputerUseStatus = {
+  readiness: UiComputerUseReadiness
+  disabled: boolean
+  binaryPath: string
+  binarySource: string
+  binaryExecutable: boolean
+  running: boolean
+  pid: number | null
+  initialized: boolean
+  toolCount: number
+  doctor: unknown
+  lastError: string | null
+}
+
+export type UiComputerUseApp = {
+  name: string
+  id: string
+  pid: number | null
+}
+
+export type UiComputerUseWindow = {
+  id: string
+  title: string
+  appName: string
+  pid: number | null
+  wmClass: string | null
+}
+
+export type UiComputerUseScreenshot = {
+  dataUrl: string
+  width: number
+  height: number
+}
+
+export type UiComputerUseAccessibilityNode = {
+  id: string
+  role: string
+  name: string
+  value: string | null
+  bounds: { x: number; y: number; width: number; height: number } | null
+  actions: string[]
+}
+
+export type UiComputerUseState = {
+  screenshot: UiComputerUseScreenshot | null
+  nodes: UiComputerUseAccessibilityNode[]
+  diagnostics: unknown
+}
+
+export type UiComputerUseActionResult = {
+  ok: boolean
+  tool: string
+  result: unknown
+  error?: string
+}
+
 export type UiPlanStepStatus = 'pending' | 'inProgress' | 'completed'
 
 export type UiPlanStep = {

@@ -34,6 +34,14 @@ import type {
   UiAccountUnavailableReason,
   CollaborationModeKind,
   CollaborationModeOption,
+  UiComputerUseActionResult,
+  UiComputerUseAccessibilityNode,
+  UiComputerUseApp,
+  UiComputerUseReadiness,
+  UiComputerUseScreenshot,
+  UiComputerUseState,
+  UiComputerUseStatus,
+  UiComputerUseWindow,
   UiCreditsSnapshot,
   UiFileChange,
   UiMessage,
@@ -886,6 +894,160 @@ function normalizeReviewSnapshot(payload: unknown): UiReviewSnapshot {
         .map((entry) => normalizeReviewFile(entry))
         .filter((entry): entry is UiReviewFile => entry !== null)
       : [],
+  }
+}
+
+function unwrapComputerUseResult(payload: unknown): unknown {
+  const envelope = asRecord(payload)
+  return envelope && 'result' in envelope ? envelope.result : payload
+}
+
+function normalizeComputerUseStatus(payload: unknown): UiComputerUseStatus {
+  const envelope = asRecord(payload)
+  const binary = asRecord(envelope?.binary)
+  const mcp = asRecord(envelope?.mcp)
+  const doctorEnvelope = asRecord(envelope?.doctor)
+  const doctor = doctorEnvelope?.result ?? envelope?.doctor ?? null
+  const doctorRecord = asRecord(doctor)
+  const readinessRecord = asRecord(doctorRecord?.readiness)
+  const blockers = Array.isArray(readinessRecord?.blockers) ? readinessRecord.blockers : []
+  const disabled = readBoolean(envelope?.disabled) ?? false
+  const binaryExecutable = readBoolean(binary?.executable) ?? false
+  const initialized = readBoolean(mcp?.initialized) ?? false
+  const toolCount = readNumber(mcp?.toolCount) ?? 0
+  const readiness: UiComputerUseReadiness = disabled || !binaryExecutable || !initialized
+    ? 'unavailable'
+    : blockers.length > 0
+      ? 'limited'
+      : 'ready'
+
+  return {
+    readiness,
+    disabled,
+    binaryPath: readString(binary?.path) ?? '',
+    binarySource: readString(binary?.source) ?? '',
+    binaryExecutable,
+    running: readBoolean(mcp?.running) ?? false,
+    pid: readNumber(mcp?.pid),
+    initialized,
+    toolCount,
+    doctor,
+    lastError: readString(mcp?.lastError) ?? readString(envelope?.error) ?? readString(doctorEnvelope?.error),
+  }
+}
+
+function normalizeComputerUseApps(payload: unknown): UiComputerUseApp[] {
+  const result = asRecord(unwrapComputerUseResult(payload))
+  const candidates = Array.isArray(result?.accessible_apps)
+    ? result.accessible_apps
+    : Array.isArray(result?.apps)
+      ? result.apps
+      : []
+  return candidates
+    .map((entry, index): UiComputerUseApp | null => {
+      const record = asRecord(entry)
+      if (!record) return null
+      const name = readString(record.name) ?? readString(record.app_name) ?? ''
+      if (!name) return null
+      const id = readString(record.object_ref) ?? readString(record.id) ?? `${name}-${readNumber(record.pid) ?? index}`
+      return {
+        name,
+        id,
+        pid: readNumber(record.pid),
+      }
+    })
+    .filter((entry): entry is UiComputerUseApp => entry !== null)
+}
+
+function normalizeComputerUseWindows(payload: unknown): UiComputerUseWindow[] {
+  const result = asRecord(unwrapComputerUseResult(payload))
+  const windows = Array.isArray(result?.windows) ? result.windows : []
+  return windows
+    .map((entry): UiComputerUseWindow | null => {
+      const record = asRecord(entry)
+      if (!record) return null
+      const id = readString(record.window_id) ?? String(readNumber(record.window_id) ?? '')
+      if (!id) return null
+      return {
+        id,
+        title: readString(record.title) ?? 'Untitled window',
+        appName: readString(record.app_id) ?? readString(record.appName) ?? '',
+        pid: readNumber(record.pid),
+        wmClass: readString(record.wm_class),
+      }
+    })
+    .filter((entry): entry is UiComputerUseWindow => entry !== null)
+}
+
+function normalizeComputerUseScreenshot(value: unknown): UiComputerUseScreenshot | null {
+  const record = asRecord(value)
+  if (!record) return null
+  const dataUrl = readString(record.data_url) ?? readString(record.dataUrl)
+  const width = readNumber(record.width)
+  const height = readNumber(record.height)
+  if (!dataUrl || !width || !height) return null
+  return { dataUrl, width, height }
+}
+
+function normalizeComputerUseBounds(value: unknown): UiComputerUseAccessibilityNode['bounds'] {
+  const record = asRecord(value)
+  if (!record) return null
+  const x = readNumber(record.x) ?? 0
+  const y = readNumber(record.y) ?? 0
+  const width = readNumber(record.width) ?? 0
+  const height = readNumber(record.height) ?? 0
+  return { x, y, width, height }
+}
+
+function normalizeComputerUseNode(value: unknown): UiComputerUseAccessibilityNode | null {
+  const record = asRecord(value)
+  if (!record) return null
+  const index = readNumber(record.index)
+  const objectRef = readString(record.object_ref)
+  const id = index !== null ? String(index) : objectRef
+  if (!id) return null
+  const textRecord = asRecord(record.text)
+  const valueRecord = asRecord(record.value)
+  const actions = Array.isArray(record.actions)
+    ? record.actions
+      .map((entry) => {
+        const actionRecord = asRecord(entry)
+        return readString(actionRecord?.name) ?? readString(entry)
+      })
+      .filter((entry): entry is string => typeof entry === 'string' && entry.length > 0)
+    : []
+
+  return {
+    id,
+    role: readString(record.role) ?? 'unknown',
+    name: readString(record.name) ?? readString(textRecord?.content) ?? readString(record.description) ?? '',
+    value: readString(valueRecord?.text) ?? readString(textRecord?.content),
+    bounds: normalizeComputerUseBounds(record.bounds),
+    actions,
+  }
+}
+
+function normalizeComputerUseState(payload: unknown): UiComputerUseState {
+  const result = asRecord(unwrapComputerUseResult(payload))
+  const nodes = Array.isArray(result?.accessibility_tree)
+    ? result.accessibility_tree
+      .map((entry) => normalizeComputerUseNode(entry))
+      .filter((entry): entry is UiComputerUseAccessibilityNode => entry !== null)
+    : []
+  return {
+    screenshot: normalizeComputerUseScreenshot(result?.screenshot),
+    nodes,
+    diagnostics: result?.diagnostics ?? null,
+  }
+}
+
+function normalizeComputerUseActionResult(payload: unknown): UiComputerUseActionResult {
+  const record = asRecord(payload)
+  return {
+    ok: readBoolean(record?.ok) ?? false,
+    tool: readString(record?.tool) ?? '',
+    result: record?.result ?? null,
+    error: readString(record?.error) ?? undefined,
   }
 }
 
@@ -2547,6 +2709,76 @@ export async function getReviewSnapshot(
     throw new Error(getErrorMessageFromPayload(payload, 'Failed to load review snapshot'))
   }
   return normalizeReviewSnapshot(payload)
+}
+
+async function fetchComputerUseJson<T>(path: string, init?: RequestInit): Promise<T> {
+  const response = await fetch(path, init)
+  const payload = (await response.json()) as unknown
+  if (!response.ok) throw new Error(getErrorMessageFromPayload(payload, 'Computer Use request failed'))
+  return payload as T
+}
+
+async function postComputerUseAction(
+  path: string,
+  payload: Record<string, unknown>,
+): Promise<UiComputerUseActionResult> {
+  const data = await fetchComputerUseJson<unknown>(path, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+  return normalizeComputerUseActionResult(data)
+}
+
+export async function getComputerUseStatus(): Promise<UiComputerUseStatus> {
+  const payload = await fetchComputerUseJson<unknown>('/codex-api/computer-use/status')
+  return normalizeComputerUseStatus(payload)
+}
+
+export async function getComputerUseApps(): Promise<UiComputerUseApp[]> {
+  const payload = await fetchComputerUseJson<unknown>('/codex-api/computer-use/apps')
+  return normalizeComputerUseApps(payload)
+}
+
+export async function getComputerUseWindows(): Promise<UiComputerUseWindow[]> {
+  const payload = await fetchComputerUseJson<unknown>('/codex-api/computer-use/windows')
+  return normalizeComputerUseWindows(payload)
+}
+
+export async function getComputerUseState(payload: Record<string, unknown>): Promise<UiComputerUseState> {
+  const data = await fetchComputerUseJson<unknown>('/codex-api/computer-use/state', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+  return normalizeComputerUseState(data)
+}
+
+export const computerUseClick = (payload: Record<string, unknown>) => postComputerUseAction('/codex-api/computer-use/click', payload)
+export const computerUseScroll = (payload: Record<string, unknown>) => postComputerUseAction('/codex-api/computer-use/scroll', payload)
+export const computerUseDrag = (payload: Record<string, unknown>) => postComputerUseAction('/codex-api/computer-use/drag', payload)
+export const computerUseTypeText = (payload: Record<string, unknown>) => postComputerUseAction('/codex-api/computer-use/type-text', payload)
+export const computerUsePressKey = (payload: Record<string, unknown>) => postComputerUseAction('/codex-api/computer-use/press-key', payload)
+export const computerUsePerformAction = (payload: Record<string, unknown>) => postComputerUseAction('/codex-api/computer-use/perform-action', payload)
+export const computerUseSetValue = (payload: Record<string, unknown>) => postComputerUseAction('/codex-api/computer-use/set-value', payload)
+export const setupComputerUseAccessibility = () => postComputerUseAction('/codex-api/computer-use/setup-accessibility', {})
+export const setupComputerUseWindowTargeting = () => postComputerUseAction('/codex-api/computer-use/setup-window-targeting', {})
+
+export function mapComputerUseClientPointToScreenshotPoint(input: {
+  clientX: number
+  clientY: number
+  rect: { left: number, top: number, width: number, height: number }
+  screenshot: { width: number, height: number }
+}): { x: number, y: number } {
+  if (input.rect.width <= 0 || input.rect.height <= 0 || input.screenshot.width <= 0 || input.screenshot.height <= 0) {
+    return { x: 0, y: 0 }
+  }
+  const rawX = Math.round((input.clientX - input.rect.left) * input.screenshot.width / input.rect.width)
+  const rawY = Math.round((input.clientY - input.rect.top) * input.screenshot.height / input.rect.height)
+  return {
+    x: Math.max(0, Math.min(input.screenshot.width - 1, rawX)),
+    y: Math.max(0, Math.min(input.screenshot.height - 1, rawY)),
+  }
 }
 
 export async function applyReviewAction(payload: {

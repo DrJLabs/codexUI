@@ -1,5 +1,9 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { listDirectoryComposioConnectors, startThreadTurn } from './codexGateway'
+import {
+  listDirectoryComposioConnectors,
+  mapComputerUseClientPointToScreenshotPoint,
+  startThreadTurn,
+} from './codexGateway'
 
 function mockRpcFetch(): { requests: Array<{ method: string, params: Record<string, unknown> }> } {
   const requests: Array<{ method: string, params: Record<string, unknown> }> = []
@@ -85,5 +89,25 @@ describe('listDirectoryComposioConnectors', () => {
     await listDirectoryComposioConnectors('instagram', '50', 25)
 
     expect(requests).toEqual(['/codex-api/composio/connectors?query=instagram&cursor=50&limit=25'])
+  })
+})
+
+describe('mapComputerUseClientPointToScreenshotPoint', () => {
+  it('maps displayed image coordinates to natural screenshot pixels', () => {
+    expect(mapComputerUseClientPointToScreenshotPoint({
+      clientX: 150,
+      clientY: 75,
+      rect: { left: 50, top: 25, width: 200, height: 100 },
+      screenshot: { width: 1000, height: 500 },
+    })).toEqual({ x: 500, y: 250 })
+  })
+
+  it('clamps coordinates to screenshot bounds', () => {
+    expect(mapComputerUseClientPointToScreenshotPoint({
+      clientX: 999,
+      clientY: -10,
+      rect: { left: 0, top: 0, width: 100, height: 100 },
+      screenshot: { width: 640, height: 480 },
+    })).toEqual({ x: 639, y: 0 })
   })
 })
