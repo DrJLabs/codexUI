@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
+  getComputerUseApps,
   listDirectoryComposioConnectors,
   mapComputerUseClientPointToScreenshotPoint,
   startThreadTurn,
@@ -109,5 +110,26 @@ describe('mapComputerUseClientPointToScreenshotPoint', () => {
       rect: { left: 0, top: 0, width: 100, height: 100 },
       screenshot: { width: 640, height: 480 },
     })).toEqual({ x: 639, y: 0 })
+  })
+})
+
+describe('getComputerUseApps', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('surfaces failed Computer Use tool envelopes', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({
+      ok: false,
+      tool: 'list_apps',
+      error: 'accessibility unavailable',
+    }), {
+      status: 200,
+      headers: {
+        'Content-Type': 'application/json',
+      },
+    })))
+
+    await expect(getComputerUseApps()).rejects.toThrow('accessibility unavailable')
   })
 })

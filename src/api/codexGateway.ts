@@ -899,6 +899,9 @@ function normalizeReviewSnapshot(payload: unknown): UiReviewSnapshot {
 
 function unwrapComputerUseResult(payload: unknown): unknown {
   const envelope = asRecord(payload)
+  if (envelope && readBoolean(envelope.ok) === false) {
+    throw new Error(readString(envelope.error) ?? 'Computer Use tool failed')
+  }
   return envelope && 'result' in envelope ? envelope.result : payload
 }
 

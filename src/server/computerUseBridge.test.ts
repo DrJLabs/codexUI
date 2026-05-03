@@ -1,4 +1,4 @@
-import { chmodSync, mkdtempSync, writeFileSync } from 'node:fs'
+import { chmodSync, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
@@ -34,6 +34,22 @@ describe('resolveComputerUseBinary', () => {
       source: 'env',
       exists: false,
       executable: false,
+    })
+  })
+
+  it('probes desktop resource paths before fixed install paths', () => {
+    const resourcesPath = mkdtempSync(join(tmpdir(), 'codexui-cua-resources-'))
+    const binary = join(resourcesPath, 'plugins/openai-bundled/plugins/computer-use/bin/codex-computer-use-linux')
+    mkdirSync(join(resourcesPath, 'plugins/openai-bundled/plugins/computer-use/bin'), { recursive: true })
+    writeFileSync(binary, '#!/bin/sh\nexit 0\n')
+    chmodSync(binary, 0o755)
+
+    expect(resolveComputerUseBinary({ CODEX_DESKTOP_RESOURCES_PATH: resourcesPath })).toMatchObject({
+      path: binary,
+      source: 'desktop-resources-env',
+      exists: true,
+      executable: true,
+      error: null,
     })
   })
 })

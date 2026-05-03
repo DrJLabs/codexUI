@@ -236,8 +236,12 @@ async function refreshAll(): Promise<void> {
       state.value = null
       return
     }
-    apps.value = await getComputerUseApps()
-    windows.value = await getComputerUseWindows()
+    const [nextApps, nextWindows] = await Promise.all([
+      getComputerUseApps(),
+      getComputerUseWindows(),
+    ])
+    apps.value = nextApps
+    windows.value = nextWindows
     if (selectedTargetId.value) await refreshState()
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : 'Failed to load Computer Use'

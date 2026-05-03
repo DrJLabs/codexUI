@@ -1,12 +1,12 @@
 import { accessSync, constants } from 'node:fs'
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
 import type { IncomingMessage, ServerResponse } from 'node:http'
-import { dirname } from 'node:path'
+import { dirname, join } from 'node:path'
 import { createInterface, type Interface } from 'node:readline'
 
 export type ComputerUseBinaryResolution = {
   path: string
-  source: 'env' | 'desktop-opt' | 'missing'
+  source: 'env' | 'desktop-resources-env' | 'desktop-resources' | 'desktop-appdir' | 'desktop-opt' | 'missing'
   exists: boolean
   executable: boolean
   error: string | null
@@ -35,6 +35,40 @@ export type ComputerUseToolResult = {
   result: unknown
   rawContent: unknown[]
   error?: string
+}
+
+const COMPUTER_USE_BINARY_RELATIVE_PATH = 'plugins/openai-bundled/plugins/computer-use/bin/codex-computer-use-linux'
+const COMPUTER_USE_ROUTE_FORBIDDEN_MESSAGE = 'Computer Use routes require loopback client or CODEXUI_COMPUTER_USE_ALLOW_REMOTE=1'
+
+function getProcessResourcesPath(): string | undefined {
+  return (process as NodeJS.Process & { resourcesPath?: string }).resourcesPath
+}
+
+function getCandidateBinaries(env: NodeJS.ProcessEnv = process.env): Array<{ source: ComputerUseBinaryResolution['source'], path: string }> {
+  return [
+    env.CODEX_DESKTOP_RESOURCES_PATH
+      ? {
+          source: 'desktop-resources-env',
+          path: join(env.CODEX_DESKTOP_RESOURCES_PATH, COMPUTER_USE_BINARY_RELATIVE_PATH),
+        }
+      : null,
+    getProcessResourcesPath()
+      ? {
+          source: 'desktop-resources',
+          path: join(getProcessResourcesPath() as string, COMPUTER_USE_BINARY_RELATIVE_PATH),
+        }
+      : null,
+    env.APPDIR
+      ? {
+          source: 'desktop-appdir',
+          path: join(env.APPDIR, 'resources', COMPUTER_USE_BINARY_RELATIVE_PATH),
+        }
+      : null,
+    {
+      source: 'desktop-opt',
+      path: '/opt/codex-desktop/resources/plugins/openai-bundled/plugins/computer-use/bin/codex-computer-use-linux',
+    },
+  ].filter((candidate): candidate is { source: ComputerUseBinaryResolution['source'], path: string } => candidate !== null)
 }
 
 const CANDIDATE_BINARIES: Array<{ source: ComputerUseBinaryResolution['source'], path: string }> = [
@@ -81,12 +115,13 @@ export function resolveComputerUseBinary(env: NodeJS.ProcessEnv = process.env): 
   const forcedPath = env.CODEXUI_COMPUTER_USE_BINARY?.trim()
   if (forcedPath) return inspectBinary(forcedPath, 'env')
 
-  for (const candidate of CANDIDATE_BINARIES) {
+  const candidates = getCandidateBinaries(env)
+  for (const candidate of candidates) {
     const inspected = inspectBinary(candidate.path, candidate.source)
     if (inspected.executable) return inspected
   }
 
-  const fallback = CANDIDATE_BINARIES[0]
+  const fallback = candidates[0] ?? CANDIDATE_BINARIES[0]
   return {
     path: fallback.path,
     source: 'missing',
@@ -554,6 +589,11 @@ export async function handleComputerUseRoutes(
     return true
   }
 
+  if (!canRunComputerUseAction(req)) {
+    setJson(res, 403, { error: COMPUTER_USE_ROUTE_FORBIDDEN_MESSAGE })
+    return true
+  }
+
   if (req.method === 'GET' && url.pathname === '/codex-api/computer-use/tools') {
     try {
       setJson(res, 200, { tools: await sharedComputerUseClient.listTools() })
@@ -573,11 +613,6 @@ export async function handleComputerUseRoutes(
       setJson(res, 405, { error: 'Method not allowed' })
       return true
     }
-    if (req.method === 'POST' && !canRunComputerUseAction(req)) {
-      setJson(res, 403, { error: 'Computer Use state and setup routes require loopback host or CODEXUI_COMPUTER_USE_ALLOW_REMOTE=1' })
-      return true
-    }
-
     try {
       const payload = req.method === 'POST' ? asRecord(await context.readJsonBody(req)) : {}
       setJson(res, 200, await sharedComputerUseClient.callTool(toolName, mapPayloadForTool(toolName, payload)))
@@ -593,11 +628,6 @@ export async function handleComputerUseRoutes(
       setJson(res, 405, { error: 'Method not allowed' })
       return true
     }
-    if (!canRunComputerUseAction(req)) {
-      setJson(res, 403, { error: 'Computer Use actions require loopback host or CODEXUI_COMPUTER_USE_ALLOW_REMOTE=1' })
-      return true
-    }
-
     try {
       const payload = asRecord(await context.readJsonBody(req))
       setJson(res, 200, await sharedComputerUseClient.callTool(actionToolName, mapPayloadForTool(actionToolName, payload)))
@@ -610,10 +640,6 @@ export async function handleComputerUseRoutes(
   if (url.pathname === '/codex-api/computer-use/tool') {
     if (req.method !== 'POST') {
       setJson(res, 405, { error: 'Method not allowed' })
-      return true
-    }
-    if (!canRunComputerUseAction(req)) {
-      setJson(res, 403, { error: 'Computer Use actions require loopback host or CODEXUI_COMPUTER_USE_ALLOW_REMOTE=1' })
       return true
     }
     if (process.env.CODEXUI_COMPUTER_USE_DEBUG_TOOLS !== '1') {
