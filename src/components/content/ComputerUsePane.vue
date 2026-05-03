@@ -148,6 +148,7 @@ type PaneTarget = {
   kind: TargetKind
   label: string
   meta: string
+  pid: number | null
 }
 
 const props = defineProps<{
@@ -189,6 +190,7 @@ const targets = computed<PaneTarget[]>(() => {
       kind: 'windows',
       label: window.title || window.id,
       meta: [window.appName, window.wmClass, window.pid ? `pid ${window.pid}` : ''].filter(Boolean).join(' · '),
+      pid: window.pid,
     }))
   }
   return apps.value.map((app) => ({
@@ -196,6 +198,7 @@ const targets = computed<PaneTarget[]>(() => {
     kind: 'apps',
     label: app.name,
     meta: app.pid ? `pid ${app.pid}` : '',
+    pid: app.pid,
   }))
 })
 
@@ -245,8 +248,9 @@ async function refreshAll(): Promise<void> {
 async function refreshState(): Promise<void> {
   const selected = selectedTarget.value
   if (!selected) return
-    state.value = await getComputerUseState({
-    appName: selected.kind === 'apps' ? selected.label : undefined,
+  state.value = await getComputerUseState({
+    appName: selected.kind === 'apps' && selected.pid === null ? selected.label : undefined,
+    pid: selected.kind === 'apps' ? selected.pid ?? undefined : undefined,
     windowId: selected.kind === 'windows' ? selected.id : undefined,
     includeScreenshot: true,
     maxNodes: 250,
@@ -266,7 +270,8 @@ function buildTargetPayload(): Record<string, unknown> {
   const selected = selectedTarget.value
   if (!selected) return {}
   return {
-    appName: selected.kind === 'apps' ? selected.label : undefined,
+    appName: selected.kind === 'apps' && selected.pid === null ? selected.label : undefined,
+    pid: selected.kind === 'apps' ? selected.pid ?? undefined : undefined,
     windowId: selected.kind === 'windows' ? selected.id : undefined,
   }
 }
@@ -278,7 +283,11 @@ async function runAction(action: () => Promise<UiComputerUseActionResult>): Prom
   try {
     const result = await action()
     if (!result.ok) throw new Error(result.error || `Computer Use action failed: ${result.tool}`)
-    window.setTimeout(() => void refreshState(), 350)
+    window.setTimeout(() => {
+      void refreshState().catch((error: unknown) => {
+        actionError.value = error instanceof Error ? error.message : 'Failed to refresh Computer Use state'
+      })
+    }, 350)
     return result
   } catch (error) {
     actionError.value = error instanceof Error ? error.message : 'Computer Use action failed'

@@ -267,6 +267,7 @@ export class ComputerUseMcpClient {
   private initialized = false
   private tools: McpTool[] = []
   private lastError: string | null = null
+  private stderrBuffer = ''
   private startedAtIso: string | null = null
 
   async ensureStarted(): Promise<void> {
@@ -322,6 +323,7 @@ export class ComputerUseMcpClient {
     this.child = null
     this.initialized = false
     this.tools = []
+    this.stderrBuffer = ''
     this.lineReader?.close()
     this.lineReader = null
     this.rejectPending(new Error('Computer Use MCP client disposed'))
@@ -347,11 +349,12 @@ export class ComputerUseMcpClient {
     this.child = child
     this.startedAtIso = new Date().toISOString()
     this.lastError = null
+    this.stderrBuffer = ''
 
     child.stderr.on('data', (chunk: Buffer) => {
       const message = chunk.toString('utf8').trim()
       if (message) {
-        this.lastError = this.lastError ? `${this.lastError}\n${message}` : message
+        this.stderrBuffer = [this.stderrBuffer, message].filter(Boolean).join('\n').slice(-4_000)
       }
     })
     child.on('error', (error) => {
@@ -362,9 +365,13 @@ export class ComputerUseMcpClient {
     child.on('exit', (code, signal) => {
       if (this.child !== child) return
       if (code !== 0 && code !== null) {
-        this.lastError = `Computer Use MCP exited with code ${code}`
+        this.lastError = this.stderrBuffer
+          ? `Computer Use MCP exited with code ${code}: ${this.stderrBuffer}`
+          : `Computer Use MCP exited with code ${code}`
       } else if (signal) {
-        this.lastError = `Computer Use MCP exited from signal ${signal}`
+        this.lastError = this.stderrBuffer
+          ? `Computer Use MCP exited from signal ${signal}: ${this.stderrBuffer}`
+          : `Computer Use MCP exited from signal ${signal}`
       }
       this.rejectPending(new Error(this.lastError ?? 'Computer Use MCP exited'))
       this.resetProcess(child)
@@ -466,6 +473,7 @@ export class ComputerUseMcpClient {
     this.child = null
     this.initialized = false
     this.tools = []
+    this.stderrBuffer = ''
     this.lineReader?.close()
     this.lineReader = null
   }
@@ -559,6 +567,10 @@ export async function handleComputerUseRoutes(
     }
     if (req.method !== 'GET' && ['/codex-api/computer-use/apps', '/codex-api/computer-use/windows'].includes(url.pathname)) {
       setJson(res, 405, { error: 'Method not allowed' })
+      return true
+    }
+    if (req.method === 'POST' && !canRunComputerUseAction(req)) {
+      setJson(res, 403, { error: 'Computer Use state and setup routes require loopback host or CODEXUI_COMPUTER_USE_ALLOW_REMOTE=1' })
       return true
     }
 
