@@ -92,6 +92,15 @@ describe('Computer Use action safety and payload mapping', () => {
     expect(canRunComputerUseAction(req, { CODEXUI_COMPUTER_USE_ALLOW_REMOTE: '1' })).toBe(true)
   })
 
+  it('blocks proxied loopback requests unless remote access is explicit', () => {
+    const req = {
+      headers: { 'x-forwarded-for': '100.127.77.25' },
+      socket: { remoteAddress: '127.0.0.1' },
+    } as never
+    expect(canRunComputerUseAction(req, {})).toBe(false)
+    expect(canRunComputerUseAction(req, { CODEXUI_COMPUTER_USE_ALLOW_REMOTE: '1' })).toBe(true)
+  })
+
   it('maps drag and target payloads to backend field names', () => {
     expect(mapDragPayload({ startX: 1, startY: 2, endX: 3, endY: 4 })).toEqual({
       start_x: 1,

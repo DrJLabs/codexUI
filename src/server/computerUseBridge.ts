@@ -1,6 +1,6 @@
 import { accessSync, constants, promises as fsPromises } from 'node:fs'
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
-import type { IncomingMessage, ServerResponse } from 'node:http'
+import type { IncomingHttpHeaders, IncomingMessage, ServerResponse } from 'node:http'
 import { dirname, join } from 'node:path'
 import { createInterface, type Interface } from 'node:readline'
 
@@ -39,6 +39,7 @@ export type ComputerUseToolResult = {
 
 const COMPUTER_USE_BINARY_RELATIVE_PATH = 'plugins/openai-bundled/plugins/computer-use/bin/codex-computer-use-linux'
 const COMPUTER_USE_ROUTE_FORBIDDEN_MESSAGE = 'Computer Use routes require loopback client or CODEXUI_COMPUTER_USE_ALLOW_REMOTE=1'
+const FORWARDED_CLIENT_HEADERS = ['forwarded', 'x-forwarded-for', 'x-real-ip', 'x-client-ip', 'cf-connecting-ip']
 
 function getProcessResourcesPath(): string | undefined {
   return (process as NodeJS.Process & { resourcesPath?: string }).resourcesPath
@@ -280,8 +281,17 @@ export function isLoopbackAddress(address: string | undefined | null): boolean {
     || normalized === '::ffff:127.0.0.1'
 }
 
+function hasForwardedClientHeader(headers: IncomingHttpHeaders): boolean {
+  return FORWARDED_CLIENT_HEADERS.some((header) => {
+    const value = headers[header]
+    return Array.isArray(value) ? value.length > 0 : typeof value === 'string' && value.trim().length > 0
+  })
+}
+
 export function canRunComputerUseAction(req: IncomingMessage, env: NodeJS.ProcessEnv = process.env): boolean {
-  return env.CODEXUI_COMPUTER_USE_ALLOW_REMOTE === '1' || isLoopbackAddress(req.socket.remoteAddress)
+  if (env.CODEXUI_COMPUTER_USE_ALLOW_REMOTE === '1') return true
+  if (hasForwardedClientHeader(req.headers)) return false
+  return isLoopbackAddress(req.socket.remoteAddress)
 }
 
 export function mapDragPayload(payload: Record<string, unknown>): Record<string, unknown> {
