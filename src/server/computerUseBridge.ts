@@ -156,6 +156,103 @@ function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}
 }
 
+function compactPayload(payload: Record<string, unknown>): Record<string, unknown> {
+  return Object.fromEntries(Object.entries(payload).filter((entry) => entry[1] !== undefined))
+}
+
+function deleteUiOnlyKeys(payload: Record<string, unknown>, keys: string[]): Record<string, unknown> {
+  const next = { ...payload }
+  for (const key of keys) {
+    delete next[key]
+  }
+  return next
+}
+
+function normalizeInteger(value: unknown): unknown {
+  if (typeof value === 'number' && Number.isFinite(value)) return Math.trunc(value)
+  if (typeof value === 'string' && /^\d+$/.test(value.trim())) return Number(value)
+  return value
+}
+
+function mapElementSelectorPayload(payload: Record<string, unknown>): Record<string, unknown> {
+  const nodeId = payload.nodeId
+  const elementIndex = payload.elementIndex ?? (typeof nodeId === 'number' || (typeof nodeId === 'string' && /^\d+$/.test(nodeId)) ? nodeId : undefined)
+  const elementIdentifier = payload.elementIdentifier ?? (typeof nodeId === 'string' && !/^\d+$/.test(nodeId) ? nodeId : undefined)
+  return compactPayload(deleteUiOnlyKeys({
+    ...payload,
+    element_index: normalizeInteger(elementIndex),
+    element_identifier: elementIdentifier,
+  }, ['elementIndex', 'elementIdentifier', 'nodeId']))
+}
+
+export function isLoopbackHost(hostHeader: string | string[] | undefined): boolean {
+  const value = Array.isArray(hostHeader) ? hostHeader[0] : hostHeader
+  const rawHost = (value ?? '').trim().toLowerCase()
+  const bracketEnd = rawHost.indexOf(']')
+  const host = rawHost === '::1'
+    ? rawHost
+    : rawHost.startsWith('[') && bracketEnd >= 0
+      ? rawHost.slice(0, bracketEnd + 1)
+      : rawHost.split(':')[0]
+  return host === 'localhost' || host === '127.0.0.1' || host === '::1' || host === '[::1]'
+}
+
+export function canRunComputerUseAction(req: IncomingMessage, env: NodeJS.ProcessEnv = process.env): boolean {
+  return env.CODEXUI_COMPUTER_USE_ALLOW_REMOTE === '1' || isLoopbackHost(req.headers.host)
+}
+
+export function mapDragPayload(payload: Record<string, unknown>): Record<string, unknown> {
+  return compactPayload(deleteUiOnlyKeys({
+    ...payload,
+    start_x: payload.startX,
+    start_y: payload.startY,
+    end_x: payload.endX,
+    end_y: payload.endY,
+  }, ['startX', 'startY', 'endX', 'endY']))
+}
+
+export function mapTargetPayload(payload: Record<string, unknown>): Record<string, unknown> {
+  return compactPayload(deleteUiOnlyKeys({
+    ...payload,
+    app_id: payload.appId,
+    app_name_or_bundle_identifier: payload.appName,
+    window_id: normalizeInteger(payload.windowId),
+    wm_class: payload.wmClass,
+    terminal_cwd: payload.terminalCwd,
+    terminal_command: payload.terminalCommand,
+    terminal_pid: normalizeInteger(payload.terminalPid),
+  }, ['appId', 'appName', 'windowId', 'wmClass', 'terminalCwd', 'terminalCommand', 'terminalPid']))
+}
+
+function mapStatePayload(payload: Record<string, unknown>): Record<string, unknown> {
+  return compactPayload(deleteUiOnlyKeys({
+    ...mapTargetPayload(payload),
+    include_screenshot: payload.includeScreenshot,
+    max_nodes: payload.maxNodes,
+    max_depth: payload.maxDepth,
+  }, ['includeScreenshot', 'maxNodes', 'maxDepth']))
+}
+
+function mapClickPayload(payload: Record<string, unknown>): Record<string, unknown> {
+  return compactPayload(deleteUiOnlyKeys({
+    ...mapElementSelectorPayload(payload),
+    click_count: payload.clickCount,
+  }, ['clickCount']))
+}
+
+function mapScrollPayload(payload: Record<string, unknown>): Record<string, unknown> {
+  return mapElementSelectorPayload(payload)
+}
+
+function mapPayloadForTool(tool: string, payload: Record<string, unknown>): Record<string, unknown> {
+  if (tool === 'drag') return mapDragPayload(payload)
+  if (tool === 'get_app_state') return mapStatePayload(payload)
+  if (tool === 'click') return mapClickPayload(payload)
+  if (tool === 'scroll' || tool === 'perform_action' || tool === 'set_value') return mapElementSelectorPayload(payload)
+  if (tool === 'type_text' || tool === 'press_key') return mapTargetPayload(payload)
+  return compactPayload(payload)
+}
+
 function isMcpTool(value: unknown): value is McpTool {
   const record = value && typeof value === 'object' ? value as Record<string, unknown> : null
   return typeof record?.name === 'string'
@@ -391,6 +488,16 @@ const readOnlyToolByPath: Record<string, string> = {
   '/codex-api/computer-use/setup-window-targeting': 'setup_window_targeting',
 }
 
+const actionToolByPath: Record<string, string> = {
+  '/codex-api/computer-use/click': 'click',
+  '/codex-api/computer-use/scroll': 'scroll',
+  '/codex-api/computer-use/drag': 'drag',
+  '/codex-api/computer-use/type-text': 'type_text',
+  '/codex-api/computer-use/press-key': 'press_key',
+  '/codex-api/computer-use/perform-action': 'perform_action',
+  '/codex-api/computer-use/set-value': 'set_value',
+}
+
 export async function handleComputerUseRoutes(
   req: IncomingMessage,
   res: ServerResponse,
@@ -460,9 +567,57 @@ export async function handleComputerUseRoutes(
 
     try {
       const payload = req.method === 'POST' ? asRecord(await context.readJsonBody(req)) : {}
-      setJson(res, 200, await sharedComputerUseClient.callTool(toolName, payload))
+      setJson(res, 200, await sharedComputerUseClient.callTool(toolName, mapPayloadForTool(toolName, payload)))
     } catch (error) {
       setJson(res, 502, { error: getErrorMessage(error, `Failed to call Computer Use tool: ${toolName}`) })
+    }
+    return true
+  }
+
+  const actionToolName = actionToolByPath[url.pathname]
+  if (actionToolName) {
+    if (req.method !== 'POST') {
+      setJson(res, 405, { error: 'Method not allowed' })
+      return true
+    }
+    if (!canRunComputerUseAction(req)) {
+      setJson(res, 403, { error: 'Computer Use actions require loopback host or CODEXUI_COMPUTER_USE_ALLOW_REMOTE=1' })
+      return true
+    }
+
+    try {
+      const payload = asRecord(await context.readJsonBody(req))
+      setJson(res, 200, await sharedComputerUseClient.callTool(actionToolName, mapPayloadForTool(actionToolName, payload)))
+    } catch (error) {
+      setJson(res, 502, { error: getErrorMessage(error, `Failed to call Computer Use tool: ${actionToolName}`) })
+    }
+    return true
+  }
+
+  if (url.pathname === '/codex-api/computer-use/tool') {
+    if (req.method !== 'POST') {
+      setJson(res, 405, { error: 'Method not allowed' })
+      return true
+    }
+    if (!canRunComputerUseAction(req)) {
+      setJson(res, 403, { error: 'Computer Use actions require loopback host or CODEXUI_COMPUTER_USE_ALLOW_REMOTE=1' })
+      return true
+    }
+    if (process.env.CODEXUI_COMPUTER_USE_DEBUG_TOOLS !== '1') {
+      setJson(res, 404, { error: 'Debug Computer Use tools are disabled' })
+      return true
+    }
+
+    try {
+      const payload = asRecord(await context.readJsonBody(req))
+      const name = typeof payload.name === 'string' ? payload.name : ''
+      if (!name) {
+        setJson(res, 400, { error: 'Missing Computer Use tool name' })
+        return true
+      }
+      setJson(res, 200, await sharedComputerUseClient.callTool(name, asRecord(payload.arguments)))
+    } catch (error) {
+      setJson(res, 502, { error: getErrorMessage(error, 'Failed to call debug Computer Use tool') })
     }
     return true
   }
