@@ -358,7 +358,7 @@ export class ComputerUseMcpClient {
       }
     })
     child.on('error', (error) => {
-      this.lastError = error.message
+      this.appendLastError(error.message)
       this.rejectPending(error)
       this.resetProcess(child)
     })
@@ -443,7 +443,7 @@ export class ComputerUseMcpClient {
     try {
       response = JSON.parse(trimmed) as McpJsonRpcResponse
     } catch {
-      this.lastError = `Invalid Computer Use MCP JSON: ${trimmed.slice(0, 160)}`
+      this.appendLastError(`Invalid Computer Use MCP JSON: ${trimmed.slice(0, 160)}`)
       return
     }
 
@@ -466,6 +466,10 @@ export class ComputerUseMcpClient {
       pending.reject(error)
       this.pendingResponses.delete(id)
     }
+  }
+
+  private appendLastError(message: string): void {
+    this.lastError = [this.lastError, message].filter(Boolean).join('\n').slice(-4_000)
   }
 
   private resetProcess(child: ChildProcessWithoutNullStreams): void {

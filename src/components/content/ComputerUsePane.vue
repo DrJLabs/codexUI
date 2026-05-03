@@ -175,6 +175,7 @@ const dragStart = ref<{ x: number, y: number } | null>(null)
 const actionError = ref('')
 const isActionRunning = ref(false)
 const commonKeys = ['Enter', 'Escape', 'Tab', 'Backspace', 'Ctrl+L', 'Ctrl+C', 'Ctrl+V']
+const actionRefreshDelaysMs = [350, 650, 1000]
 
 const statusSubtitle = computed(() => {
   if (!status.value) return props.cwd || props.threadId
@@ -259,6 +260,27 @@ async function refreshState(): Promise<void> {
   selectedNodeId.value = ''
 }
 
+function waitForActionRefresh(delayMs: number): Promise<void> {
+  return new Promise((resolve) => {
+    window.setTimeout(resolve, delayMs)
+  })
+}
+
+async function refreshStateAfterAction(): Promise<void> {
+  let didRefresh = false
+  let lastRefreshError: unknown = null
+  for (const delayMs of actionRefreshDelaysMs) {
+    await waitForActionRefresh(delayMs)
+    try {
+      await refreshState()
+      didRefresh = true
+    } catch (error) {
+      lastRefreshError = error
+    }
+  }
+  if (!didRefresh) throw lastRefreshError
+}
+
 function selectTarget(id: string): void {
   selectedTargetId.value = id
   void refreshState().catch((error: unknown) => {
@@ -283,11 +305,9 @@ async function runAction(action: () => Promise<UiComputerUseActionResult>): Prom
   try {
     const result = await action()
     if (!result.ok) throw new Error(result.error || `Computer Use action failed: ${result.tool}`)
-    window.setTimeout(() => {
-      void refreshState().catch((error: unknown) => {
-        actionError.value = error instanceof Error ? error.message : 'Failed to refresh Computer Use state'
-      })
-    }, 350)
+    void refreshStateAfterAction().catch((error: unknown) => {
+      actionError.value = error instanceof Error ? error.message : 'Failed to refresh Computer Use state'
+    })
     return result
   } catch (error) {
     actionError.value = error instanceof Error ? error.message : 'Computer Use action failed'
