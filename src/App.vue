@@ -801,8 +801,14 @@
           </template>
           <template v-else>
             <div class="content-grid">
+              <ComputerUsePane
+                v-if="isComputerUsePaneOpen && selectedThreadId && composerCwd"
+                :thread-id="selectedThreadId"
+                :cwd="composerCwd"
+                @close="activeContentSidePane = null"
+              />
               <ReviewPane
-                v-if="isReviewPaneOpen && selectedThreadId && composerCwd"
+                v-else-if="isReviewPaneOpen && selectedThreadId && composerCwd"
                 :thread-id="selectedThreadId"
                 :cwd="composerCwd"
                 :is-thread-in-progress="isSelectedThreadInProgress"
@@ -1011,6 +1017,7 @@ import { getPathLeafName, getPathParent, isProjectlessChatPath, normalizePathFor
 const ThreadConversation = defineAsyncComponent(() => import('./components/content/ThreadConversation.vue'))
 const ThreadTerminalPanel = defineAsyncComponent(() => import('./components/content/ThreadTerminalPanel.vue'))
 const ReviewPane = defineAsyncComponent(() => import('./components/content/ReviewPane.vue'))
+const ComputerUsePane = defineAsyncComponent(() => import('./components/content/ComputerUsePane.vue'))
 const DirectoryHub = defineAsyncComponent(() => import('./components/content/DirectoryHub.vue'))
 const { t, uiLanguage, uiLanguageOptions, setUiLanguage } = useUiLanguage()
 

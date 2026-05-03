@@ -529,7 +529,7 @@ export async function handleComputerUseRoutes(
         doctor,
       })
     } catch (error) {
-      setJson(res, 503, {
+      setJson(res, 200, {
         disabled,
         binary: resolveComputerUseBinary(),
         mcp: sharedComputerUseClient.getStatus(),
