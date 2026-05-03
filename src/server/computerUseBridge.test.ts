@@ -2,7 +2,7 @@ import { chmodSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { resolveComputerUseBinary } from './computerUseBridge'
+import { parseComputerUseToolResult, resolveComputerUseBinary } from './computerUseBridge'
 
 describe('resolveComputerUseBinary', () => {
   it('uses CODEXUI_COMPUTER_USE_BINARY when provided', () => {
@@ -28,5 +28,16 @@ describe('resolveComputerUseBinary', () => {
       exists: false,
       executable: false,
     })
+  })
+})
+
+describe('parseComputerUseToolResult', () => {
+  it('parses JSON from MCP text content and preserves raw content', () => {
+    const result = parseComputerUseToolResult('doctor', {
+      content: [{ type: 'text', text: '{"ok":true,"checks":[{"name":"ydotool","ok":true}]}' }],
+    })
+    expect(result.ok).toBe(true)
+    expect(result.result).toEqual({ ok: true, checks: [{ name: 'ydotool', ok: true }] })
+    expect(result.rawContent).toHaveLength(1)
   })
 })
