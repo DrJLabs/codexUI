@@ -308,7 +308,7 @@ async function runAction(action: () => Promise<UiComputerUseActionResult>): Prom
   try {
     const result = await action()
     if (!result.ok) throw new Error(result.error || `Computer Use action failed: ${result.tool}`)
-    void refreshStateAfterAction().catch((error: unknown) => {
+    await refreshStateAfterAction().catch((error: unknown) => {
       actionError.value = error instanceof Error ? error.message : 'Failed to refresh Computer Use state'
     })
     return result
@@ -338,12 +338,12 @@ async function onScreenshotPointerUp(event: PointerEvent): Promise<void> {
     }
     const start = dragStart.value
     dragStart.value = null
-    await runAction(() => computerUseDrag({ startX: start.x, startY: start.y, endX: x, endY: y }))
+    await runAction(() => computerUseDrag({ ...buildTargetPayload(), startX: start.x, startY: start.y, endX: x, endY: y }))
     lastAction.value = { kind: 'drag', x, y, atIso: new Date().toISOString() }
     return
   }
 
-  await runAction(() => computerUseClick({ x, y, button: 'left', clickCount: 1 }))
+  await runAction(() => computerUseClick({ ...buildTargetPayload(), x, y, button: 'left', clickCount: 1 }))
   lastAction.value = { kind: 'click', x, y, atIso: new Date().toISOString() }
 }
 
@@ -352,7 +352,7 @@ async function runScroll(direction: 'up' | 'down'): Promise<void> {
   if (!screenshot) return
   const x = Math.round(screenshot.width / 2)
   const y = Math.round(screenshot.height / 2)
-  await runAction(() => computerUseScroll({ x, y, direction, pages: 1 }))
+  await runAction(() => computerUseScroll({ ...buildTargetPayload(), x, y, direction, pages: 1 }))
   lastAction.value = { kind: `scroll-${direction}`, x, y, atIso: new Date().toISOString() }
 }
 

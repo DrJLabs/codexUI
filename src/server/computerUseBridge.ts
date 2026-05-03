@@ -328,10 +328,11 @@ function mapScrollPayload(payload: Record<string, unknown>): Record<string, unkn
 }
 
 function mapPayloadForTool(tool: string, payload: Record<string, unknown>): Record<string, unknown> {
-  if (tool === 'drag') return mapDragPayload(payload)
+  if (tool === 'drag') return mapDragPayload(mapTargetPayload(payload))
   if (tool === 'get_app_state') return mapStatePayload(payload)
-  if (tool === 'click') return mapClickPayload(payload)
-  if (tool === 'scroll' || tool === 'perform_action' || tool === 'set_value') return mapElementSelectorPayload(payload)
+  if (tool === 'click') return mapClickPayload(mapTargetPayload(payload))
+  if (tool === 'scroll') return mapScrollPayload(mapTargetPayload(payload))
+  if (tool === 'perform_action' || tool === 'set_value') return mapElementSelectorPayload(mapTargetPayload(payload))
   if (tool === 'type_text' || tool === 'press_key') return mapTargetPayload(payload)
   return compactPayload(payload)
 }
