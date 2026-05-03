@@ -224,6 +224,38 @@ This file tracks manual regression and feature verification steps.
 
 ---
 
+## Computer Use Direct Bridge
+
+### Prerequisites/setup
+- Computer Use backend binary is executable at `/home/drj/tools/codex-desktop-linux/codex-cua-lab-app/resources/plugins/openai-bundled/plugins/computer-use/bin/codex-computer-use-linux`.
+- For phone/Tailscale action testing, start the dev server with `CODEXUI_COMPUTER_USE_ALLOW_REMOTE=1`.
+
+### Steps
+1. Run `pnpm run dev -- --host 0.0.0.0 --port 4173`.
+2. Open `http://127.0.0.1:4173`.
+3. Open any existing thread with a valid `composerCwd`.
+4. Open the branch dropdown and click `Computer Use`.
+5. Verify status, apps, windows, and screenshot state load.
+6. In light theme, click a screenshot coordinate and verify the action completes and the screenshot refreshes.
+7. Switch to dark theme and repeat the status, target list, screenshot, text input, key menu, and close-button checks.
+8. Set mobile viewport to `375x812`; verify target list, screenshot, controls, and keyboard input remain reachable.
+9. From a phone over Tailscale Serve, verify actions are blocked without `CODEXUI_COMPUTER_USE_ALLOW_REMOTE=1` and allowed with it.
+10. Temporarily set `CODEXUI_COMPUTER_USE_BINARY=/tmp/missing-cua-binary` and verify the pane reports unavailable with the missing path.
+
+### Expected results
+- Review pane still opens and closes from the same dropdown.
+- Computer Use pane owns its own MCP child process and status reports initialized tools.
+- Click, scroll, type text, and common key actions return successful action results on loopback.
+- Dark theme does not show light-only surfaces.
+- Mobile layout does not overflow horizontally.
+
+### Rollback/cleanup
+- Stop the dev server.
+- Unset `CODEXUI_COMPUTER_USE_ALLOW_REMOTE`, `CODEXUI_COMPUTER_USE_BINARY`, and `CODEXUI_COMPUTER_USE_DEBUG_TOOLS`.
+- Close any spawned `codex-computer-use-linux mcp` process if the dev server was killed without cleanup.
+
+---
+
 ### Header Git branch dropdown with commit checkout
 
 #### Feature/Change Name

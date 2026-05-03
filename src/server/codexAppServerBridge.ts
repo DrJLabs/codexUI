@@ -12,6 +12,7 @@ import { createInterface } from 'node:readline'
 import { writeFile } from 'node:fs/promises'
 import { handleAccountRoutes } from './accountRoutes.js'
 import { buildAppServerArgs } from './appServerRuntimeConfig.js'
+import { disposeComputerUseBridge, handleComputerUseRoutes } from './computerUseBridge.js'
 import { handleReviewRoutes } from './reviewGit.js'
 import { handleSkillsRoutes, initializeSkillsSyncOnStartup } from './skillsRoutes.js'
 import { TelegramThreadBridge } from './telegramThreadBridge.js'
@@ -5108,6 +5109,10 @@ export function createCodexBridgeMiddleware(): CodexBridgeMiddleware {
         return
       }
 
+      if (await handleComputerUseRoutes(req, res, url, { readJsonBody })) {
+        return
+      }
+
       if (req.method === 'GET' && url.pathname === '/codex-api/thread-terminal/status') {
         setJson(res, 200, terminalManager.getAvailability())
         return
@@ -6517,6 +6522,7 @@ export function createCodexBridgeMiddleware(): CodexBridgeMiddleware {
     threadSearchIndex = null
     telegramBridge.stop()
     terminalManager.dispose()
+    disposeComputerUseBridge()
     backendQueueProcessor.dispose()
     appServer.dispose()
   }

@@ -528,8 +528,11 @@
               :busy="isSwitchingThreadBranch"
               :error="threadBranchError"
               :review-open="isReviewPaneOpen"
+              :computer-use-open="isComputerUsePaneOpen"
               :show-review="route.name === 'thread' && selectedThreadId.length > 0"
-              @toggle-review="isReviewPaneOpen = !isReviewPaneOpen"
+              :show-computer-use="route.name === 'thread' && selectedThreadId.length > 0"
+              @toggle-review="toggleContentSidePane('review')"
+              @toggle-computer-use="toggleContentSidePane('computerUse')"
               @checkout-branch="onCheckoutContentHeaderBranch"
               @checkout-commit="onCheckoutContentHeaderCommit"
               @load-commits="loadThreadBranchCommits"
@@ -798,12 +801,18 @@
           </template>
           <template v-else>
             <div class="content-grid">
+              <ComputerUsePane
+                v-if="isComputerUsePaneOpen && selectedThreadId && composerCwd"
+                :thread-id="selectedThreadId"
+                :cwd="composerCwd"
+                @close="activeContentSidePane = null"
+              />
               <ReviewPane
-                v-if="isReviewPaneOpen && selectedThreadId && composerCwd"
+                v-else-if="isReviewPaneOpen && selectedThreadId && composerCwd"
                 :thread-id="selectedThreadId"
                 :cwd="composerCwd"
                 :is-thread-in-progress="isSelectedThreadInProgress"
-                @close="isReviewPaneOpen = false"
+                @close="activeContentSidePane = null"
               />
 
               <template v-else>
@@ -1008,6 +1017,7 @@ import { getPathLeafName, getPathParent, isProjectlessChatPath, normalizePathFor
 const ThreadConversation = defineAsyncComponent(() => import('./components/content/ThreadConversation.vue'))
 const ThreadTerminalPanel = defineAsyncComponent(() => import('./components/content/ThreadTerminalPanel.vue'))
 const ReviewPane = defineAsyncComponent(() => import('./components/content/ReviewPane.vue'))
+const ComputerUsePane = defineAsyncComponent(() => import('./components/content/ComputerUsePane.vue'))
 const DirectoryHub = defineAsyncComponent(() => import('./components/content/DirectoryHub.vue'))
 const { t, uiLanguage, uiLanguageOptions, setUiLanguage } = useUiLanguage()
 
@@ -1291,7 +1301,16 @@ const defaultNewProjectName = ref('New Project (1)')
 const homeDirectory = ref('')
 const isSettingsOpen = ref(false)
 const isAccountsSectionCollapsed = ref(loadAccountsSectionCollapsed())
-const isReviewPaneOpen = ref(false)
+type ContentSidePane = 'review' | 'computerUse' | null
+
+const activeContentSidePane = ref<ContentSidePane>(null)
+const isReviewPaneOpen = computed(() => activeContentSidePane.value === 'review')
+const isComputerUsePaneOpen = computed(() => activeContentSidePane.value === 'computerUse')
+
+function toggleContentSidePane(pane: Exclude<ContentSidePane, null>): void {
+  activeContentSidePane.value = activeContentSidePane.value === pane ? null : pane
+}
+
 const threadBranchOptions = ref<WorktreeBranchOption[]>([])
 const currentThreadBranch = ref<string | null>(null)
 const currentThreadHeadSha = ref<string | null>(null)
@@ -2940,7 +2959,7 @@ function onCheckoutContentHeaderBranch(value: string): void {
       currentThreadHeadSubject.value = null
       currentThreadHeadDate.value = null
       isThreadDetachedHead.value = false
-      isReviewPaneOpen.value = false
+      activeContentSidePane.value = null
       return loadThreadBranches(cwd)
     })
     .catch((error: unknown) => {
@@ -2964,7 +2983,7 @@ function onCheckoutContentHeaderCommit(sha: string): void {
   void checkoutGitCommit(cwd, targetSha)
     .then((state) => {
       applyThreadGitState(state)
-      isReviewPaneOpen.value = false
+      activeContentSidePane.value = null
       return loadThreadBranches(cwd)
     })
     .catch((error: unknown) => {
@@ -4033,7 +4052,7 @@ watch(
       worktreeInitStatus.value = { phase: 'idle', title: '', message: '' }
     }
     if (name !== 'thread') {
-      isReviewPaneOpen.value = false
+      activeContentSidePane.value = null
     }
   },
 )

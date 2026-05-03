@@ -329,6 +329,97 @@
   @apply border-zinc-700 bg-zinc-800/95;
 }
 
+:root.dark .computer-use-pane {
+  @apply border-zinc-800 bg-zinc-900 text-zinc-100;
+}
+
+:root.dark .computer-use-pane-subtitle,
+:root.dark .computer-use-pane-target-meta,
+:root.dark .computer-use-pane-empty {
+  @apply text-zinc-400;
+}
+
+:root.dark .computer-use-pane-close,
+:root.dark .computer-use-pane-status button,
+:root.dark .computer-use-pane-tabs button,
+:root.dark .computer-use-pane-mode-control button,
+:root.dark .computer-use-pane-scroll-buttons button,
+:root.dark .computer-use-pane-text-row button,
+:root.dark .computer-use-pane-key-grid button,
+:root.dark .computer-use-pane-refresh-state,
+:root.dark .computer-use-pane-node-actions button {
+  @apply border-zinc-700 bg-zinc-800 text-zinc-200 hover:bg-zinc-700;
+}
+
+:root.dark .computer-use-pane-status {
+  @apply border-zinc-700 bg-zinc-800;
+}
+
+:root.dark .computer-use-pane-status.is-ready {
+  @apply border-emerald-800 text-emerald-300;
+}
+
+:root.dark .computer-use-pane-status.is-limited {
+  @apply border-amber-800 text-amber-300;
+}
+
+:root.dark .computer-use-pane-status.is-unavailable {
+  @apply border-rose-800 text-rose-300;
+}
+
+:root.dark .computer-use-pane-error {
+  @apply border-rose-800 bg-rose-950/40 text-rose-200;
+}
+
+:root.dark .computer-use-pane-tabs button[aria-pressed='true'] {
+  @apply border-zinc-100 bg-zinc-100 text-zinc-950;
+}
+
+:root.dark .computer-use-pane-search {
+  @apply border-zinc-700 bg-zinc-950 text-zinc-100 placeholder:text-zinc-500;
+}
+
+:root.dark .computer-use-pane-text-row input {
+  @apply border-zinc-700 bg-zinc-950 text-zinc-100 placeholder:text-zinc-500;
+}
+
+:root.dark .computer-use-pane-target {
+  @apply border-zinc-800 bg-zinc-950 text-zinc-100 hover:border-zinc-700;
+}
+
+:root.dark .computer-use-pane-target.is-selected {
+  @apply border-sky-500 bg-sky-950/40;
+}
+
+:root.dark .computer-use-pane-viewport {
+  @apply border-zinc-800 bg-zinc-950;
+}
+
+:root.dark .computer-use-pane-controls,
+:root.dark .computer-use-pane-nodes {
+  @apply border-zinc-800 bg-zinc-950;
+}
+
+:root.dark .computer-use-pane-mode-control button[aria-pressed='true'] {
+  @apply border-sky-500 bg-sky-600 text-white;
+}
+
+:root.dark .computer-use-pane-node-header {
+  @apply text-zinc-400;
+}
+
+:root.dark .computer-use-pane-node {
+  @apply border-zinc-800 bg-zinc-900 text-zinc-100 hover:border-zinc-700;
+}
+
+:root.dark .computer-use-pane-node.is-selected {
+  @apply border-sky-500 bg-sky-950/40;
+}
+
+:root.dark .computer-use-pane-node span {
+  @apply text-zinc-400;
+}
+
 :root.dark .rate-limit-card-title {
   @apply text-zinc-500;
 }
@@ -343,6 +434,26 @@
 
 :root.dark .rate-limit-card-footer {
   @apply text-zinc-400;
+}
+
+.computer-use-pane-viewport img {
+  touch-action: none;
+  max-width: 100%;
+  max-height: min(58vh, 42rem);
+  object-fit: contain;
+}
+
+@media (max-width: 640px) {
+  .computer-use-pane {
+    height: 100%;
+    min-height: 0;
+  }
+
+  .computer-use-pane-controls {
+    position: sticky;
+    bottom: 0;
+    padding-bottom: max(0.75rem, env(safe-area-inset-bottom));
+  }
 }
 
 :root.dark .thread-composer-attach-menu {
