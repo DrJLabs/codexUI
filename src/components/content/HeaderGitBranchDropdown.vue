@@ -1,5 +1,5 @@
 <template>
-  <div ref="rootRef" class="header-git-dropdown" :class="{ 'is-review-open': reviewOpen }">
+  <div ref="rootRef" class="header-git-dropdown" :class="{ 'is-review-open': reviewOpen || computerUseOpen }">
     <button
       class="header-git-trigger"
       type="button"
@@ -19,6 +19,10 @@
         <button v-if="showReview" class="header-git-review-row" type="button" @click="emit('toggleReview')">
           <IconTablerFilePencil class="header-git-row-icon" />
           <span>{{ reviewOpen ? 'Review (Open)' : 'Review' }}</span>
+        </button>
+        <button v-if="showComputerUse" class="header-git-review-row" type="button" @click="emit('toggleComputerUse')">
+          <IconTablerBolt class="header-git-row-icon" />
+          <span>{{ computerUseOpen ? 'Computer Use (Open)' : 'Computer Use' }}</span>
         </button>
 
         <div class="header-git-state">
@@ -105,6 +109,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import type { GitCommitOption, WorktreeBranchOption } from '../../api/codexGateway'
+import IconTablerBolt from '../icons/IconTablerBolt.vue'
 import IconTablerChevronDown from '../icons/IconTablerChevronDown.vue'
 import IconTablerChevronRight from '../icons/IconTablerChevronRight.vue'
 import IconTablerFilePencil from '../icons/IconTablerFilePencil.vue'
@@ -125,11 +130,14 @@ const props = defineProps<{
   busy: boolean
   error: string
   reviewOpen: boolean
+  computerUseOpen: boolean
   showReview?: boolean
+  showComputerUse?: boolean
 }>()
 
 const emit = defineEmits<{
   toggleReview: []
+  toggleComputerUse: []
   checkoutBranch: [branch: string]
   checkoutCommit: [sha: string]
   loadCommits: [branch: string]
@@ -141,6 +149,7 @@ const isOpen = ref(false)
 const searchQuery = ref('')
 const expandedBranch = ref('')
 const showReview = computed(() => props.showReview !== false)
+const showComputerUse = computed(() => props.showComputerUse !== false)
 
 const displayLabel = computed(() => {
   if (props.currentBranch) return props.currentBranch
