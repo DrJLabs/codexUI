@@ -382,12 +382,12 @@ async function pressKey(key: string): Promise<void> {
 
 async function performSelectedNodeAction(): Promise<void> {
   if (!selectedNodeId.value) return
-  await runAction(() => computerUsePerformAction({ nodeId: selectedNodeId.value, action: 'click' }))
+  await runAction(() => computerUsePerformAction({ ...buildTargetPayload(), nodeId: selectedNodeId.value, action: 'click' }))
 }
 
 async function setSelectedNodeValue(): Promise<void> {
   if (!selectedNodeId.value || !textDraft.value) return
-  await runAction(() => computerUseSetValue({ nodeId: selectedNodeId.value, value: textDraft.value }))
+  await runAction(() => computerUseSetValue({ ...buildTargetPayload(), nodeId: selectedNodeId.value, value: textDraft.value }))
 }
 
 watch(selectedTargetKind, () => {
