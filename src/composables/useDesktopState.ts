@@ -1373,6 +1373,7 @@ export function filterGroupsByWorkspaceRoots(
 export function useDesktopState() {
   const projectGroups = ref<UiProjectGroup[]>([])
   const sourceGroups = ref<UiProjectGroup[]>([])
+  const focusedProjectOrder = ref<string[]>([])
   const selectedThreadId = ref(loadSelectedThreadId())
   const persistedMessagesByThreadId = ref<Record<string, UiMessage[]>>({})
   const livePlanMessagesByThreadId = ref<Record<string, UiMessage[]>>({})
@@ -3994,9 +3995,13 @@ export function useDesktopState() {
       }
     }
 
+    const recentProjectOrder = [
+      ...pinnedProjectOrder.value,
+      ...focusedProjectOrder.value.filter((projectName) => !pinnedProjectOrder.value.includes(projectName)),
+    ]
     const orderedGroups = projectSortMode.value === 'manual'
       ? orderGroupsByProjectOrder(visibleGroups, projectOrder.value)
-      : orderGroupsByPinnedProjectOrder(visibleGroups, pinnedProjectOrder.value)
+      : orderGroupsByPinnedProjectOrder(visibleGroups, recentProjectOrder)
     markServerListedThreads(new Set(flattenThreads(orderedGroups).map((thread) => thread.id)))
     const mergedWithInProgress = mergeIncomingWithLocalInProgressThreads(
       sourceGroups.value,
@@ -5175,6 +5180,36 @@ export function useDesktopState() {
     void persistProjectOrderToWorkspaceRoots()
   }
 
+  function focusProjectToTop(projectName: string): void {
+    const normalizedName = projectName.trim()
+    if (!normalizedName) return
+
+    if (projectSortMode.value === 'recent') {
+      focusedProjectOrder.value = [
+        normalizedName,
+        ...focusedProjectOrder.value.filter((name) => name !== normalizedName),
+      ]
+      applyThreadGroups(
+        loadedThreadListGroups.length > 0 ? loadedThreadListGroups : sourceGroups.value,
+        loadedThreadListRootsState,
+      )
+      return
+    }
+
+    const nextProjectOrder = [normalizedName, ...projectOrder.value.filter((name) => name !== normalizedName)]
+    if (areStringArraysEqual(projectOrder.value, nextProjectOrder)) {
+      applyThreadFlags()
+      return
+    }
+
+    projectOrder.value = nextProjectOrder
+    saveProjectOrder(projectOrder.value)
+    const orderedGroups = orderGroupsByProjectOrder(sourceGroups.value, projectOrder.value)
+    sourceGroups.value = mergeThreadGroups(sourceGroups.value, orderedGroups)
+    applyThreadFlags()
+    void persistProjectOrderToWorkspaceRoots()
+  }
+
   function unpinProject(projectName: string): void {
     const normalizedName = projectName.trim()
     if (!normalizedName) return
@@ -5524,6 +5559,7 @@ export function useDesktopState() {
     reorderProject,
     setProjectSortMode,
     pinProjectToTop,
+    focusProjectToTop,
     unpinProject,
     toggleProjectPinned,
     startPolling,

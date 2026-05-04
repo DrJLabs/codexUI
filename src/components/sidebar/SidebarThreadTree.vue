@@ -921,6 +921,7 @@ const projectMoveMode = ref(createStoppedProjectMoveMode())
 let pendingDragPointerSample: DragPointerSample | null = null
 let dragPointerRafId: number | null = null
 let activeProjectPointerId: number | null = null
+let suppressProjectToggleClearTimer: number | null = null
 const suppressNextProjectToggleId = ref('')
 const measuredHeightByProject = ref<Record<string, number>>({})
 const projectGroupElementByName = new Map<string, HTMLElement>()
@@ -1739,6 +1740,10 @@ function toggleProjectExpansion(projectName: string): void {
 
 function toggleProjectCollapse(projectName: string): void {
   if (suppressNextProjectToggleId.value === projectName) {
+    if (suppressProjectToggleClearTimer !== null) {
+      window.clearTimeout(suppressProjectToggleClearTimer)
+      suppressProjectToggleClearTimer = null
+    }
     suppressNextProjectToggleId.value = ''
     return
   }
@@ -2156,9 +2161,23 @@ function resetProjectDragState(): void {
   pendingProjectDrag.value = null
   activeProjectDrag.value = null
   activeProjectPointerId = null
-  suppressNextProjectToggleId.value = ''
+  scheduleSuppressedProjectToggleClear()
   unbindProjectDragListeners()
   unbindProjectPointerDragListeners()
+}
+
+function scheduleSuppressedProjectToggleClear(): void {
+  const suppressedProjectName = suppressNextProjectToggleId.value
+  if (!suppressedProjectName) return
+  if (suppressProjectToggleClearTimer !== null) {
+    window.clearTimeout(suppressProjectToggleClearTimer)
+  }
+  suppressProjectToggleClearTimer = window.setTimeout(() => {
+    if (suppressNextProjectToggleId.value === suppressedProjectName) {
+      suppressNextProjectToggleId.value = ''
+    }
+    suppressProjectToggleClearTimer = null
+  }, 0)
 }
 
 function scheduleProjectDragPointerFrame(): void {
@@ -2382,6 +2401,10 @@ watch(openThreadMenuId, (threadId) => {
 })
 
 onBeforeUnmount(() => {
+  if (suppressProjectToggleClearTimer !== null) {
+    window.clearTimeout(suppressProjectToggleClearTimer)
+    suppressProjectToggleClearTimer = null
+  }
   for (const element of projectGroupElementByName.values()) {
     projectGroupResizeObserver?.unobserve(element)
   }

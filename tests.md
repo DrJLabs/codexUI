@@ -329,6 +329,7 @@ Projects can enter an explicit move mode from the Projects header reorder icon a
 - CJS Playwright against `http://127.0.0.1:5173/` passed for the Projects header `Reorder projects` icon in `375x812` and `768x1024` viewports for light and dark themes. Each case verified the project menu no longer has `Move project`, the header icon enters move mode, `Done` replaces the header icon while active, and `Done` restores the header icon after exit.
 - CJS Playwright against `http://127.0.0.1:5173/` passed for recent-mode project pins in `375x812` and `768x1024` viewports for light and dark themes. Each case dragged the second recent project to the top, verified `projectSortMode` stayed `recent`, verified `pinned-project-order` contained the dragged project, then used `Unpin project` and verified the original recency order returned.
 - CJS Playwright against `http://127.0.0.1:5173/` passed for a pinned project's manual-mode menu label in `375x812` and `768x1024` viewports for light and dark themes. Each case pinned a project in recent mode, switched to `Manual project order`, reopened the project menu, and verified `Unpin project` was shown without a conflicting `Pin project` action.
+- CJS Playwright against `http://127.0.0.1:5173/` passed for project drag completion in `375x812` for light and dark themes. Each case entered move mode, dragged the second project above the first, and verified no project thread list expanded from the post-drag click event.
 
 #### Rollback/Cleanup
 - Tap `Done` to leave move mode.

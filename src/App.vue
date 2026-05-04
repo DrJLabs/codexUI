@@ -1239,7 +1239,7 @@ const {
   removeProject,
   reorderProject,
   setProjectSortMode,
-  pinProjectToTop,
+  focusProjectToTop,
   toggleProjectPinned,
   startPolling,
   stopPolling,
@@ -2380,7 +2380,7 @@ async function onCreateProjectWorktree(projectName: string): Promise<void> {
 
     newThreadCwd.value = normalizedPath
     newThreadRuntime.value = 'local'
-    pinProjectToTop(getPathLeafName(normalizedPath))
+    focusProjectToTop(getPathLeafName(normalizedPath))
     await loadWorkspaceRootOptionsState()
     await refreshDefaultProjectName()
     if (isMobile.value) setSidebarCollapsed(true)
@@ -3045,7 +3045,7 @@ async function onCreateProject(): Promise<void> {
     if (!normalizedPath) return
 
     newThreadCwd.value = normalizedPath
-    pinProjectToTop(getProjectOrderNameForPath(normalizedPath))
+    focusProjectToTop(getProjectOrderNameForPath(normalizedPath))
     await loadWorkspaceRootOptionsState()
     await refreshDefaultProjectName()
   } catch (error) {
@@ -3130,7 +3130,7 @@ async function onConfirmExistingFolder(path = resolvedExistingFolderPath.value):
     }
 
     newThreadCwd.value = normalizedPath
-    pinProjectToTop(getPathLeafName(normalizedPath))
+    focusProjectToTop(getPathLeafName(normalizedPath))
     await loadWorkspaceRootOptionsState()
     await refreshDefaultProjectName()
     onCloseExistingFolderPanel()
@@ -3222,7 +3222,7 @@ async function applyLaunchProjectPathFromUrl(): Promise<boolean> {
     })
     if (!normalizedPath) return false
     newThreadCwd.value = normalizedPath
-    pinProjectToTop(getPathLeafName(normalizedPath))
+    focusProjectToTop(getPathLeafName(normalizedPath))
     await router.replace({ name: 'home' })
     await loadWorkspaceRootOptionsState()
     const nextUrl = new URL(window.location.href)
