@@ -457,6 +457,19 @@ function loadProjectOrder(): string[] {
   }
 }
 
+export function normalizePinnedProjectOrder(parsed: unknown): string[] {
+  if (!Array.isArray(parsed)) return []
+  const order: string[] = []
+  for (const item of parsed) {
+    if (typeof item !== 'string' || item.length === 0) continue
+    const normalizedItem = item.trim()
+    if (normalizedItem.length > 0 && !order.includes(normalizedItem)) {
+      order.push(normalizedItem)
+    }
+  }
+  return order
+}
+
 function loadPinnedProjectOrder(): string[] {
   if (typeof window === 'undefined') return []
 
@@ -464,17 +477,7 @@ function loadPinnedProjectOrder(): string[] {
     const raw = window.localStorage.getItem(PINNED_PROJECT_ORDER_STORAGE_KEY)
     if (!raw) return []
 
-    const parsed = JSON.parse(raw) as unknown
-    if (!Array.isArray(parsed)) return []
-    const order: string[] = []
-    for (const item of parsed) {
-      if (typeof item !== 'string' || item.length === 0) continue
-      const normalizedItem = toProjectName(item)
-      if (normalizedItem.length > 0 && !order.includes(normalizedItem)) {
-        order.push(normalizedItem)
-      }
-    }
-    return order
+    return normalizePinnedProjectOrder(JSON.parse(raw) as unknown)
   } catch {
     return []
   }
@@ -5147,23 +5150,29 @@ export function useDesktopState() {
       savePinnedProjectOrder(pinnedProjectOrder.value)
     }
 
-    if (projectSortMode.value === 'manual' && projectOrderChanged) {
-      projectOrder.value = nextProjectOrder
-      saveProjectOrder(projectOrder.value)
-      const orderedGroups = orderGroupsByProjectOrder(sourceGroups.value, projectOrder.value)
-      sourceGroups.value = mergeThreadGroups(sourceGroups.value, orderedGroups)
-    } else if (projectSortMode.value === 'recent' && pinnedOrderChanged) {
+    if (projectSortMode.value === 'recent') {
+      if (!pinnedOrderChanged) {
+        applyThreadFlags()
+        return
+      }
       applyThreadGroups(
         loadedThreadListGroups.length > 0 ? loadedThreadListGroups : sourceGroups.value,
         loadedThreadListRootsState,
       )
+      return
     }
-    if (projectSortMode.value !== 'recent' || !pinnedOrderChanged) {
+
+    if (!projectOrderChanged) {
       applyThreadFlags()
+      return
     }
-    if (projectSortMode.value === 'manual' && projectOrderChanged) {
-      void persistProjectOrderToWorkspaceRoots()
-    }
+
+    projectOrder.value = nextProjectOrder
+    saveProjectOrder(projectOrder.value)
+    const orderedGroups = orderGroupsByProjectOrder(sourceGroups.value, projectOrder.value)
+    sourceGroups.value = mergeThreadGroups(sourceGroups.value, orderedGroups)
+    applyThreadFlags()
+    void persistProjectOrderToWorkspaceRoots()
   }
 
   function unpinProject(projectName: string): void {

@@ -4,6 +4,7 @@ import {
   collectWorkspaceRootPathsForProjectRemoval,
   filterGroupsByWorkspaceRoots,
   findAdjacentThreadId,
+  normalizePinnedProjectOrder,
   orderGroupsByPinnedProjectOrder,
   reorderPinnedProjectOrder,
 } from './useDesktopState'
@@ -305,6 +306,13 @@ describe('pinned project ordering', () => {
       'gamma',
       'alpha',
       'beta',
+    ])
+  })
+
+  it('preserves path-qualified project ids when normalizing persisted pins', () => {
+    expect(normalizePinnedProjectOrder(['/tmp/first/api', 'api', '/tmp/first/api'])).toEqual([
+      '/tmp/first/api',
+      'api',
     ])
   })
 

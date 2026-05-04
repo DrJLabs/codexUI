@@ -107,14 +107,7 @@ function resolveAdditionalAllowedHosts(): string[] {
     || readEnvValueFromFile(".env", "CODEXUI_VITE_ALLOWED_HOSTS");
   if (!raw) return [];
 
-  const hosts: string[] = [];
-  for (const host of raw.split(/[,\s]+/u)) {
-    const normalizedHost = host.trim();
-    if (normalizedHost && !hosts.includes(normalizedHost)) {
-      hosts.push(normalizedHost);
-    }
-  }
-  return hosts;
+  return [...new Set(raw.split(/[,\s]+/u).map((host) => host.trim()).filter(Boolean))];
 }
 
 const viteRollbackDebugFallback = resolveViteRollbackDebugFallback();

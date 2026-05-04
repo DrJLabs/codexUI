@@ -370,7 +370,7 @@
                         Rename project
                       </button>
                       <button class="project-menu-item" type="button" @click="onToggleProjectPinned(group.projectName)">
-                        {{ isProjectPinned(group.projectName) ? 'Unpin project' : 'Pin project' }}
+                        {{ isProjectPinPreferenceSet(group.projectName) ? 'Unpin project' : 'Pin project' }}
                       </button>
                       <button
                         class="project-menu-item project-menu-item-danger"
@@ -1683,7 +1683,11 @@ function onToggleProjectPinned(projectName: string): void {
 }
 
 function isProjectPinned(projectName: string): boolean {
-  return props.projectSortMode === 'recent' && pinnedProjectNameSet.value.has(projectName)
+  return props.projectSortMode === 'recent' && isProjectPinPreferenceSet(projectName)
+}
+
+function isProjectPinPreferenceSet(projectName: string): boolean {
+  return pinnedProjectNameSet.value.has(projectName)
 }
 
 function startProjectMoveMode(projectName = ''): void {
