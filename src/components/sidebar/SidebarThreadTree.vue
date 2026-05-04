@@ -111,6 +111,16 @@
           >
             {{ t('Done') }}
           </button>
+          <button
+            v-else
+            class="project-reorder-button"
+            type="button"
+            :aria-label="t('Reorder projects')"
+            :title="t('Reorder projects')"
+            @click.stop="startProjectMoveMode()"
+          >
+            <IconTablerArrowsSort class="thread-icon" />
+          </button>
           <div ref="organizeMenuWrapRef" class="organize-menu-wrap">
             <button
               class="organize-menu-trigger"
@@ -353,9 +363,6 @@
                       </button>
                       <button class="project-menu-item" type="button" @click="openRenameProjectMenu(group)">
                         Rename project
-                      </button>
-                      <button class="project-menu-item" type="button" @click="startProjectMoveMode(group.projectName)">
-                        Move project
                       </button>
                       <button
                         class="project-menu-item project-menu-item-danger"
@@ -765,6 +772,7 @@ import {
   upsertThreadAutomation,
 } from '../../api/codexGateway'
 import type { UiProjectGroup, UiThread, UiThreadAutomation, UiThreadAutomationStatus } from '../../types/codex'
+import IconTablerArrowsSort from '../icons/IconTablerArrowsSort.vue'
 import IconTablerChevronDown from '../icons/IconTablerChevronDown.vue'
 import IconTablerChevronRight from '../icons/IconTablerChevronRight.vue'
 import IconTablerDots from '../icons/IconTablerDots.vue'
@@ -1657,9 +1665,9 @@ function onRemoveProject(projectName: string): void {
   closeProjectMenu()
 }
 
-function startProjectMoveMode(projectName: string): void {
+function startProjectMoveMode(projectName = ''): void {
   const projectNames = props.groups.map((group) => group.projectName)
-  projectMoveMode.value = createProjectMoveModeState(projectNames, projectName)
+  projectMoveMode.value = createProjectMoveModeState(projectNames, projectName || (projectNames[0] ?? ''))
   if (projectMoveMode.value.isActive) {
     collapsedProjects.value = collapseProjectsForMoveMode(projectNames, collapsedProjects.value)
     closeProjectMenu()
@@ -2477,6 +2485,10 @@ onBeforeUnmount(() => {
 
 .project-move-done-button {
   @apply h-6 rounded-md border border-zinc-200 bg-white px-2 text-xs font-medium text-zinc-700 transition hover:bg-zinc-50;
+}
+
+.project-reorder-button {
+  @apply h-6 w-6 rounded-md border border-zinc-200 bg-white text-zinc-600 flex items-center justify-center transition hover:bg-zinc-50;
 }
 
 .project-move-handle {

@@ -295,7 +295,7 @@ Vite dev server allowed hosts can be extended locally without tracking host-spec
 ### Sidebar Mobile Project Move Mode
 
 #### Feature/Change Name
-Projects can enter an explicit move mode from the project menu and be reordered with touch-friendly drag handles.
+Projects can enter an explicit move mode from the Projects header reorder icon and be reordered with touch-friendly drag handles.
 
 #### Prerequisites/Setup
 1. Use `${WORKTREE_ROOT}` on `feature/project-recency-sort`.
@@ -304,7 +304,7 @@ Projects can enter an explicit move mode from the project menu and be reordered 
 
 #### Steps
 1. Open the sidebar in a mobile viewport in light theme.
-2. Open a project `...` menu and choose `Move project`.
+2. Tap the `Reorder projects` icon in the Projects header.
 3. Confirm a `Done` control appears in the Projects header, each project row shows a drag handle, and project thread lists collapse.
 4. Drag one project by its handle to a different position.
 5. Confirm the project order changes and the sidebar switches to manual project order behavior.
@@ -312,17 +312,19 @@ Projects can enter an explicit move mode from the project menu and be reordered 
 7. Repeat steps 1-6 in dark theme.
 
 #### Expected Results
-- Move mode is discoverable from the project menu.
+- Move mode is discoverable as a section-level Projects header action.
+- Individual project menus do not include `Move project`.
 - Activating move mode collapses every current project so only project rows are shown while reordering.
 - Project drag handles are large enough for touch and do not trigger project collapse.
 - Dragging by a handle reuses the existing project reorder flow.
-- Light and dark themes keep the Done button, menu item, and drag handles readable.
+- Light and dark themes keep the reorder icon, Done button, and drag handles readable.
 
 #### Observed Verification
 - `pnpm exec vitest run src/components/sidebar/projectMoveMode.test.ts src/composables/useDesktopState.test.ts` passed.
 - `pnpm run build:frontend` passed.
 - `git diff --check` passed.
-- CJS Playwright against `http://127.0.0.1:5173/` passed in `375x812` and `768x1024` viewports for light and dark themes. Each case verified visible project thread lists existed before move mode, then `expandedAfterMove: 0` and `visibleThreadListsAfterMove: 0` after choosing `Move project`.
+- CJS Playwright against `http://127.0.0.1:5173/` passed in `375x812` and `768x1024` viewports for light and dark themes. Each case verified visible project thread lists existed before move mode, then `expandedAfterMove: 0` and `visibleThreadListsAfterMove: 0` after activating move mode.
+- CJS Playwright against `http://127.0.0.1:5173/` passed for the Projects header `Reorder projects` icon in `375x812` and `768x1024` viewports for light and dark themes. Each case verified the project menu no longer has `Move project`, the header icon enters move mode, `Done` replaces the header icon while active, and `Done` restores the header icon after exit.
 
 #### Rollback/Cleanup
 - Tap `Done` to leave move mode.
