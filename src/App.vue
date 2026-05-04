@@ -62,6 +62,7 @@
 
           <SidebarThreadTree :groups="projectGroups" :project-display-name-by-id="projectDisplayNameById"
             :project-git-repo-by-name="projectGitRepoByName"
+            :project-sort-mode="projectSortMode"
             v-if="!isSidebarCollapsed"
             :selected-thread-id="selectedThreadId" :is-loading="isLoadingThreads"
             :search-query="sidebarSearchQuery"
@@ -75,6 +76,7 @@
             @rename-thread="onRenameThread"
             @fork-thread="onForkThread"
             @remove-project="onRemoveProject" @reorder-project="onReorderProject"
+            @set-project-sort-mode="onSetProjectSortMode"
             @export-thread="onExportThread"
             @start-new-chat="onStartNewThreadFromToolbar"
             @toggle-filter="toggleSidebarSearch" />
@@ -1183,6 +1185,7 @@ const WHISPER_LANGUAGES: Record<string, string> = {
 const {
   projectGroups,
   projectDisplayNameById,
+  projectSortMode,
   selectedThread,
   selectedThreadTokenUsage,
   selectedThreadTerminalOpen,
@@ -1232,6 +1235,7 @@ const {
   renameProject,
   removeProject,
   reorderProject,
+  setProjectSortMode,
   pinProjectToTop,
   startPolling,
   stopPolling,
@@ -2426,6 +2430,10 @@ async function onRemoveProject(projectName: string): Promise<void> {
 
 function onReorderProject(payload: { projectName: string; toIndex: number }): void {
   reorderProject(payload.projectName, payload.toIndex)
+}
+
+function onSetProjectSortMode(mode: 'recent' | 'manual'): void {
+  setProjectSortMode(mode)
 }
 
 function onRespondServerRequest(payload: UiServerRequestReply): void {

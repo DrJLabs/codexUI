@@ -99,6 +99,30 @@ describe('filterGroupsByWorkspaceRoots', () => {
     ])
   })
 
+  it('preserves incoming recency order when project sort mode is recent', () => {
+    const groups: UiProjectGroup[] = [
+      {
+        projectName: 'alpha',
+        threads: [thread('alpha-chat', '/tmp/alpha')],
+      },
+      {
+        projectName: 'beta',
+        threads: [thread('beta-chat', '/tmp/beta')],
+      },
+    ]
+    const rootsState: WorkspaceRootsState = {
+      order: ['/tmp/alpha', '/tmp/beta'],
+      labels: {},
+      active: ['/tmp/alpha'],
+      projectOrder: ['/tmp/beta', '/tmp/alpha'],
+    }
+
+    expect(filterGroupsByWorkspaceRoots(groups, rootsState, 'recent').map((group) => group.projectName)).toEqual([
+      'alpha',
+      'beta',
+    ])
+  })
+
   it('keeps empty duplicate workspace roots visible in Codex project order', () => {
     const groups: UiProjectGroup[] = [
       {

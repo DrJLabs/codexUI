@@ -76,6 +76,7 @@ const SELECTED_THREAD_STORAGE_KEY = 'codex-web-local.selected-thread-id.v1'
 const SELECTED_MODEL_BY_CONTEXT_STORAGE_KEY = 'codex-web-local.selected-model-by-context.v1'
 const LEGACY_SELECTED_MODEL_STORAGE_KEY = 'codex-web-local.selected-model-id.v1'
 const PROJECT_ORDER_STORAGE_KEY = 'codex-web-local.project-order.v1'
+const PROJECT_SORT_MODE_STORAGE_KEY = 'codex-web-local.project-sort-mode.v1'
 const PROJECT_DISPLAY_NAME_STORAGE_KEY = 'codex-web-local.project-display-name.v1'
 const COLLABORATION_MODE_STORAGE_KEY = 'codex-web-local.collaboration-mode-by-context.v1'
 const LEGACY_COLLABORATION_MODE_STORAGE_KEY = 'codex-web-local.collaboration-mode.v1'
@@ -89,6 +90,7 @@ const RECENT_THREAD_MESSAGE_LOAD_REUSE_MS = 2000
 const REASONING_EFFORT_OPTIONS: ReasoningEffort[] = ['none', 'minimal', 'low', 'medium', 'high', 'xhigh']
 const GLOBAL_SERVER_REQUEST_SCOPE = '__global__'
 const MODEL_FALLBACK_ID = 'gpt-5.4-mini'
+export type ProjectSortMode = 'recent' | 'manual'
 
 function loadReadStateMap(): Record<string, string> {
   if (typeof window === 'undefined') return {}
@@ -457,6 +459,16 @@ function loadProjectOrder(): string[] {
 function saveProjectOrder(order: string[]): void {
   if (typeof window === 'undefined') return
   window.localStorage.setItem(PROJECT_ORDER_STORAGE_KEY, JSON.stringify(order))
+}
+
+function loadProjectSortMode(): ProjectSortMode {
+  if (typeof window === 'undefined') return 'recent'
+  return window.localStorage.getItem(PROJECT_SORT_MODE_STORAGE_KEY) === 'manual' ? 'manual' : 'recent'
+}
+
+function saveProjectSortMode(mode: ProjectSortMode): void {
+  if (typeof window === 'undefined') return
+  window.localStorage.setItem(PROJECT_SORT_MODE_STORAGE_KEY, mode)
 }
 
 function loadProjectDisplayNames(): Record<string, string> {
@@ -1266,6 +1278,7 @@ function isProjectlessGroup(group: UiProjectGroup): boolean {
 export function filterGroupsByWorkspaceRoots(
   groups: UiProjectGroup[],
   rootsState: WorkspaceRootsState | null,
+  projectSortMode: ProjectSortMode = 'manual',
 ): UiProjectGroup[] {
   const duplicateLeafNames = collectDuplicateProjectLeafNames(groups, rootsState)
   const disambiguatedGroups = disambiguateProjectGroupsByCwd(groups, rootsState)
@@ -1276,6 +1289,7 @@ export function filterGroupsByWorkspaceRoots(
     allowedProjectNames.add(projectName)
   }
   const filteredGroups = groupsWithWorkspaceRoots.filter((group) => allowedProjectNames.has(group.projectName) || isProjectlessGroup(group))
+  if (projectSortMode === 'recent') return filteredGroups
   return orderGroupsByWorkspaceProjectOrder(filteredGroups, rootsState, duplicateLeafNames)
 }
 
@@ -1330,6 +1344,7 @@ export function useDesktopState() {
   const activeProviderId = ref('')
   const readStateByThreadId = ref<Record<string, string>>(loadReadStateMap())
   const projectOrder = ref<string[]>(loadProjectOrder())
+  const projectSortMode = ref<ProjectSortMode>(loadProjectSortMode())
   const projectDisplayNameById = ref<Record<string, string>>(loadProjectDisplayNames())
   const loadedVersionByThreadId = ref<Record<string, string>>({})
   const loadedMessagesByThreadId = ref<Record<string, boolean>>({})
@@ -1980,10 +1995,12 @@ export function useDesktopState() {
       sourceGroups.value = [{ projectName, threads: [nextThread] }, ...sourceGroups.value]
     }
 
-    const nextProjectOrder = mergeProjectOrder(projectOrder.value, sourceGroups.value)
-    if (!areStringArraysEqual(projectOrder.value, nextProjectOrder)) {
-      projectOrder.value = nextProjectOrder
-      saveProjectOrder(projectOrder.value)
+    if (projectSortMode.value === 'manual') {
+      const nextProjectOrder = mergeProjectOrder(projectOrder.value, sourceGroups.value)
+      if (!areStringArraysEqual(projectOrder.value, nextProjectOrder)) {
+        projectOrder.value = nextProjectOrder
+        saveProjectOrder(projectOrder.value)
+      }
     }
     applyThreadFlags()
   }
@@ -3874,6 +3891,7 @@ export function useDesktopState() {
       if (allowedProjectNames.has(group.projectName)) return true
       return group.threads.some((thread) => isProjectlessChatPath(thread.cwd))
     })
+    if (projectSortMode.value === 'recent') return filteredGroups
     return orderGroupsByWorkspaceProjectOrder(filteredGroups, rootsState, duplicateLeafNames)
   }
 
@@ -3883,20 +3901,24 @@ export function useDesktopState() {
       rootsState && (rootsState.order.length > 0 || rootsState.projectOrder.length > 0 || (rootsState.remoteProjects ?? []).length > 0),
     )
 
-    const nextProjectOrder = rootsState?.projectOrder.length
-      ? mergeProjectOrder(
-        getWorkspaceProjectOrderNames(rootsState, collectDuplicateProjectLeafNames(groups, rootsState)),
-        visibleGroups,
-      )
-      : mergeProjectOrder(projectOrder.value, visibleGroups)
-    if (!areStringArraysEqual(projectOrder.value, nextProjectOrder)) {
-      projectOrder.value = nextProjectOrder
-      if (!hasWorkspaceRootsState) {
-        saveProjectOrder(projectOrder.value)
+    if (projectSortMode.value === 'manual') {
+      const nextProjectOrder = rootsState?.projectOrder.length
+        ? mergeProjectOrder(
+          getWorkspaceProjectOrderNames(rootsState, collectDuplicateProjectLeafNames(groups, rootsState)),
+          visibleGroups,
+        )
+        : mergeProjectOrder(projectOrder.value, visibleGroups)
+      if (!areStringArraysEqual(projectOrder.value, nextProjectOrder)) {
+        projectOrder.value = nextProjectOrder
+        if (!hasWorkspaceRootsState) {
+          saveProjectOrder(projectOrder.value)
+        }
       }
     }
 
-    const orderedGroups = orderGroupsByProjectOrder(visibleGroups, projectOrder.value)
+    const orderedGroups = projectSortMode.value === 'manual'
+      ? orderGroupsByProjectOrder(visibleGroups, projectOrder.value)
+      : visibleGroups
     markServerListedThreads(new Set(flattenThreads(orderedGroups).map((thread) => thread.id)))
     const mergedWithInProgress = mergeIncomingWithLocalInProgressThreads(
       sourceGroups.value,
@@ -4980,9 +5002,23 @@ export function useDesktopState() {
     await persistProjectOrderToWorkspaceRoots()
   }
 
+  function setProjectSortMode(mode: ProjectSortMode): void {
+    if (projectSortMode.value === mode) return
+    projectSortMode.value = mode
+    saveProjectSortMode(mode)
+    applyThreadGroups(
+      loadedThreadListGroups.length > 0 ? loadedThreadListGroups : sourceGroups.value,
+      loadedThreadListRootsState,
+    )
+  }
+
   function reorderProject(projectName: string, toIndex: number): void {
     if (projectName.length === 0) return
     if (sourceGroups.value.length === 0) return
+
+    if (projectSortMode.value !== 'manual') {
+      setProjectSortMode('manual')
+    }
 
     const visibleOrder = sourceGroups.value.map((group) => group.projectName)
     const fromIndex = visibleOrder.indexOf(projectName)
@@ -5010,8 +5046,10 @@ export function useDesktopState() {
     projectOrder.value = nextOrder
     saveProjectOrder(projectOrder.value)
 
-    const orderedGroups = orderGroupsByProjectOrder(sourceGroups.value, projectOrder.value)
-    sourceGroups.value = mergeThreadGroups(sourceGroups.value, orderedGroups)
+    if (projectSortMode.value === 'manual') {
+      const orderedGroups = orderGroupsByProjectOrder(sourceGroups.value, projectOrder.value)
+      sourceGroups.value = mergeThreadGroups(sourceGroups.value, orderedGroups)
+    }
     applyThreadFlags()
     void persistProjectOrderToWorkspaceRoots()
   }
@@ -5285,6 +5323,7 @@ export function useDesktopState() {
     selectedLiveOverlay,
     codexQuota,
     selectedThreadId,
+    projectSortMode,
     availableCollaborationModes,
     availableModelIds,
     selectedCollaborationMode,
@@ -5333,6 +5372,7 @@ export function useDesktopState() {
     renameProject,
     removeProject,
     reorderProject,
+    setProjectSortMode,
     pinProjectToTop,
     startPolling,
     stopPolling,

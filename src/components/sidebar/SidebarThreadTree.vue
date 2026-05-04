@@ -119,6 +119,25 @@
               <p class="organize-menu-title">{{ t('Organize') }}</p>
               <button
                 class="organize-menu-item"
+                :data-active="projectSortMode === 'recent'"
+                type="button"
+                @click="setProjectSortMode('recent')"
+              >
+                <span>{{ t('Recent projects') }}</span>
+                <span v-if="projectSortMode === 'recent'">✓</span>
+              </button>
+              <button
+                class="organize-menu-item"
+                :data-active="projectSortMode === 'manual'"
+                type="button"
+                @click="setProjectSortMode('manual')"
+              >
+                <span>{{ t('Manual project order') }}</span>
+                <span v-if="projectSortMode === 'manual'">✓</span>
+              </button>
+              <div class="organize-menu-separator" />
+              <button
+                class="organize-menu-item"
                 :data-active="threadViewMode === 'project'"
                 type="button"
                 @click="setThreadViewMode('project')"
@@ -741,6 +760,7 @@ const props = defineProps<{
   groups: UiProjectGroup[]
   projectDisplayNameById: Record<string, string>
   projectGitRepoByName: Record<string, boolean>
+  projectSortMode: 'recent' | 'manual'
   selectedThreadId: string
   isLoading: boolean
   searchQuery: string
@@ -761,6 +781,7 @@ const emit = defineEmits<{
   'rename-thread': [payload: { threadId: string; title: string }]
   'remove-project': [projectName: string]
   'reorder-project': [payload: { projectName: string; toIndex: number }]
+  'set-project-sort-mode': [mode: 'recent' | 'manual']
   'export-thread': [threadId: string]
   'fork-thread': [threadId: string]
   'start-new-chat': []
@@ -1535,6 +1556,10 @@ function toggleShowChatsFirst(): void {
 
 function setChatSortMode(mode: ChatSortMode): void {
   chatSortMode.value = mode
+}
+
+function setProjectSortMode(mode: 'recent' | 'manual'): void {
+  emit('set-project-sort-mode', mode)
 }
 
 function toggleProjectMenu(projectName: string): void {
