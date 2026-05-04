@@ -3967,7 +3967,7 @@ export function useDesktopState() {
     }
     const filteredGroups = groupsWithWorkspaceRoots.filter((group) => {
       if (allowedProjectNames.has(group.projectName)) return true
-      return group.threads.some((thread) => isProjectlessChatPath(thread.cwd))
+      return isProjectlessGroup(group)
     })
     if (projectSortMode.value === 'recent') return filteredGroups
     return orderGroupsByWorkspaceProjectOrder(filteredGroups, rootsState, duplicateLeafNames)

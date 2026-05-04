@@ -245,7 +245,7 @@ Projects can be sorted by recent thread activity by default, with a manual-order
 #### Expected Results
 - Recent mode ignores saved manual `projectOrder` for sidebar display.
 - Manual mode preserves explicit project ordering and drag reorder behavior.
-- Dragging a project switches the persisted sort mode to manual.
+- Dragging a project in recent mode pins it into the pinned prefix without switching the persisted sort mode to manual.
 - Light and dark themes keep the Organize menu readable and show the active mode clearly.
 
 #### Observed Verification
