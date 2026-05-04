@@ -224,6 +224,113 @@ This file tracks manual regression and feature verification steps.
 
 ---
 
+### Sidebar Project Recency Sort Mode
+
+#### Feature/Change Name
+Projects can be sorted by recent thread activity by default, with a manual-order mode available from the sidebar Organize menu.
+
+#### Prerequisites/Setup
+1. Use `${WORKTREE_ROOT}` on `feature/project-recency-sort`.
+2. Start the dev server from this worktree.
+3. Have at least two projects with threads updated at different times.
+
+#### Steps
+1. Open the sidebar in light theme.
+2. Open Projects -> Organize and confirm `Recent projects` is selected by default.
+3. Confirm projects appear in descending recent thread activity order.
+4. Choose `Manual project order`, drag a project, and confirm the dragged order sticks.
+5. Choose `Recent projects` again and confirm the projects return to recency order.
+6. Repeat steps 1-5 in dark theme.
+
+#### Expected Results
+- Recent mode ignores saved manual `projectOrder` for sidebar display.
+- Manual mode preserves explicit project ordering and drag reorder behavior.
+- Dragging a project switches the persisted sort mode to manual.
+- Light and dark themes keep the Organize menu readable and show the active mode clearly.
+
+#### Observed Verification
+- `pnpm exec vitest run src/composables/useDesktopState.test.ts` passed.
+- `pnpm run build:frontend` passed.
+- `git diff --check` passed.
+
+#### Rollback/Cleanup
+- Reset the sidebar Organize menu to the preferred project sort mode.
+- Stop the local dev server used only for manual verification.
+
+---
+
+### Vite Local Allowed Hosts Env Override
+
+#### Feature/Change Name
+Vite dev server allowed hosts can be extended locally without tracking host-specific DNS names.
+
+#### Prerequisites/Setup
+1. Use `${WORKTREE_ROOT}` on `feature/project-recency-sort`.
+2. Set `CODEXUI_VITE_ALLOWED_HOSTS` in ignored `.env.local` or the shell environment.
+3. Start the dev server from this worktree.
+
+#### Steps
+1. Confirm `.env.local` is ignored by git.
+2. Confirm `vite.config.ts` only contains the generic `CODEXUI_VITE_ALLOWED_HOSTS` hook, not a host-specific DNS name.
+3. Start the dev server.
+4. Request the dev server with the configured host in the `Host` header.
+
+#### Expected Results
+- The tracked Vite config keeps `.trycloudflare.com` and adds only env-provided local hosts.
+- Host-specific DNS names stay in ignored local environment state.
+- Requests using the locally configured host are accepted by the dev server.
+
+#### Observed Verification
+- `git check-ignore -v .env.local` confirmed `.env.local` is ignored.
+- `git diff --check` passed.
+- `pnpm run build:frontend` passed.
+- `curl -H 'Host: <configured-host>' http://127.0.0.1:5173/` returned HTTP `200`.
+
+#### Rollback/Cleanup
+- Remove `CODEXUI_VITE_ALLOWED_HOSTS` from `.env.local` or the shell environment.
+- Stop the local dev server used only for verification.
+
+---
+
+### Sidebar Mobile Project Move Mode
+
+#### Feature/Change Name
+Projects can enter an explicit move mode from the project menu and be reordered with touch-friendly drag handles.
+
+#### Prerequisites/Setup
+1. Use `${WORKTREE_ROOT}` on `feature/project-recency-sort`.
+2. Start the dev server from this worktree.
+3. Have at least two visible projects in the sidebar.
+
+#### Steps
+1. Open the sidebar in a mobile viewport in light theme.
+2. Open a project `...` menu and choose `Move project`.
+3. Confirm a `Done` control appears in the Projects header, each project row shows a drag handle, and project thread lists collapse.
+4. Drag one project by its handle to a different position.
+5. Confirm the project order changes and the sidebar switches to manual project order behavior.
+6. Tap `Done` and confirm move handles are hidden.
+7. Repeat steps 1-6 in dark theme.
+
+#### Expected Results
+- Move mode is discoverable from the project menu.
+- Activating move mode collapses every current project so only project rows are shown while reordering.
+- Project drag handles are large enough for touch and do not trigger project collapse.
+- Dragging by a handle reuses the existing project reorder flow.
+- Light and dark themes keep the Done button, menu item, and drag handles readable.
+
+#### Observed Verification
+- `pnpm exec vitest run src/components/sidebar/projectMoveMode.test.ts src/composables/useDesktopState.test.ts` passed.
+- `pnpm run build:frontend` passed.
+- `git diff --check` passed.
+- CJS Playwright against `http://127.0.0.1:5173/` passed in `375x812` and `768x1024` viewports for light and dark themes. Each case verified visible project thread lists existed before move mode, then `expandedAfterMove: 0` and `visibleThreadListsAfterMove: 0` after choosing `Move project`.
+
+#### Rollback/Cleanup
+- Tap `Done` to leave move mode.
+- Reset the sidebar Organize menu to the preferred project sort mode.
+- Stop the local dev server used only for manual verification.
+
+---
+
 ### Skills sync idempotent commits and nested shared skills handling
 
 #### Feature/Change Name
