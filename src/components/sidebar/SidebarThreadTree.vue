@@ -103,25 +103,25 @@
         </template>
         <span class="thread-tree-header">{{ t('Projects') }}</span>
         <template #right>
-          <button
-            v-if="isProjectMoveMode"
-            class="project-move-done-button"
-            type="button"
-            @click.stop="stopProjectMoveMode"
-          >
-            {{ t('Done') }}
-          </button>
-          <button
-            v-else
-            class="project-reorder-button"
-            type="button"
-            :aria-label="t('Reorder projects')"
-            :title="t('Reorder projects')"
-            @click.stop="startProjectMoveMode()"
-          >
-            <IconTablerArrowsSort class="thread-icon" />
-          </button>
           <div ref="organizeMenuWrapRef" class="organize-menu-wrap">
+            <button
+              v-if="isProjectMoveMode"
+              class="project-move-done-button"
+              type="button"
+              @click.stop="stopProjectMoveMode"
+            >
+              {{ t('Done') }}
+            </button>
+            <button
+              v-else
+              class="project-reorder-button"
+              type="button"
+              :aria-label="t('Reorder projects')"
+              :title="t('Reorder projects')"
+              @click.stop="startProjectMoveMode()"
+            >
+              <IconTablerArrowsSort class="thread-icon" />
+            </button>
             <button
               class="organize-menu-trigger"
               type="button"
@@ -2420,7 +2420,7 @@ onBeforeUnmount(() => {
 }
 
 .organize-menu-wrap {
-  @apply relative;
+  @apply relative inline-flex items-center gap-1;
 }
 
 .organize-menu-trigger {

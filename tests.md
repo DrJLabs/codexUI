@@ -304,7 +304,7 @@ Projects can enter an explicit move mode from the Projects header reorder icon a
 
 #### Steps
 1. Open the sidebar in a mobile viewport in light theme.
-2. Tap the `Reorder projects` icon in the Projects header.
+2. Tap the `Reorder projects` icon immediately to the left of the Projects three-dot menu.
 3. Confirm a `Done` control appears in the Projects header, each project row shows a drag handle, and project thread lists collapse.
 4. Drag one project by its handle to a different position.
 5. Confirm the project order changes and the sidebar switches to manual project order behavior.
@@ -312,7 +312,7 @@ Projects can enter an explicit move mode from the Projects header reorder icon a
 7. Repeat steps 1-6 in dark theme.
 
 #### Expected Results
-- Move mode is discoverable as a section-level Projects header action.
+- Move mode is discoverable as a section-level Projects header action immediately left of the three-dot menu.
 - Individual project menus do not include `Move project`.
 - Activating move mode collapses every current project so only project rows are shown while reordering.
 - Project drag handles are large enough for touch and do not trigger project collapse.
