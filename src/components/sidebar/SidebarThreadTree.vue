@@ -327,6 +327,11 @@
               :data-dragging-handle="isDraggingProject(group.projectName)"
               @mousedown.left="onProjectHandleMouseDown($event, group.projectName)"
             >
+              <IconTablerPin
+                v-if="isProjectPinned(group.projectName)"
+                class="project-pin-indicator"
+                aria-hidden="true"
+              />
               <span class="project-title" :title="getProjectTooltipTitle(group.projectName)">
                 {{ getProjectVisibleName(group) }}
               </span>
@@ -363,6 +368,9 @@
                       </button>
                       <button class="project-menu-item" type="button" @click="openRenameProjectMenu(group)">
                         Rename project
+                      </button>
+                      <button class="project-menu-item" type="button" @click="onToggleProjectPinned(group.projectName)">
+                        {{ isProjectPinned(group.projectName) ? 'Unpin project' : 'Pin project' }}
                       </button>
                       <button
                         class="project-menu-item project-menu-item-danger"
@@ -782,6 +790,7 @@ import IconTablerFolderOpen from '../icons/IconTablerFolderOpen.vue'
 import IconTablerGitFork from '../icons/IconTablerGitFork.vue'
 import IconTablerFilter from '../icons/IconTablerFilter.vue'
 import IconTablerGripVertical from '../icons/IconTablerGripVertical.vue'
+import IconTablerPin from '../icons/IconTablerPin.vue'
 import IconTablerTrash from '../icons/IconTablerTrash.vue'
 import { useUiLanguage } from '../../composables/useUiLanguage'
 import { getPathLeafName, getPathParent, isProjectlessChatPath } from '../../pathUtils.js'
@@ -797,6 +806,7 @@ const props = defineProps<{
   projectDisplayNameById: Record<string, string>
   projectGitRepoByName: Record<string, boolean>
   projectSortMode: 'recent' | 'manual'
+  pinnedProjectOrder: string[]
   selectedThreadId: string
   isLoading: boolean
   searchQuery: string
@@ -818,6 +828,7 @@ const emit = defineEmits<{
   'remove-project': [projectName: string]
   'reorder-project': [payload: { projectName: string; toIndex: number }]
   'set-project-sort-mode': [mode: 'recent' | 'manual']
+  'toggle-project-pinned': [projectName: string]
   'export-thread': [threadId: string]
   'fork-thread': [threadId: string]
   'start-new-chat': []
@@ -1057,6 +1068,7 @@ const filteredGroups = computed<UiProjectGroup[]>(() => {
 
 const isChronologicalView = computed(() => threadViewMode.value === 'chronological')
 const isProjectMoveMode = computed(() => projectMoveMode.value.isActive)
+const pinnedProjectNameSet = computed(() => new Set(props.pinnedProjectOrder))
 
 const globalThreads = computed<UiThread[]>(() => {
   const rows: UiThread[] = []
@@ -1663,6 +1675,15 @@ function onProjectNameInput(projectName: string): void {
 function onRemoveProject(projectName: string): void {
   emit('remove-project', projectName)
   closeProjectMenu()
+}
+
+function onToggleProjectPinned(projectName: string): void {
+  emit('toggle-project-pinned', projectName)
+  closeProjectMenu()
+}
+
+function isProjectPinned(projectName: string): boolean {
+  return props.projectSortMode === 'recent' && pinnedProjectNameSet.value.has(projectName)
 }
 
 function startProjectMoveMode(projectName = ''): void {
@@ -2476,7 +2497,7 @@ onBeforeUnmount(() => {
 }
 
 .project-main-button {
-  @apply min-w-0 w-full text-left rounded px-0 py-0 flex items-center min-h-5 cursor-grab;
+  @apply min-w-0 w-full text-left rounded px-0 py-0 flex items-center gap-1 min-h-5 cursor-grab;
 }
 
 .project-main-button[data-dragging-handle='true'] {
@@ -2510,6 +2531,10 @@ onBeforeUnmount(() => {
 
 .project-title {
   @apply text-sm font-normal text-zinc-700 truncate select-none;
+}
+
+.project-pin-indicator {
+  @apply h-3.5 w-3.5 shrink-0 text-zinc-500;
 }
 
 .project-menu-wrap {

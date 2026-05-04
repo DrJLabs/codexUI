@@ -76,6 +76,7 @@ const SELECTED_THREAD_STORAGE_KEY = 'codex-web-local.selected-thread-id.v1'
 const SELECTED_MODEL_BY_CONTEXT_STORAGE_KEY = 'codex-web-local.selected-model-by-context.v1'
 const LEGACY_SELECTED_MODEL_STORAGE_KEY = 'codex-web-local.selected-model-id.v1'
 const PROJECT_ORDER_STORAGE_KEY = 'codex-web-local.project-order.v1'
+const PINNED_PROJECT_ORDER_STORAGE_KEY = 'codex-web-local.pinned-project-order.v1'
 const PROJECT_SORT_MODE_STORAGE_KEY = 'codex-web-local.project-sort-mode.v1'
 const PROJECT_DISPLAY_NAME_STORAGE_KEY = 'codex-web-local.project-display-name.v1'
 const COLLABORATION_MODE_STORAGE_KEY = 'codex-web-local.collaboration-mode-by-context.v1'
@@ -456,9 +457,37 @@ function loadProjectOrder(): string[] {
   }
 }
 
+function loadPinnedProjectOrder(): string[] {
+  if (typeof window === 'undefined') return []
+
+  try {
+    const raw = window.localStorage.getItem(PINNED_PROJECT_ORDER_STORAGE_KEY)
+    if (!raw) return []
+
+    const parsed = JSON.parse(raw) as unknown
+    if (!Array.isArray(parsed)) return []
+    const order: string[] = []
+    for (const item of parsed) {
+      if (typeof item !== 'string' || item.length === 0) continue
+      const normalizedItem = toProjectName(item)
+      if (normalizedItem.length > 0 && !order.includes(normalizedItem)) {
+        order.push(normalizedItem)
+      }
+    }
+    return order
+  } catch {
+    return []
+  }
+}
+
 function saveProjectOrder(order: string[]): void {
   if (typeof window === 'undefined') return
   window.localStorage.setItem(PROJECT_ORDER_STORAGE_KEY, JSON.stringify(order))
+}
+
+function savePinnedProjectOrder(order: string[]): void {
+  if (typeof window === 'undefined') return
+  window.localStorage.setItem(PINNED_PROJECT_ORDER_STORAGE_KEY, JSON.stringify(order))
 }
 
 function loadProjectSortMode(): ProjectSortMode {
@@ -530,6 +559,51 @@ function orderGroupsByProjectOrder(incoming: UiProjectGroup[], projectOrder: str
   }
 
   return ordered
+}
+
+export function orderGroupsByPinnedProjectOrder(incoming: UiProjectGroup[], pinnedProjectOrder: string[]): UiProjectGroup[] {
+  const incomingByName = new Map(incoming.map((group) => [group.projectName, group]))
+  const seen = new Set<string>()
+  const ordered: UiProjectGroup[] = []
+
+  for (const projectName of pinnedProjectOrder) {
+    if (seen.has(projectName)) continue
+    const group = incomingByName.get(projectName)
+    if (!group) continue
+    ordered.push(group)
+    seen.add(projectName)
+  }
+
+  for (const group of incoming) {
+    if (!seen.has(group.projectName)) {
+      ordered.push(group)
+    }
+  }
+
+  return ordered
+}
+
+export function reorderPinnedProjectOrder(
+  visibleProjectOrder: string[],
+  pinnedProjectOrder: string[],
+  projectName: string,
+  toIndex: number,
+): string[] {
+  const visibleProjectSet = new Set(visibleProjectOrder)
+  if (!visibleProjectSet.has(projectName)) return pinnedProjectOrder
+
+  const visiblePinnedOrder: string[] = []
+  for (const pinnedProjectName of pinnedProjectOrder) {
+    if (!visibleProjectSet.has(pinnedProjectName)) continue
+    if (visiblePinnedOrder.includes(pinnedProjectName)) continue
+    visiblePinnedOrder.push(pinnedProjectName)
+  }
+
+  const hiddenPinnedOrder = pinnedProjectOrder.filter((pinnedProjectName) => !visibleProjectSet.has(pinnedProjectName))
+  const nextVisiblePinnedOrder = visiblePinnedOrder.filter((pinnedProjectName) => pinnedProjectName !== projectName)
+  const clampedToIndex = Math.max(0, Math.min(toIndex, nextVisiblePinnedOrder.length))
+  nextVisiblePinnedOrder.splice(clampedToIndex, 0, projectName)
+  return [...nextVisiblePinnedOrder, ...hiddenPinnedOrder]
 }
 
 function areStringArraysEqual(first?: string[], second?: string[]): boolean {
@@ -1344,6 +1418,7 @@ export function useDesktopState() {
   const activeProviderId = ref('')
   const readStateByThreadId = ref<Record<string, string>>(loadReadStateMap())
   const projectOrder = ref<string[]>(loadProjectOrder())
+  const pinnedProjectOrder = ref<string[]>(loadPinnedProjectOrder())
   const projectSortMode = ref<ProjectSortMode>(loadProjectSortMode())
   const projectDisplayNameById = ref<Record<string, string>>(loadProjectDisplayNames())
   const loadedVersionByThreadId = ref<Record<string, string>>({})
@@ -3918,7 +3993,7 @@ export function useDesktopState() {
 
     const orderedGroups = projectSortMode.value === 'manual'
       ? orderGroupsByProjectOrder(visibleGroups, projectOrder.value)
-      : visibleGroups
+      : orderGroupsByPinnedProjectOrder(visibleGroups, pinnedProjectOrder.value)
     markServerListedThreads(new Set(flattenThreads(orderedGroups).map((thread) => thread.id)))
     const mergedWithInProgress = mergeIncomingWithLocalInProgressThreads(
       sourceGroups.value,
@@ -4950,6 +5025,12 @@ export function useDesktopState() {
       saveProjectOrder(projectOrder.value)
     }
 
+    const nextPinnedProjectOrder = pinnedProjectOrder.value.filter((name) => name !== projectName)
+    if (!areStringArraysEqual(pinnedProjectOrder.value, nextPinnedProjectOrder)) {
+      pinnedProjectOrder.value = nextPinnedProjectOrder
+      savePinnedProjectOrder(pinnedProjectOrder.value)
+    }
+
     sourceGroups.value = sourceGroups.value.filter((group) => group.projectName !== projectName)
 
     if (projectDisplayNameById.value[projectName] !== undefined) {
@@ -5016,15 +5097,30 @@ export function useDesktopState() {
     if (projectName.length === 0) return
     if (sourceGroups.value.length === 0) return
 
-    if (projectSortMode.value !== 'manual') {
-      setProjectSortMode('manual')
-    }
-
     const visibleOrder = sourceGroups.value.map((group) => group.projectName)
     const fromIndex = visibleOrder.indexOf(projectName)
     if (fromIndex === -1) return
 
     const clampedToIndex = Math.max(0, Math.min(toIndex, visibleOrder.length - 1))
+
+    if (projectSortMode.value === 'recent') {
+      const nextPinnedProjectOrder = reorderPinnedProjectOrder(
+        visibleOrder,
+        pinnedProjectOrder.value,
+        projectName,
+        clampedToIndex,
+      )
+      if (areStringArraysEqual(pinnedProjectOrder.value, nextPinnedProjectOrder)) return
+
+      pinnedProjectOrder.value = nextPinnedProjectOrder
+      savePinnedProjectOrder(pinnedProjectOrder.value)
+      applyThreadGroups(
+        loadedThreadListGroups.length > 0 ? loadedThreadListGroups : sourceGroups.value,
+        loadedThreadListRootsState,
+      )
+      return
+    }
+
     const reorderedVisibleOrder = reorderStringArray(visibleOrder, fromIndex, clampedToIndex)
     if (reorderedVisibleOrder === visibleOrder) return
 
@@ -5041,17 +5137,61 @@ export function useDesktopState() {
   function pinProjectToTop(projectName: string): void {
     const normalizedName = projectName.trim()
     if (!normalizedName) return
-    const nextOrder = [normalizedName, ...projectOrder.value.filter((name) => name !== normalizedName)]
-    if (areStringArraysEqual(projectOrder.value, nextOrder)) return
-    projectOrder.value = nextOrder
-    saveProjectOrder(projectOrder.value)
+    const nextPinnedProjectOrder = [normalizedName, ...pinnedProjectOrder.value.filter((name) => name !== normalizedName)]
+    const nextProjectOrder = [normalizedName, ...projectOrder.value.filter((name) => name !== normalizedName)]
+    const pinnedOrderChanged = !areStringArraysEqual(pinnedProjectOrder.value, nextPinnedProjectOrder)
+    const projectOrderChanged = !areStringArraysEqual(projectOrder.value, nextProjectOrder)
 
-    if (projectSortMode.value === 'manual') {
+    if (pinnedOrderChanged) {
+      pinnedProjectOrder.value = nextPinnedProjectOrder
+      savePinnedProjectOrder(pinnedProjectOrder.value)
+    }
+
+    if (projectSortMode.value === 'manual' && projectOrderChanged) {
+      projectOrder.value = nextProjectOrder
+      saveProjectOrder(projectOrder.value)
       const orderedGroups = orderGroupsByProjectOrder(sourceGroups.value, projectOrder.value)
       sourceGroups.value = mergeThreadGroups(sourceGroups.value, orderedGroups)
+    } else if (projectSortMode.value === 'recent' && pinnedOrderChanged) {
+      applyThreadGroups(
+        loadedThreadListGroups.length > 0 ? loadedThreadListGroups : sourceGroups.value,
+        loadedThreadListRootsState,
+      )
+    }
+    if (projectSortMode.value !== 'recent' || !pinnedOrderChanged) {
+      applyThreadFlags()
+    }
+    if (projectSortMode.value === 'manual' && projectOrderChanged) {
+      void persistProjectOrderToWorkspaceRoots()
+    }
+  }
+
+  function unpinProject(projectName: string): void {
+    const normalizedName = projectName.trim()
+    if (!normalizedName) return
+    const nextPinnedProjectOrder = pinnedProjectOrder.value.filter((name) => name !== normalizedName)
+    if (areStringArraysEqual(pinnedProjectOrder.value, nextPinnedProjectOrder)) return
+
+    pinnedProjectOrder.value = nextPinnedProjectOrder
+    savePinnedProjectOrder(pinnedProjectOrder.value)
+    if (projectSortMode.value === 'recent') {
+      applyThreadGroups(
+        loadedThreadListGroups.length > 0 ? loadedThreadListGroups : sourceGroups.value,
+        loadedThreadListRootsState,
+      )
+      return
     }
     applyThreadFlags()
-    void persistProjectOrderToWorkspaceRoots()
+  }
+
+  function toggleProjectPinned(projectName: string): void {
+    const normalizedName = projectName.trim()
+    if (!normalizedName) return
+    if (pinnedProjectOrder.value.includes(normalizedName)) {
+      unpinProject(normalizedName)
+      return
+    }
+    pinProjectToTop(normalizedName)
   }
 
   async function persistProjectOrderToWorkspaceRoots(): Promise<void> {
@@ -5324,6 +5464,7 @@ export function useDesktopState() {
     codexQuota,
     selectedThreadId,
     projectSortMode,
+    pinnedProjectOrder,
     availableCollaborationModes,
     availableModelIds,
     selectedCollaborationMode,
@@ -5374,6 +5515,8 @@ export function useDesktopState() {
     reorderProject,
     setProjectSortMode,
     pinProjectToTop,
+    unpinProject,
+    toggleProjectPinned,
     startPolling,
     stopPolling,
     primeSelectedThread,

@@ -63,6 +63,7 @@
           <SidebarThreadTree :groups="projectGroups" :project-display-name-by-id="projectDisplayNameById"
             :project-git-repo-by-name="projectGitRepoByName"
             :project-sort-mode="projectSortMode"
+            :pinned-project-order="pinnedProjectOrder"
             v-if="!isSidebarCollapsed"
             :selected-thread-id="selectedThreadId" :is-loading="isLoadingThreads"
             :search-query="sidebarSearchQuery"
@@ -77,6 +78,7 @@
             @fork-thread="onForkThread"
             @remove-project="onRemoveProject" @reorder-project="onReorderProject"
             @set-project-sort-mode="onSetProjectSortMode"
+            @toggle-project-pinned="onToggleProjectPinned"
             @export-thread="onExportThread"
             @start-new-chat="onStartNewThreadFromToolbar"
             @toggle-filter="toggleSidebarSearch" />
@@ -1186,6 +1188,7 @@ const {
   projectGroups,
   projectDisplayNameById,
   projectSortMode,
+  pinnedProjectOrder,
   selectedThread,
   selectedThreadTokenUsage,
   selectedThreadTerminalOpen,
@@ -1237,6 +1240,7 @@ const {
   reorderProject,
   setProjectSortMode,
   pinProjectToTop,
+  toggleProjectPinned,
   startPolling,
   stopPolling,
   primeSelectedThread,
@@ -2434,6 +2438,10 @@ function onReorderProject(payload: { projectName: string; toIndex: number }): vo
 
 function onSetProjectSortMode(mode: 'recent' | 'manual'): void {
   setProjectSortMode(mode)
+}
+
+function onToggleProjectPinned(projectName: string): void {
+  toggleProjectPinned(projectName)
 }
 
 function onRespondServerRequest(payload: UiServerRequestReply): void {

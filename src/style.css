@@ -239,6 +239,10 @@
   @apply text-zinc-300;
 }
 
+:root.dark .project-pin-indicator {
+  @apply text-zinc-400;
+}
+
 :root.dark .thread-composer-shell {
   @apply border-zinc-700 bg-zinc-800;
 }
