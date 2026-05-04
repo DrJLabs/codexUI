@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { createProjectMoveModeState, stopProjectMoveMode } from './projectMoveMode'
+import { collapseProjectsForMoveMode, createProjectMoveModeState, stopProjectMoveMode } from './projectMoveMode'
 
 describe('project move mode', () => {
   it('starts move mode for an existing project', () => {
@@ -20,6 +20,14 @@ describe('project move mode', () => {
     expect(stopProjectMoveMode()).toEqual({
       isActive: false,
       projectName: '',
+    })
+  })
+
+  it('collapses every current project when move mode starts', () => {
+    expect(collapseProjectsForMoveMode(['alpha', 'beta'], { alpha: false, stale: false })).toEqual({
+      alpha: true,
+      beta: true,
+      stale: false,
     })
   })
 })

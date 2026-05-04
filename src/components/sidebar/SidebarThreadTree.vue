@@ -777,7 +777,11 @@ import IconTablerGripVertical from '../icons/IconTablerGripVertical.vue'
 import IconTablerTrash from '../icons/IconTablerTrash.vue'
 import { useUiLanguage } from '../../composables/useUiLanguage'
 import { getPathLeafName, getPathParent, isProjectlessChatPath } from '../../pathUtils.js'
-import { createProjectMoveModeState, stopProjectMoveMode as createStoppedProjectMoveMode } from './projectMoveMode'
+import {
+  collapseProjectsForMoveMode,
+  createProjectMoveModeState,
+  stopProjectMoveMode as createStoppedProjectMoveMode,
+} from './projectMoveMode'
 import SidebarMenuRow from './SidebarMenuRow.vue'
 
 const props = defineProps<{
@@ -1654,11 +1658,10 @@ function onRemoveProject(projectName: string): void {
 }
 
 function startProjectMoveMode(projectName: string): void {
-  projectMoveMode.value = createProjectMoveModeState(
-    props.groups.map((group) => group.projectName),
-    projectName,
-  )
+  const projectNames = props.groups.map((group) => group.projectName)
+  projectMoveMode.value = createProjectMoveModeState(projectNames, projectName)
   if (projectMoveMode.value.isActive) {
+    collapsedProjects.value = collapseProjectsForMoveMode(projectNames, collapsedProjects.value)
     closeProjectMenu()
   }
 }

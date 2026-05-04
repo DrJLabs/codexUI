@@ -21,3 +21,16 @@ export function createProjectMoveModeState(projectNames: string[], projectName: 
     projectName: normalizedProjectName,
   }
 }
+
+export function collapseProjectsForMoveMode(
+  projectNames: string[],
+  currentCollapsedProjects: Record<string, boolean>,
+): Record<string, boolean> {
+  return projectNames.reduce<Record<string, boolean>>(
+    (nextCollapsedProjects, projectName) => {
+      nextCollapsedProjects[projectName] = true
+      return nextCollapsedProjects
+    },
+    { ...currentCollapsedProjects },
+  )
+}
