@@ -103,6 +103,14 @@
         </template>
         <span class="thread-tree-header">{{ t('Projects') }}</span>
         <template #right>
+          <button
+            v-if="isProjectMoveMode"
+            class="project-move-done-button"
+            type="button"
+            @click.stop="stopProjectMoveMode"
+          >
+            {{ t('Done') }}
+          </button>
           <div ref="organizeMenuWrapRef" class="organize-menu-wrap">
             <button
               class="organize-menu-trigger"
@@ -346,6 +354,9 @@
                       <button class="project-menu-item" type="button" @click="openRenameProjectMenu(group)">
                         Rename project
                       </button>
+                      <button class="project-menu-item" type="button" @click="startProjectMoveMode(group.projectName)">
+                        Move project
+                      </button>
                       <button
                         class="project-menu-item project-menu-item-danger"
                         type="button"
@@ -366,6 +377,17 @@
                   </div>
                 </div>
 
+                <button
+                  v-if="isProjectMoveMode"
+                  class="project-move-handle"
+                  type="button"
+                  :aria-label="t('Move project')"
+                  :title="t('Move project')"
+                  @click.stop
+                  @pointerdown.stop.prevent="onProjectMoveHandlePointerDown($event, group.projectName)"
+                >
+                  <IconTablerGripVertical class="thread-icon" />
+                </button>
                 <button
                   class="thread-start-button"
                   type="button"
@@ -751,9 +773,11 @@ import IconTablerFolder from '../icons/IconTablerFolder.vue'
 import IconTablerFolderOpen from '../icons/IconTablerFolderOpen.vue'
 import IconTablerGitFork from '../icons/IconTablerGitFork.vue'
 import IconTablerFilter from '../icons/IconTablerFilter.vue'
+import IconTablerGripVertical from '../icons/IconTablerGripVertical.vue'
 import IconTablerTrash from '../icons/IconTablerTrash.vue'
 import { useUiLanguage } from '../../composables/useUiLanguage'
 import { getPathLeafName, getPathParent, isProjectlessChatPath } from '../../pathUtils.js'
+import { createProjectMoveModeState, stopProjectMoveMode as createStoppedProjectMoveMode } from './projectMoveMode'
 import SidebarMenuRow from './SidebarMenuRow.vue'
 
 const props = defineProps<{
@@ -870,8 +894,10 @@ const automationDraft = ref<{
 const groupsContainerRef = ref<HTMLElement | null>(null)
 const pendingProjectDrag = ref<PendingProjectDrag | null>(null)
 const activeProjectDrag = ref<ActiveProjectDrag | null>(null)
+const projectMoveMode = ref(createStoppedProjectMoveMode())
 let pendingDragPointerSample: DragPointerSample | null = null
 let dragPointerRafId: number | null = null
+let activeProjectPointerId: number | null = null
 const suppressNextProjectToggleId = ref('')
 const measuredHeightByProject = ref<Record<string, number>>({})
 const projectGroupElementByName = new Map<string, HTMLElement>()
@@ -1018,6 +1044,7 @@ const filteredGroups = computed<UiProjectGroup[]>(() => {
 })
 
 const isChronologicalView = computed(() => threadViewMode.value === 'chronological')
+const isProjectMoveMode = computed(() => projectMoveMode.value.isActive)
 
 const globalThreads = computed<UiThread[]>(() => {
   const rows: UiThread[] = []
@@ -1626,6 +1653,21 @@ function onRemoveProject(projectName: string): void {
   closeProjectMenu()
 }
 
+function startProjectMoveMode(projectName: string): void {
+  projectMoveMode.value = createProjectMoveModeState(
+    props.groups.map((group) => group.projectName),
+    projectName,
+  )
+  if (projectMoveMode.value.isActive) {
+    closeProjectMenu()
+  }
+}
+
+function stopProjectMoveMode(): void {
+  projectMoveMode.value = createStoppedProjectMoveMode()
+  resetProjectDragState()
+}
+
 function onProjectHeaderKeyDown(event: KeyboardEvent, projectName: string): void {
   if (!event.altKey) return
   if (event.key !== 'ArrowUp' && event.key !== 'ArrowDown') return
@@ -1943,30 +1985,45 @@ function setProjectGroupRef(projectName: string, element: Element | ComponentPub
   projectGroupElementByName.delete(projectName)
 }
 
-function onProjectHandleMouseDown(event: MouseEvent, projectName: string): void {
-  if (event.button !== 0) return
-  if (pendingProjectDrag.value || activeProjectDrag.value) return
+function beginProjectDrag(projectName: string, clientX: number, clientY: number): boolean {
+  if (pendingProjectDrag.value || activeProjectDrag.value) return false
 
   const fromIndex = props.groups.findIndex((group) => group.projectName === projectName)
   const projectGroupElement = projectGroupElementByName.get(projectName)
-  if (fromIndex < 0 || !projectGroupElement) return
+  if (fromIndex < 0 || !projectGroupElement) return false
 
   const groupRect = projectGroupElement.getBoundingClientRect()
   const groupGap = isCollapsed(projectName) ? 0 : PROJECT_GROUP_EXPANDED_GAP_PX
   pendingProjectDrag.value = {
     projectName,
     fromIndex,
-    startClientX: event.clientX,
-    startClientY: event.clientY,
-    pointerOffsetY: event.clientY - groupRect.top,
+    startClientX: clientX,
+    startClientY: clientY,
+    pointerOffsetY: clientY - groupRect.top,
     groupLeft: groupRect.left,
     groupWidth: groupRect.width,
     groupHeight: groupRect.height,
     groupOuterHeight: groupRect.height + groupGap,
   }
 
+  return true
+}
+
+function onProjectHandleMouseDown(event: MouseEvent, projectName: string): void {
+  if (event.button !== 0) return
+  if (!beginProjectDrag(projectName, event.clientX, event.clientY)) return
+
   event.preventDefault()
   bindProjectDragListeners()
+}
+
+function onProjectMoveHandlePointerDown(event: PointerEvent, projectName: string): void {
+  if (event.button !== 0) return
+  if (!isProjectMoveMode.value) return
+  if (!beginProjectDrag(projectName, event.clientX, event.clientY)) return
+
+  activeProjectPointerId = event.pointerId
+  bindProjectPointerDragListeners()
 }
 
 function bindProjectDragListeners(): void {
@@ -1981,6 +2038,20 @@ function unbindProjectDragListeners(): void {
   window.removeEventListener('keydown', onProjectDragKeyDown)
 }
 
+function bindProjectPointerDragListeners(): void {
+  window.addEventListener('pointermove', onProjectDragPointerMove)
+  window.addEventListener('pointerup', onProjectDragPointerUp)
+  window.addEventListener('pointercancel', onProjectDragPointerCancel)
+  window.addEventListener('keydown', onProjectDragKeyDown)
+}
+
+function unbindProjectPointerDragListeners(): void {
+  window.removeEventListener('pointermove', onProjectDragPointerMove)
+  window.removeEventListener('pointerup', onProjectDragPointerUp)
+  window.removeEventListener('pointercancel', onProjectDragPointerCancel)
+  window.removeEventListener('keydown', onProjectDragKeyDown)
+}
+
 function onProjectDragMouseMove(event: MouseEvent): void {
   pendingDragPointerSample = {
     clientX: event.clientX,
@@ -1990,10 +2061,30 @@ function onProjectDragMouseMove(event: MouseEvent): void {
 }
 
 function onProjectDragMouseUp(event: MouseEvent): void {
-  processProjectDragPointerSample({
+  finishProjectDrag({ clientX: event.clientX, clientY: event.clientY })
+}
+
+function onProjectDragPointerMove(event: PointerEvent): void {
+  if (activeProjectPointerId !== null && event.pointerId !== activeProjectPointerId) return
+  pendingDragPointerSample = {
     clientX: event.clientX,
     clientY: event.clientY,
-  })
+  }
+  scheduleProjectDragPointerFrame()
+}
+
+function onProjectDragPointerUp(event: PointerEvent): void {
+  if (activeProjectPointerId !== null && event.pointerId !== activeProjectPointerId) return
+  finishProjectDrag({ clientX: event.clientX, clientY: event.clientY })
+}
+
+function onProjectDragPointerCancel(event: PointerEvent): void {
+  if (activeProjectPointerId !== null && event.pointerId !== activeProjectPointerId) return
+  resetProjectDragState()
+}
+
+function finishProjectDrag(sample: DragPointerSample): void {
+  processProjectDragPointerSample(sample)
 
   const drag = activeProjectDrag.value
   if (drag && projectedDropProjectIndex.value !== null) {
@@ -2028,8 +2119,10 @@ function resetProjectDragState(): void {
   pendingDragPointerSample = null
   pendingProjectDrag.value = null
   activeProjectDrag.value = null
+  activeProjectPointerId = null
   suppressNextProjectToggleId.value = ''
   unbindProjectDragListeners()
+  unbindProjectPointerDragListeners()
 }
 
 function scheduleProjectDragPointerFrame(): void {
@@ -2212,6 +2305,10 @@ watch(
       resetProjectDragState()
     }
 
+    if (projectMoveMode.value.isActive && !props.groups.some((group) => group.projectName === projectMoveMode.value.projectName)) {
+      projectMoveMode.value = createStoppedProjectMoveMode()
+    }
+
     const projectNameSet = new Set(projectNames)
     const nextMeasuredHeights = Object.fromEntries(
       Object.entries(measuredHeightByProject.value).filter(([projectName]) => projectNameSet.has(projectName)),
@@ -2373,6 +2470,15 @@ onBeforeUnmount(() => {
 
 .project-main-button[data-dragging-handle='true'] {
   @apply cursor-grabbing;
+}
+
+.project-move-done-button {
+  @apply h-6 rounded-md border border-zinc-200 bg-white px-2 text-xs font-medium text-zinc-700 transition hover:bg-zinc-50;
+}
+
+.project-move-handle {
+  @apply h-6 w-6 rounded-md border border-zinc-200 bg-white text-zinc-600 flex items-center justify-center transition hover:bg-zinc-50;
+  touch-action: none;
 }
 
 .project-icon-stack {
