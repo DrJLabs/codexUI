@@ -5141,6 +5141,11 @@ export function useDesktopState() {
     }
 
     if (projectSortMode.value === 'recent') {
+      if (projectOrderChanged) {
+        projectOrder.value = nextProjectOrder
+        saveProjectOrder(projectOrder.value)
+        void persistProjectOrderToWorkspaceRoots()
+      }
       if (!pinnedOrderChanged) {
         applyThreadFlags()
         return

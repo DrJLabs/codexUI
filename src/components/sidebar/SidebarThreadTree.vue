@@ -873,6 +873,7 @@ type MenuDirection = 'up' | 'down'
 type ChatSortMode = 'created' | 'updated'
 
 const DRAG_START_THRESHOLD_PX = 4
+const SUPPRESSED_PROJECT_TOGGLE_CLEAR_DELAY_MS = 100
 const PROJECT_GROUP_EXPANDED_GAP_PX = 6
 const SECTION_EXPANSION_STORAGE_KEY = 'codex-web-local.sidebar-section-expansion.v1'
 const CHATS_FIRST_STORAGE_KEY = 'codex-web-local.sidebar-chats-first.v1'
@@ -2200,7 +2201,7 @@ function scheduleSuppressedProjectToggleClear(): void {
       suppressNextProjectToggleId.value = ''
     }
     suppressProjectToggleClearTimer = null
-  }, 0)
+  }, SUPPRESSED_PROJECT_TOGGLE_CLEAR_DELAY_MS)
 }
 
 function scheduleProjectDragPointerFrame(): void {
