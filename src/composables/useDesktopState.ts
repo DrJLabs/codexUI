@@ -460,11 +460,13 @@ function loadProjectOrder(): string[] {
 export function normalizePinnedProjectOrder(parsed: unknown): string[] {
   if (!Array.isArray(parsed)) return []
   const order: string[] = []
+  const seen = new Set<string>()
   for (const item of parsed) {
     if (typeof item !== 'string' || item.length === 0) continue
     const normalizedItem = item.trim()
-    if (normalizedItem.length > 0 && !order.includes(normalizedItem)) {
+    if (normalizedItem.length > 0 && !seen.has(normalizedItem)) {
       order.push(normalizedItem)
+      seen.add(normalizedItem)
     }
   }
   return order
@@ -596,10 +598,12 @@ export function reorderPinnedProjectOrder(
   if (!visibleProjectSet.has(projectName)) return pinnedProjectOrder
 
   const visiblePinnedOrder: string[] = []
+  const seenVisiblePins = new Set<string>()
   for (const pinnedProjectName of pinnedProjectOrder) {
     if (!visibleProjectSet.has(pinnedProjectName)) continue
-    if (visiblePinnedOrder.includes(pinnedProjectName)) continue
+    if (seenVisiblePins.has(pinnedProjectName)) continue
     visiblePinnedOrder.push(pinnedProjectName)
+    seenVisiblePins.add(pinnedProjectName)
   }
 
   const hiddenPinnedOrder = pinnedProjectOrder.filter((pinnedProjectName) => !visibleProjectSet.has(pinnedProjectName))
@@ -3954,28 +3958,8 @@ export function useDesktopState() {
     }
   }
 
-  function filterGroupsByWorkspaceRoots(
-    groups: UiProjectGroup[],
-    rootsState: WorkspaceRootsState | null,
-  ): UiProjectGroup[] {
-    const duplicateLeafNames = collectDuplicateProjectLeafNames(groups, rootsState)
-    const disambiguatedGroups = disambiguateProjectGroupsByCwd(groups, rootsState)
-    const groupsWithWorkspaceRoots = addWorkspaceRootPlaceholderGroups(disambiguatedGroups, rootsState, duplicateLeafNames)
-    if (!rootsState || (rootsState.order.length === 0 && (rootsState.remoteProjects ?? []).length === 0)) return groupsWithWorkspaceRoots
-    const allowedProjectNames = new Set<string>()
-    for (const projectName of getWorkspaceProjectOrderNames(rootsState, duplicateLeafNames)) {
-      allowedProjectNames.add(projectName)
-    }
-    const filteredGroups = groupsWithWorkspaceRoots.filter((group) => {
-      if (allowedProjectNames.has(group.projectName)) return true
-      return isProjectlessGroup(group)
-    })
-    if (projectSortMode.value === 'recent') return filteredGroups
-    return orderGroupsByWorkspaceProjectOrder(filteredGroups, rootsState, duplicateLeafNames)
-  }
-
   function applyThreadGroups(groups: UiProjectGroup[], rootsState: WorkspaceRootsState | null): void {
-    const visibleGroups = filterGroupsByWorkspaceRoots(groups, rootsState)
+    const visibleGroups = filterGroupsByWorkspaceRoots(groups, rootsState, projectSortMode.value)
     const hasWorkspaceRootsState = Boolean(
       rootsState && (rootsState.order.length > 0 || rootsState.projectOrder.length > 0 || (rootsState.remoteProjects ?? []).length > 0),
     )
@@ -5185,6 +5169,7 @@ export function useDesktopState() {
     if (!normalizedName) return
 
     if (projectSortMode.value === 'recent') {
+      // Focus order is a session-only affordance for newly opened projects; durable overrides live in pinnedProjectOrder.
       focusedProjectOrder.value = [
         normalizedName,
         ...focusedProjectOrder.value.filter((name) => name !== normalizedName),

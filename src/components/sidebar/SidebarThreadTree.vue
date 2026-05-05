@@ -369,7 +369,12 @@
                       <button class="project-menu-item" type="button" @click="openRenameProjectMenu(group)">
                         Rename project
                       </button>
-                      <button class="project-menu-item" type="button" @click="onToggleProjectPinned(group.projectName)">
+                      <button
+                        v-if="projectSortMode === 'recent'"
+                        class="project-menu-item"
+                        type="button"
+                        @click="onToggleProjectPinned(group.projectName)"
+                      >
                         {{ isProjectPinPreferenceSet(group.projectName) ? 'Unpin project' : 'Pin project' }}
                       </button>
                       <button
@@ -1612,6 +1617,7 @@ function setChatSortMode(mode: ChatSortMode): void {
 
 function setProjectSortMode(mode: 'recent' | 'manual'): void {
   emit('set-project-sort-mode', mode)
+  isOrganizeMenuOpen.value = false
 }
 
 function toggleProjectMenu(projectName: string): void {
