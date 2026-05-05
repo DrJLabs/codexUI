@@ -100,7 +100,18 @@ function resolveViteRollbackDebugFallback(): string {
   return readEnvValueFromFile(".env", "VITE_ROLLBACK_DEBUG");
 }
 
+function resolveAdditionalAllowedHosts(): string[] {
+  const raw =
+    process.env.CODEXUI_VITE_ALLOWED_HOSTS?.trim()
+    || readEnvValueFromFile(".env.local", "CODEXUI_VITE_ALLOWED_HOSTS")
+    || readEnvValueFromFile(".env", "CODEXUI_VITE_ALLOWED_HOSTS");
+  if (!raw) return [];
+
+  return [...new Set(raw.split(/[,\s]+/u).map((host) => host.trim()).filter(Boolean))];
+}
+
 const viteRollbackDebugFallback = resolveViteRollbackDebugFallback();
+const additionalAllowedHosts = resolveAdditionalAllowedHosts();
 
 export default defineConfig({
   define: {
@@ -111,7 +122,7 @@ export default defineConfig({
   server: {
     host: "0.0.0.0",
     port: 5173,
-    allowedHosts: [".trycloudflare.com"],
+    allowedHosts: [".trycloudflare.com", ...additionalAllowedHosts],
     watch: {
       ignored: [
         '**/.omx/**',
