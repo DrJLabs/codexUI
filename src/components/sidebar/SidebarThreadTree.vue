@@ -118,7 +118,7 @@
               type="button"
               :aria-label="t('Reorder projects')"
               :title="t('Reorder projects')"
-              @click.stop="startProjectMoveMode()"
+              @click.stop="startProjectMoveModeFromHeader"
             >
               <IconTablerArrowsSort class="thread-icon" />
             </button>
@@ -1698,6 +1698,10 @@ function startProjectMoveMode(projectName = ''): void {
     collapsedProjects.value = collapseProjectsForMoveMode(projectNames, collapsedProjects.value)
     closeProjectMenu()
   }
+}
+
+function startProjectMoveModeFromHeader(): void {
+  startProjectMoveMode()
 }
 
 function stopProjectMoveMode(): void {
