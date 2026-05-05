@@ -21,6 +21,30 @@ Automation review sections use `${WORKTREE_ROOT}` for the current checkout and `
 #### Rollback/Cleanup
 - <cleanup action, if any>
 
+### Feature: Vite local allowed hosts override
+
+#### Prerequisites
+- App is running from this repository.
+- `CODEXUI_VITE_ALLOWED_HOSTS` is set in tracked `.env`, ignored `.env.local`, or the shell environment.
+
+#### Steps
+1. Confirm `.env.local` is ignored by git.
+2. Set `CODEXUI_VITE_ALLOWED_HOSTS` to a comma/space-separated host list, including quoted entries if needed.
+3. Start the dev server.
+4. Request the dev server with one configured host in the `Host` header.
+
+#### Expected Results
+- Tracked `vite.config.ts` keeps only the generic `CODEXUI_VITE_ALLOWED_HOSTS` hook; host-specific DNS values live in dotenv configuration.
+- The tracked `.env` default allows `codexui-dev.tail7570d1.ts.net` and `codexui.tail7570d1.ts.net`.
+- Duplicate hosts are deduplicated.
+- Quoted host tokens are parsed without splitting inside the quoted token.
+- A fully quoted dotenv list such as `"phone.ts.net,tablet.ts.net"` is parsed as separate hosts.
+- An explicitly empty shell or `.env.local` value clears additional hosts instead of falling back to `.env`.
+- Requests using configured local hosts are accepted by the dev server.
+
+#### Rollback/Cleanup
+- Remove `CODEXUI_VITE_ALLOWED_HOSTS` from `.env.local` or the shell environment.
+
 ### Feature: Thread heartbeat automations
 
 #### Prerequisites
