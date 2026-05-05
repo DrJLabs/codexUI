@@ -1698,6 +1698,11 @@ function isProjectPinPreferenceSet(projectName: string): boolean {
 }
 
 function startProjectMoveMode(projectName = ''): void {
+  isProjectsSectionExpanded.value = true
+  if (threadViewMode.value !== 'project') {
+    threadViewMode.value = 'project'
+  }
+  isOrganizeMenuOpen.value = false
   const projectNames = props.groups.map((group) => group.projectName)
   projectMoveMode.value = createProjectMoveModeState(projectNames, projectName || (projectNames[0] ?? ''))
   if (projectMoveMode.value.isActive) {
@@ -2162,7 +2167,7 @@ function onProjectDragKeyDown(event: KeyboardEvent): void {
   resetProjectDragState()
 }
 
-function resetProjectDragState(): void {
+function resetProjectDragState(options: { teardown?: boolean } = {}): void {
   if (dragPointerRafId !== null) {
     window.cancelAnimationFrame(dragPointerRafId)
     dragPointerRafId = null
@@ -2171,7 +2176,15 @@ function resetProjectDragState(): void {
   pendingProjectDrag.value = null
   activeProjectDrag.value = null
   activeProjectPointerId = null
-  scheduleSuppressedProjectToggleClear()
+  if (options.teardown) {
+    if (suppressProjectToggleClearTimer !== null) {
+      window.clearTimeout(suppressProjectToggleClearTimer)
+      suppressProjectToggleClearTimer = null
+    }
+    suppressNextProjectToggleId.value = ''
+  } else {
+    scheduleSuppressedProjectToggleClear()
+  }
   unbindProjectDragListeners()
   unbindProjectPointerDragListeners()
 }
@@ -2422,7 +2435,7 @@ onBeforeUnmount(() => {
   projectMenuWrapElementByName.clear()
   unbindThreadMenuPositionListeners()
   unbindProjectMenuDismissListeners()
-  resetProjectDragState()
+  resetProjectDragState({ teardown: true })
 })
 </script>
 

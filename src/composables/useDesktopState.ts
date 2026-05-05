@@ -3979,9 +3979,10 @@ export function useDesktopState() {
       }
     }
 
+    const pinnedProjectNameSet = new Set(pinnedProjectOrder.value)
     const recentProjectOrder = [
       ...pinnedProjectOrder.value,
-      ...focusedProjectOrder.value.filter((projectName) => !pinnedProjectOrder.value.includes(projectName)),
+      ...focusedProjectOrder.value.filter((projectName) => !pinnedProjectNameSet.has(projectName)),
     ]
     const orderedGroups = projectSortMode.value === 'manual'
       ? orderGroupsByProjectOrder(visibleGroups, projectOrder.value)

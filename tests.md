@@ -314,6 +314,7 @@ Projects can enter an explicit move mode from the Projects header reorder icon a
 #### Expected Results
 - Move mode is discoverable as a section-level Projects header action immediately left of the three-dot menu.
 - Individual project menus do not include `Move project`.
+- Activating move mode opens the Projects section and switches from chronological view back to project view so project rows are visible.
 - Activating move mode collapses every current project so only project rows are shown while reordering.
 - Project drag handles are large enough for touch and do not trigger project collapse.
 - Dragging by a handle in recent mode pins the moved project into a pinned prefix without switching to manual mode.
@@ -330,6 +331,7 @@ Projects can enter an explicit move mode from the Projects header reorder icon a
 - CJS Playwright against `http://127.0.0.1:5173/` passed for recent-mode project pins in `375x812` and `768x1024` viewports for light and dark themes. Each case dragged the second recent project to the top, verified `projectSortMode` stayed `recent`, verified `pinned-project-order` contained the dragged project, then used `Unpin project` and verified the original recency order returned.
 - CJS Playwright against `http://127.0.0.1:5173/` passed for a pinned project's manual-mode menu in `375x812` and `768x1024` viewports for light and dark themes. Each case pinned a project in recent mode, switched to `Manual project order`, reopened the project menu, and verified the recent-only `Pin project` / `Unpin project` action was hidden.
 - CJS Playwright against `http://127.0.0.1:5173/` passed for project drag completion in `375x812` for light and dark themes. Each case entered move mode, dragged the second project above the first, and verified no project thread list expanded from the post-drag click event.
+- CJS Playwright against `http://127.0.0.1:5173/` passed for move-mode activation from a collapsed Projects section while in chronological view in `375x812` for light and dark themes. Each case verified move mode expanded Projects, switched back to project groups, kept project threads collapsed, and showed `Done`.
 
 #### Rollback/Cleanup
 - Tap `Done` to leave move mode.
