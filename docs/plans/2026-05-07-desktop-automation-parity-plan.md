@@ -148,6 +148,15 @@ Acceptance:
 - A heartbeat automation advances next-run/cooldown like Desktop.
 - Manual run reports clear errors if the thread is unavailable or renderer mode has not loaded.
 
+Section 3 implementation notes:
+- Use the current app-server bridge surface first: `thread/read` is the available source of target-thread existence, pending state, and turn status.
+- Add a runner preflight for `kind = "heartbeat"` before run records are created. This keeps blocked heartbeats from polluting run history.
+- Block heartbeat starts when `thread/read` fails, returns no target thread, reports pending user input/approval, or includes a non-terminal/active turn.
+- Accept Desktop-style renderer state notifications named `heartbeat-automation-thread-state-changed`; if no renderer state has loaded for the target thread, block the heartbeat with a clear error.
+- Treat renderer state as the loaded-mode gate. Transient thread-state reasons such as busy, missing, or pending must be revalidated with `thread/read` so stale renderer snapshots do not permanently suppress scheduled heartbeats.
+- For blocked scheduled heartbeats, advance the scheduler cursor to the next due time without creating a run record so a busy thread does not retry every scheduler tick.
+- Keep full persisted cooldown alignment with Desktop's exact next-run fields in the scheduler-state/RRULE slices so this section stays focused on heartbeat target eligibility.
+
 ### 4. Heartbeat Prompt Wrapper
 
 Current CodexUI behavior:

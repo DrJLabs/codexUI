@@ -20,7 +20,7 @@ import {
   readOptionalSandboxMode,
   type CodexConfigProfileDefaults,
 } from '../execution/runProfiles'
-import { AutomationConflictError, AutomationNotFoundError, AutomationValidationError } from './errors.js'
+import { AutomationConflictError, AutomationDeferredRunError, AutomationNotFoundError, AutomationValidationError } from './errors.js'
 import {
   deleteNativeAutomationBySourceDir,
   getNativeAutomationsRoot,
@@ -36,7 +36,7 @@ import { createAutomationRunStore, isActiveAutomationRunState } from './runStore
 import { AutomationRunner } from './runner'
 import { evaluateRruleSchedule } from './scheduleCalculator'
 import { createAutomationSchedulerStore, type AutomationSchedulerState } from './schedulerStore'
-import { parseAutomationSidecarRead, type AutomationCreateInput, type AutomationPatchInput, type AutomationSidecarRead } from './schema.js'
+import { parseAutomationSidecarRead, type AutomationCreateInput, type AutomationPatchInput, type AutomationSidecarRead, type HeartbeatThreadStateInput } from './schema.js'
 import {
   assertAutomationExecutionPolicy,
   assertAutomationRunProfileAllowed,
@@ -129,6 +129,20 @@ export class AutomationsService {
     return this.runner !== null && this.isExecutionEnabled()
   }
 
+  async recordHeartbeatThreadState(input: HeartbeatThreadStateInput): Promise<void> {
+    if (!this.runner) throw createServiceError(503, 'Codex bridge is not available for heartbeat renderer state')
+    this.runner.recordHeartbeatThreadState(input)
+    const entries = await listNativeAutomationEntries(this.options)
+    for (const entry of entries.records) {
+      if (entry.record.kind !== 'heartbeat' || entry.record.targetThreadId !== input.threadId || entry.record.status !== 'ACTIVE') continue
+      const sidecarResult = await readSidecar(entry)
+      const current = await createAutomationSchedulerStore(entry.automationDirPath).readState().catch(() => null)
+      if (current?.unsupportedReason === 'Heartbeat renderer state has not loaded for target thread') {
+        await refreshSchedulerState(entry, sidecarResult.sidecar)
+      }
+    }
+  }
+
   async listDefinitions(): Promise<AutomationDefinition[]> {
     const { definitions } = await this.listDefinitionsWithDiagnostics()
     return definitions
@@ -189,8 +203,8 @@ export class AutomationsService {
       id: 'heartbeat-thread-check',
       kind: 'heartbeat',
       name: 'Thread heartbeat',
-      description: 'Periodically append a heartbeat prompt to a target thread.',
-      schedule: { type: 'rrule', rrule: 'FREQ=DAILY;INTERVAL=1' },
+      description: 'Continuously watches one target thread on a short interval and only starts when the thread is idle.',
+      schedule: { type: 'rrule', rrule: 'FREQ=MINUTELY;INTERVAL=15' },
     }]
   }
 
@@ -415,6 +429,34 @@ export class AutomationsService {
     })
   }
 
+  private async deferScheduledRun(
+    entry: NativeAutomationEntry,
+    input: {
+      dueAtIso: string
+      nextDueAtIso: string | null
+      unsupportedReason?: string | null
+      nowIso?: string
+    },
+  ): Promise<AutomationSchedulerState> {
+    const store = createAutomationSchedulerStore(entry.automationDirPath)
+    const current = await store.readOrDefault({
+      automationId: entry.record.id,
+      sourceDirName: entry.sourceDirName,
+    })
+    const nowIso = input.nowIso ?? new Date().toISOString()
+    return await store.writeState({
+      ...current,
+      automationId: entry.record.id,
+      sourceDirName: entry.sourceDirName,
+      lastDueAtIso: input.dueAtIso,
+      nextDueAtIso: input.unsupportedReason ? null : input.nextDueAtIso,
+      lastScheduledRunId: null,
+      lastEvaluatedAtIso: nowIso,
+      unsupportedReason: input.unsupportedReason ?? current.unsupportedReason,
+      updatedAtIso: nowIso,
+    })
+  }
+
   async listPersistedActiveRuns(): Promise<PersistedAutomationActiveRun[]> {
     const entries = await listNativeAutomationEntries(this.options)
     const activeRuns: PersistedAutomationActiveRun[] = []
@@ -503,16 +545,27 @@ export class AutomationsService {
         defaultRunProfileId: executionOptions?.defaultRunProfileId,
         runProfiles,
       }), this.policy)
-      return await this.runner.runScheduled({
-        definition,
-        automationDirPath: entry.automationDirPath,
-        sourceDirName: entry.sourceDirName,
-        dueAtIso: input.dueAtIso,
-        nextDueAtIso: input.nextDueAtIso,
-        runProfiles,
-        defaultRunProfileId: executionOptions?.defaultRunProfileId,
-        runProfileId: input.runProfileId,
-      })
+      try {
+        return await this.runner.runScheduled({
+          definition,
+          automationDirPath: entry.automationDirPath,
+          sourceDirName: entry.sourceDirName,
+          dueAtIso: input.dueAtIso,
+          nextDueAtIso: input.nextDueAtIso,
+          runProfiles,
+          defaultRunProfileId: executionOptions?.defaultRunProfileId,
+          runProfileId: input.runProfileId,
+        })
+      } catch (error) {
+        if (error instanceof AutomationDeferredRunError) {
+          await this.deferScheduledRun(entry, {
+            dueAtIso: input.dueAtIso,
+            nextDueAtIso: input.nextDueAtIso,
+            unsupportedReason: error.deferMode === 'requires_renderer_state' ? error.message : null,
+          })
+        }
+        throw error
+      }
     })
   }
 

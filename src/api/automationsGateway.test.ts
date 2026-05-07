@@ -92,6 +92,55 @@ describe('automationsGateway', () => {
     await expect(runAutomationNow('auto_1')).resolves.toMatchObject({ id: 'run_1', automationId: 'auto_1' })
   })
 
+  it('reports heartbeat renderer state through the protected state endpoint', async () => {
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      const headers = init?.headers as Record<string, string> | undefined
+      if (url === '/codex-api/automations/csrf') return jsonResponse(200, { data: { csrfToken: 'token' } })
+      expect(url).toBe('/codex-api/automations/heartbeat-thread-state')
+      expect(init?.method).toBe('POST')
+      expect(headers?.['x-codexui-automations-csrf']).toBe('token')
+      expect(JSON.parse(String(init?.body))).toEqual({
+        threadId: 'thread_1',
+        eligible: true,
+        reason: null,
+      })
+      return jsonResponse(200, { data: { ok: true } })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    const { reportHeartbeatThreadState } = await import('./automationsGateway')
+    await expect(reportHeartbeatThreadState({ threadId: 'thread_1', eligible: true, reason: null })).resolves.toBeUndefined()
+  })
+
+  it('reads heartbeat live-state eligibility from the app-server renderer state endpoint', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      expect(url).toBe('/codex-api/thread-live-state?threadId=thread_1')
+      return jsonResponse(200, { threadId: 'thread_1', isInProgress: true, liveStateError: null })
+    }))
+    const { readHeartbeatThreadLiveState } = await import('./automationsGateway')
+    await expect(readHeartbeatThreadLiveState('thread_1')).resolves.toEqual({
+      threadId: 'thread_1',
+      eligible: false,
+      reason: 'Heartbeat target thread is busy',
+    })
+  })
+
+  it('preserves heartbeat live-state error messages from the app-server endpoint', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      expect(url).toBe('/codex-api/thread-live-state?threadId=missing_thread')
+      return jsonResponse(200, {
+        threadId: 'missing_thread',
+        isInProgress: false,
+        liveStateError: { kind: 'readFailed', message: 'thread/read failed: missing transcript' },
+      })
+    }))
+    const { readHeartbeatThreadLiveState } = await import('./automationsGateway')
+    await expect(readHeartbeatThreadLiveState('missing_thread')).resolves.toEqual({
+      threadId: 'missing_thread',
+      eligible: false,
+      reason: 'thread/read failed: missing transcript',
+    })
+  })
+
   it('lists manual run history for an automation', async () => {
     vi.stubGlobal('fetch', vi.fn(async (url: string) => {
       expect(url).toBe('/codex-api/automations/auto_1/runs')

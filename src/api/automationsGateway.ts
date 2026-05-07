@@ -20,6 +20,12 @@ export type PatchAutomationInput = Partial<Omit<CreateAutomationInput, 'kind' | 
   targetThreadId?: string | null
 }
 
+export type HeartbeatThreadStateInput = {
+  threadId: string
+  eligible: boolean
+  reason?: string | null
+}
+
 type AutomationsApiResponse<T> = {
   data: T
 }
@@ -104,6 +110,36 @@ export async function runAutomationNow(id: string): Promise<AutomationRun> {
   })
 }
 
+export async function reportHeartbeatThreadState(input: HeartbeatThreadStateInput): Promise<void> {
+  await requestProtectedAutomations<{ ok: true }>('/heartbeat-thread-state', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  })
+}
+
+export async function readHeartbeatThreadLiveState(threadId: string): Promise<HeartbeatThreadStateInput> {
+  try {
+    const response = await fetch(`/codex-api/thread-live-state?threadId=${encodeURIComponent(threadId)}`)
+    const payload = await response.json().catch(() => null) as Record<string, unknown> | null
+    if (!response.ok) {
+      return { threadId, eligible: false, reason: readErrorMessage(payload, `Heartbeat renderer state failed to load (${response.status})`) }
+    }
+    if (payload?.liveStateError) {
+      return { threadId, eligible: false, reason: readErrorMessage(payload.liveStateError, 'Heartbeat renderer state failed to load') }
+    }
+    if (payload?.isInProgress === true) {
+      return { threadId, eligible: false, reason: 'Heartbeat target thread is busy' }
+    }
+    return { threadId, eligible: true, reason: null }
+  } catch (error) {
+    return {
+      threadId,
+      eligible: false,
+      reason: error instanceof Error ? error.message : 'Heartbeat renderer state failed to load',
+    }
+  }
+}
+
 export async function listAutomationRuns(id: string): Promise<AutomationRun[]> {
   return await requestAutomations<AutomationRun[]>(`/${encodeURIComponent(id)}/runs`)
 }
@@ -170,4 +206,15 @@ function isStaleCsrfError(error: unknown): error is AutomationsRequestError {
   const requestError = error as AutomationsRequestError
   return requestError.status === 403
     && (requestError.code === 'AUTOMATIONS_CSRF_INVALID' || error.message.toLowerCase().includes('csrf'))
+}
+
+function readErrorMessage(value: unknown, fallback: string): string {
+  if (typeof value === 'string' && value.trim()) return value.trim()
+  if (value && typeof value === 'object' && 'error' in value && typeof (value as { error?: unknown }).error === 'string') {
+    return (value as { error: string }).error
+  }
+  if (value && typeof value === 'object' && 'message' in value && typeof (value as { message?: unknown }).message === 'string') {
+    return (value as { message: string }).message
+  }
+  return fallback
 }

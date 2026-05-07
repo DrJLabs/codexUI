@@ -1,4 +1,5 @@
 import { isActiveAutomationRunState } from './runStore'
+import { AutomationDeferredRunError } from './errors'
 import { evaluateRruleSchedule } from './scheduleCalculator'
 import type { AutomationSchedulerState } from './schedulerStore'
 import { AutomationsService, type AutomationSchedulerEntry, type PersistedAutomationActiveRun } from './service'
@@ -86,6 +87,7 @@ export class AutomationScheduler {
           nextDueAtIso: decision.nextDueAtIso,
         })
       } catch (error) {
+        if (error instanceof AutomationDeferredRunError) continue
         console.warn(`Automation scheduler failed to start ${entry.definition.id}:`, error)
         continue
       }

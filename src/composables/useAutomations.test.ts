@@ -9,6 +9,7 @@ it('loads state and selects the first automation', async () => {
   expect(automations.definitions.value).toHaveLength(1)
   expect(automations.selectedAutomationId.value).toBe('auto_1')
   expect(automations.draft.value.name).toBe('Daily check')
+  expect(gateway.reportHeartbeatThreadState).toHaveBeenCalledWith({ threadId: 'thread_1', eligible: true, reason: null })
 })
 
 it('prefills create draft from a thread shortcut when no matching automation exists', async () => {
@@ -196,11 +197,32 @@ it('starts the selected automation now, refreshes state, and refreshes run histo
 
   await automations.runSelectedNow()
 
+  expect(gateway.readHeartbeatThreadLiveState).toHaveBeenCalledWith('thread_1')
+  expect(gateway.reportHeartbeatThreadState).toHaveBeenCalledWith({ threadId: 'thread_1', eligible: true, reason: null })
   expect(gateway.runAutomationNow).toHaveBeenCalledWith('auto_1')
   expect(gateway.listAutomationRuns).toHaveBeenCalledWith('auto_1')
   expect(gateway.loadAutomationsState).toHaveBeenCalledTimes(2)
   expect(automations.runHistory.value).toEqual([expect.objectContaining({ id: 'run_1' })])
   expect(automations.isRunningNow.value).toBe(false)
+})
+
+it('does not report heartbeat renderer state for cron manual runs', async () => {
+  const gateway = createGatewayFixture([automationFixture({
+    id: 'cron_1',
+    kind: 'cron',
+    targetThreadId: null,
+    runMode: 'local',
+    cwd: '/tmp/project',
+    cwds: ['/tmp/project'],
+  })])
+  const automations = useAutomations({ gateway })
+  await automations.loadAll()
+
+  await automations.runSelectedNow()
+
+  expect(gateway.readHeartbeatThreadLiveState).not.toHaveBeenCalled()
+  expect(gateway.reportHeartbeatThreadState).not.toHaveBeenCalled()
+  expect(gateway.runAutomationNow).toHaveBeenCalledWith('cron_1')
 })
 
 it('loads run history when selecting an automation', async () => {
@@ -368,6 +390,8 @@ function createGatewayFixture(
       if (options.runError) throw options.runError
       return automationRunFixture({ automationId: id })
     }),
+    readHeartbeatThreadLiveState: vi.fn(async (threadId) => ({ threadId, eligible: true, reason: null })),
+    reportHeartbeatThreadState: vi.fn(async () => {}),
     listAutomationRuns: vi.fn(async (id) => [automationRunFixture({ automationId: id })]),
     markAutomationRunRead: vi.fn(async (automationId, runId) => automationRunFixture({
       id: runId,

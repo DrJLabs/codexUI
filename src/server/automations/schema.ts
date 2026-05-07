@@ -39,6 +39,12 @@ export type AutomationDeleteOptions = {
   removeNative: boolean
 }
 
+export type HeartbeatThreadStateInput = {
+  threadId: string
+  eligible: boolean
+  reason: string | null
+}
+
 export type AutomationSidecarRead = {
   description: string | null
   kanbanProjection: AutomationKanbanProjection
@@ -299,6 +305,17 @@ function validateSelfContainedPatchTarget(value: Record<string, unknown>, patch:
 
 export function parseAutomationDeleteOptions(query: unknown, body: unknown): AutomationDeleteOptions {
   return { removeNative: readBooleanOption(query, body, 'removeNative') }
+}
+
+export function parseHeartbeatThreadStateInput(value: unknown): HeartbeatThreadStateInput {
+  if (!isRecord(value)) throw new AutomationValidationError('Heartbeat thread state payload is required')
+  const eligible = value.eligible
+  if (typeof eligible !== 'boolean') throw new AutomationValidationError('eligible must be boolean')
+  return {
+    threadId: readTrimmedString(value.threadId, 'threadId'),
+    eligible,
+    reason: readNullableString(value.reason, 'reason'),
+  }
 }
 
 export function parseAutomationRouteParams(params: unknown): { automationId: string } {

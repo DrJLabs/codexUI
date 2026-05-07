@@ -8,6 +8,8 @@ import {
   loadAutomationsState,
   markAutomationRunRead,
   pauseAutomation,
+  readHeartbeatThreadLiveState,
+  reportHeartbeatThreadState,
   resumeAutomation,
   runAutomationNow,
   unarchiveAutomationRun,
@@ -42,6 +44,8 @@ export type AutomationsGateway = {
   resumeAutomation: typeof resumeAutomation
   deleteAutomation: typeof deleteAutomation
   runAutomationNow: typeof runAutomationNow
+  readHeartbeatThreadLiveState: typeof readHeartbeatThreadLiveState
+  reportHeartbeatThreadState: typeof reportHeartbeatThreadState
   listAutomationRuns: typeof listAutomationRuns
   markAutomationRunRead: typeof markAutomationRunRead
   archiveAutomationRun: typeof archiveAutomationRun
@@ -61,6 +65,8 @@ const defaultGateway: AutomationsGateway = {
   resumeAutomation,
   deleteAutomation,
   runAutomationNow,
+  readHeartbeatThreadLiveState,
+  reportHeartbeatThreadState,
   listAutomationRuns,
   markAutomationRunRead,
   archiveAutomationRun,
@@ -177,6 +183,7 @@ export function useAutomations(options: UseAutomationsOptions = {}) {
       state.value = nextState
       templates.value = nextTemplates
       hasLoaded.value = true
+      await publishHeartbeatRendererStates(nextState.definitions)
       if (pendingThreadPrefill.value) {
         const pendingThreadId = pendingThreadPrefill.value
         pendingThreadPrefill.value = ''
@@ -273,6 +280,7 @@ export function useAutomations(options: UseAutomationsOptions = {}) {
     isRunningNow.value = true
     mutationError.value = ''
     try {
+      await reportSelectedHeartbeatRendererState()
       await gateway.runAutomationNow(id)
       await loadAll(id)
       await loadRunHistory(id)
@@ -371,6 +379,25 @@ export function useAutomations(options: UseAutomationsOptions = {}) {
       await action(id, runId)
       await loadRunHistory(id)
     }, fallbackMessage)
+  }
+
+  async function reportSelectedHeartbeatRendererState(): Promise<void> {
+    const definition = selectedAutomation.value
+    if (!definition || definition.kind !== 'heartbeat' || !definition.targetThreadId) return
+    const state = await gateway.readHeartbeatThreadLiveState(definition.targetThreadId)
+    await gateway.reportHeartbeatThreadState(state)
+  }
+
+  async function publishHeartbeatRendererStates(definitions: AutomationDefinition[]): Promise<void> {
+    const targetThreadIds = Array.from(new Set(
+      definitions
+        .filter((definition) => definition.kind === 'heartbeat' && definition.status === 'active' && definition.targetThreadId)
+        .map((definition) => definition.targetThreadId as string),
+    ))
+    await Promise.allSettled(targetThreadIds.map(async (threadId) => {
+      const heartbeatState = await gateway.readHeartbeatThreadLiveState(threadId)
+      await gateway.reportHeartbeatThreadState(heartbeatState)
+    }))
   }
 
   return {

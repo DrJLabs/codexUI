@@ -8,6 +8,7 @@ import {
   parseAutomationDeleteOptions,
   parseAutomationPatchInput,
   parseAutomationRouteParams,
+  parseHeartbeatThreadStateInput,
 } from './schema.js'
 import { AutomationsService, type AutomationsServiceOptions } from './service.js'
 
@@ -49,6 +50,12 @@ export function createAutomationsRouter(options: CreateAutomationsRouterOptions 
   router.post('/', asyncHandler(async (req, res) => {
     assertTrustedAccessMutation(req, csrf)
     res.status(201).json({ data: await service.createDefinition(parseAutomationCreateInput(req.body)) })
+  }))
+
+  router.post('/heartbeat-thread-state', asyncHandler(async (req, res) => {
+    assertTrustedAccessMutation(req, csrf)
+    await service.recordHeartbeatThreadState(parseHeartbeatThreadStateInput(req.body))
+    res.status(200).json({ data: { ok: true } })
   }))
 
   router.get('/:automationId', asyncHandler(async (req, res) => {

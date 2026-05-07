@@ -649,7 +649,7 @@ function applyTemplate(templateId: string): void {
   if (templateId === 'thread-heartbeat') {
     applyTemplateValues({
       name: 'Thread heartbeat',
-      description: 'Recurring check-in for a thread.',
+      description: 'Continuous short-interval watcher for one target thread.',
       prompt: 'Review this thread and report anything that needs attention.',
       runMode: 'chat',
       frequency: 'custom',

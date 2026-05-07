@@ -7,7 +7,7 @@ import type { CodexBridgeNotification, CodexBridgeRuntime } from '../codexAppSer
 import { createRestrictedCodexBridgeAdapter, type RestrictedCodexBridgeAdapter } from '../execution/codexBridgeAdapter'
 import { resolveCodexTurnStartRunSettings } from '../execution/runProfiles'
 import { ManagedWorktreeService } from '../workspaces/managedWorktreeService'
-import { AutomationConflictError, AutomationValidationError } from './errors'
+import { AutomationConflictError, AutomationDeferredRunError, AutomationValidationError } from './errors'
 import { classifyAutomationRunFailure, classifyAutomationRunResult } from './resultClassifier'
 import {
   assertAutomationExecutionPolicy,
@@ -42,6 +42,12 @@ type IndexedActiveRun = {
   runningRecordReady: Promise<boolean>
 }
 
+type HeartbeatRendererState = {
+  eligible: boolean
+  reason: string | null
+  atIso: string
+}
+
 export class AutomationRunner {
   private readonly bridge: RestrictedCodexBridgeAdapter
   private readonly policy: AutomationExecutionPolicy
@@ -51,6 +57,7 @@ export class AutomationRunner {
   private readonly completionLocks = new Map<string, Promise<void>>()
   private readonly ownedActiveRunIds = new Set<string>()
   private readonly activeRunsByTurn = new Map<string, IndexedActiveRun>()
+  private readonly heartbeatRendererStatesByThread = new Map<string, HeartbeatRendererState>()
   private readonly unsubscribeNotifications: () => void
 
   constructor(options: AutomationRunnerOptions) {
@@ -67,6 +74,7 @@ export class AutomationRunner {
   dispose(): void {
     this.unsubscribeNotifications()
     this.activeRunsByTurn.clear()
+    this.heartbeatRendererStatesByThread.clear()
   }
 
   async runNow(input: {
@@ -102,6 +110,19 @@ export class AutomationRunner {
     return this.ownedActiveRunIds.has(runId)
   }
 
+  recordHeartbeatThreadState(input: {
+    threadId: string
+    eligible: boolean
+    reason?: string | null
+    atIso?: string | null
+  }): void {
+    this.heartbeatRendererStatesByThread.set(input.threadId, {
+      eligible: input.eligible,
+      reason: input.reason ?? null,
+      atIso: input.atIso ?? new Date().toISOString(),
+    })
+  }
+
   private async startRun(input: {
     definition: AutomationDefinition
     automationDirPath: string
@@ -116,6 +137,9 @@ export class AutomationRunner {
     this.validateRunTarget(definition, runMode)
     const runProfileSnapshot = resolveAutomationRunProfile(definition, input)
     assertAutomationRunProfileAllowed(runProfileSnapshot, this.policy)
+    if (definition.kind === 'heartbeat') {
+      await this.assertHeartbeatEligible(definition)
+    }
 
     const store = createAutomationRunStore(input.automationDirPath)
     await this.failOrphanedActiveRuns(store, definition)
@@ -296,6 +320,36 @@ export class AutomationRunner {
     }
   }
 
+  private async assertHeartbeatEligible(definition: AutomationDefinition): Promise<void> {
+    const targetThreadId = definition.targetThreadId
+    if (!targetThreadId) {
+      throw new AutomationValidationError('heartbeat automations require a targetThreadId')
+    }
+    const rendererState = this.heartbeatRendererStatesByThread.get(targetThreadId)
+    if (!rendererState) {
+      throw new AutomationDeferredRunError('Heartbeat renderer state has not loaded for target thread', {
+        deferMode: 'requires_renderer_state',
+      })
+    }
+    if (rendererState && !rendererState.eligible && isAuthoritativeHeartbeatRendererBlock(rendererState.reason)) {
+      throw new AutomationDeferredRunError(rendererState.reason || 'Heartbeat target thread is not eligible in the current renderer state')
+    }
+    let response: unknown
+    try {
+      response = await this.bridge.rpc('thread/read', {
+        threadId: targetThreadId,
+        includeTurns: true,
+      })
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'thread/read failed'
+      throw new AutomationDeferredRunError(`Heartbeat target thread is unavailable: ${message}`)
+    }
+    const decision = evaluateHeartbeatThreadEligibility(response)
+    if (!decision.eligible) {
+      throw new AutomationDeferredRunError(decision.reason)
+    }
+  }
+
   private async createAutomationWorktree(
     definition: AutomationDefinition,
     run: AutomationRun,
@@ -359,6 +413,10 @@ export class AutomationRunner {
   }
 
   private async handleBridgeNotification(notification: CodexBridgeNotification): Promise<void> {
+    if (notification.method === 'heartbeat-automation-thread-state-changed') {
+      this.recordHeartbeatRendererState(notification)
+      return
+    }
     if (notification.method !== 'turn/completed') return
     const threadId = extractThreadId(notification.params)
     const turnId = extractTurnId(notification.params)
@@ -586,6 +644,27 @@ export class AutomationRunner {
       if (this.locks.get(automationId) === chained) this.locks.delete(automationId)
     }
   }
+
+  private recordHeartbeatRendererState(notification: CodexBridgeNotification): void {
+    const record = asRecord(notification.params)
+    const threadId = extractThreadId(notification.params)
+    if (!record || !threadId) return
+    const eligible = readBoolean(record.eligible)
+      ?? readBoolean(record.isEligible)
+      ?? readBoolean(record.canRun)
+      ?? (readHeartbeatStatus(record) === 'eligible' ? true : readHeartbeatStatus(record) === 'ineligible' ? false : null)
+    if (eligible === null) return
+    const reason = readString(record.reason)
+      || readString(record.blockedReason)
+      || readString(record.ineligibleReason)
+      || null
+    this.recordHeartbeatThreadState({
+      threadId,
+      eligible,
+      reason,
+      atIso: notification.atIso,
+    })
+  }
 }
 
 function extractThreadId(params: unknown): string {
@@ -600,6 +679,120 @@ function extractThreadId(params: unknown): string {
   }
   const turn = asRecord(record.turn)
   return turn ? readString(turn.threadId) || readString(turn.thread_id) : ''
+}
+
+function evaluateHeartbeatThreadEligibility(response: unknown): { eligible: true } | { eligible: false; reason: string } {
+  const record = asRecord(response)
+  if (!record) return { eligible: false, reason: 'Heartbeat target thread is unavailable' }
+  const thread = asRecord(record.thread)
+  if (!thread) return { eligible: false, reason: 'Heartbeat target thread is unavailable' }
+
+  const pendingState = readHeartbeatPendingState(thread) || readHeartbeatPendingState(record)
+  if (pendingState === 'approval') {
+    return { eligible: false, reason: 'Heartbeat target thread is waiting for approval' }
+  }
+  if (pendingState === 'response') {
+    return { eligible: false, reason: 'Heartbeat target thread is waiting for user input' }
+  }
+
+  const threadStatus = readHeartbeatThreadStatus(thread) || readHeartbeatThreadStatus(record)
+  if (isHeartbeatBusyStatus(threadStatus)) {
+    return { eligible: false, reason: 'Heartbeat target thread is busy' }
+  }
+
+  const turns = Array.isArray(thread.turns)
+    ? thread.turns
+    : Array.isArray(record.turns) ? record.turns : []
+  for (const turn of turns) {
+    const turnStatus = readString(asRecord(turn)?.status)
+    if (isHeartbeatBusyStatus(turnStatus)) {
+      return { eligible: false, reason: 'Heartbeat target thread has an active turn' }
+    }
+  }
+
+  return { eligible: true }
+}
+
+function readHeartbeatPendingState(record: Record<string, unknown>): 'approval' | 'response' | '' {
+  const direct = normalizeHeartbeatStatus(
+    readString(record.pendingRequestState)
+    || readString(record.pending_request_state)
+    || readString(record.pendingState)
+    || readString(record.pending_state),
+  )
+  if (direct.includes('approval')) return 'approval'
+  if (direct.includes('response') || direct.includes('input') || direct.includes('user')) return 'response'
+
+  const pending = asRecord(record.pendingRequest) ?? asRecord(record.pending_request) ?? asRecord(record.pending)
+  if (!pending) return ''
+  const nested = normalizeHeartbeatStatus(
+    readString(pending.type)
+    || readString(pending.kind)
+    || readString(pending.state)
+    || readString(pending.status),
+  )
+  if (nested.includes('approval')) return 'approval'
+  if (nested.includes('response') || nested.includes('input') || nested.includes('user')) return 'response'
+  return ''
+}
+
+function readHeartbeatThreadStatus(record: Record<string, unknown>): string {
+  const direct = typeof record.status === 'string'
+    ? readString(record.status)
+    : readString(record.state)
+  if (direct) return direct
+  const status = asRecord(record.status)
+  return status
+    ? readString(status.type) || readString(status.kind) || readString(status.state) || readString(status.status)
+    : ''
+}
+
+function readHeartbeatStatus(record: Record<string, unknown>): string {
+  return normalizeHeartbeatStatus(
+    readString(record.status)
+    || readString(record.state)
+    || readString(record.eligibility)
+    || readString(record.heartbeatStatus),
+  )
+}
+
+function isAuthoritativeHeartbeatRendererBlock(reason: string | null): boolean {
+  const normalized = normalizeHeartbeatStatus(reason ?? '')
+  if (!normalized) return true
+  if (
+    normalized.includes('collaboration') ||
+    normalized.includes('mode') ||
+    normalized.includes('renderer')
+  ) {
+    return true
+  }
+  if (
+    normalized.includes('busy') ||
+    normalized.includes('approval') ||
+    normalized.includes('input') ||
+    normalized.includes('response') ||
+    normalized.includes('waitingforuser') ||
+    normalized.includes('readfailed') ||
+    normalized.includes('threadreadfailed') ||
+    normalized.includes('threadunavailable') ||
+    normalized.includes('threadnotfound') ||
+    normalized.includes('threadmissing') ||
+    normalized.includes('transcriptmissing')
+  ) {
+    return false
+  }
+  return true
+}
+
+function isHeartbeatBusyStatus(status: string): boolean {
+  const normalized = normalizeHeartbeatStatus(status)
+  if (!normalized || normalized === 'idle' || normalized === 'ready') return false
+  const terminalStatuses = new Set(['completed', 'complete', 'failed', 'declined', 'interrupted', 'cancelled', 'canceled', 'done', 'succeeded', 'success'])
+  return !terminalStatuses.has(normalized)
+}
+
+function normalizeHeartbeatStatus(status: string): string {
+  return status.trim().toLowerCase().replace(/[\s_-]+/gu, '')
 }
 
 async function readProjectionSidecar(entry: NativeAutomationEntry): Promise<AutomationSidecarRead> {
@@ -770,6 +963,10 @@ function readArray(value: unknown): unknown[] {
 
 function readString(value: unknown): string {
   return typeof value === 'string' ? value : ''
+}
+
+function readBoolean(value: unknown): boolean | null {
+  return typeof value === 'boolean' ? value : null
 }
 
 function isMissingFileError(error: unknown): boolean {

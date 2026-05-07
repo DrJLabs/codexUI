@@ -79,6 +79,7 @@ afterEach(async () => {
 async function createHarness(options: {
   policy?: AutomationExecutionPolicy
   turnStartDelayMs?: number
+  threadReadById?: Record<string, unknown>
 } = {}) {
   const codexHomeDir = await mkdtemp(join(tmpdir(), 'codexui-automation-scheduler-'))
   codexHomeDirs.push(codexHomeDir)
@@ -102,7 +103,10 @@ async function createHarness(options: {
         return { turn: { id: `turn_${turnStartCount}` } } as T
       }
       if (method === 'thread/read') {
-        return { thread: { turns: [] } } as T
+        const threadId = readRecord(params).threadId
+        const configured = options.threadReadById?.[threadId]
+        if (configured instanceof Error) throw configured
+        return (configured ?? { thread: { id: threadId, turns: [] } }) as T
       }
       return {} as T
     },
@@ -219,6 +223,24 @@ function readRecord(params: unknown): { threadId: string } {
   throw new Error('Missing threadId')
 }
 
+function notifyHeartbeatRendererState(
+  listeners: Array<(notification: CodexBridgeNotification) => void>,
+  threadId: string,
+  input: { eligible?: boolean; reason?: string | null } = {},
+) {
+  for (const listener of listeners) {
+    listener({
+      method: 'heartbeat-automation-thread-state-changed',
+      params: {
+        threadId,
+        eligible: input.eligible ?? true,
+        reason: input.reason ?? null,
+      },
+      atIso: '2026-04-30T09:00:00.000Z',
+    })
+  }
+}
+
 describe('AutomationScheduler', () => {
   it('includes Desktop cron automations as scheduler candidates', async () => {
     const { codexHomeDir, service } = await createHarness()
@@ -286,6 +308,167 @@ describe('AutomationScheduler', () => {
 
     await expect(service.runNow('deleted-check')).rejects.toThrow('Deleted automations cannot be run')
     await expect(service.resumeDefinition('deleted-check')).rejects.toThrow('Deleted automations cannot be paused or resumed')
+  })
+
+  it('blocks manual heartbeat starts when the target thread is busy', async () => {
+    const { codexHomeDir, service, rpcCalls, notificationListeners } = await createHarness({
+      threadReadById: {
+        'thread-1': { thread: { id: 'thread-1', turns: [{ id: 'turn-active', status: 'inProgress' }] } },
+      },
+    })
+    const automationDir = await writeNative(codexHomeDir, 'daily-check-dir', nativeRecord)
+    notifyHeartbeatRendererState(notificationListeners, 'thread-1')
+
+    await expect(service.runNow('daily-check')).rejects.toThrow('Heartbeat target thread has an active turn')
+
+    expect(await createAutomationRunStore(automationDir).listRuns()).toEqual([])
+    expect(rpcCalls.map((call) => call.method)).toEqual(['config/read', 'thread/read'])
+  })
+
+  it('blocks scheduled heartbeat starts when the target thread is waiting for approval', async () => {
+    const now = new Date('2026-04-30T10:00:00.000Z')
+    const { codexHomeDir, service, rpcCalls, notificationListeners } = await createHarness({
+      threadReadById: {
+        'thread-1': { thread: { id: 'thread-1', pendingRequestState: 'approval', turns: [] } },
+      },
+    })
+    const automationDir = await writeNative(codexHomeDir, 'daily-check-dir', nativeRecord)
+    await writeFreshScheduler(service, 'daily-check', automationDir)
+    notifyHeartbeatRendererState(notificationListeners, 'thread-1')
+
+    await new AutomationScheduler({ service, now: () => now }).tick()
+
+    const schedulerState = JSON.parse(await readFile(join(automationDir, 'scheduler.json'), 'utf8')) as AutomationSchedulerState
+    expect(await createAutomationRunStore(automationDir).listRuns()).toEqual([])
+    expect(Date.parse(schedulerState.nextDueAtIso ?? '')).toBeGreaterThan(now.getTime())
+    expect(schedulerState.lastDueAtIso).toBe('2026-04-30T09:00:00.000Z')
+    expect(schedulerState.lastScheduledRunId).toBeNull()
+    expect(rpcCalls.map((call) => call.method)).toEqual(['config/read', 'thread/read'])
+  })
+
+  it('honors Desktop heartbeat renderer-state notifications before reading the target thread', async () => {
+    const { codexHomeDir, service, rpcCalls, notificationListeners } = await createHarness()
+    await writeNative(codexHomeDir, 'daily-check-dir', nativeRecord)
+    notifyHeartbeatRendererState(notificationListeners, 'thread-1', {
+      eligible: false,
+      reason: 'Heartbeat renderer has not loaded an eligible collaboration mode',
+    })
+
+    await expect(service.runNow('daily-check')).rejects.toThrow('Heartbeat renderer has not loaded an eligible collaboration mode')
+
+    expect(rpcCalls.map((call) => call.method)).toEqual(['config/read'])
+  })
+
+  it('treats renderer collaboration-mode blocks as authoritative even when copy mentions the thread', async () => {
+    const { codexHomeDir, service, rpcCalls, notificationListeners } = await createHarness()
+    await writeNative(codexHomeDir, 'daily-check-dir', nativeRecord)
+    notifyHeartbeatRendererState(notificationListeners, 'thread-1', {
+      eligible: false,
+      reason: 'Thread is not in eligible collaboration mode',
+    })
+
+    await expect(service.runNow('daily-check')).rejects.toThrow('Thread is not in eligible collaboration mode')
+
+    expect(rpcCalls.map((call) => call.method)).toEqual(['config/read'])
+  })
+
+  it('treats renderer mode-unavailable blocks as authoritative before transient state matching', async () => {
+    const { codexHomeDir, service, rpcCalls, notificationListeners } = await createHarness()
+    await writeNative(codexHomeDir, 'daily-check-dir', nativeRecord)
+    notifyHeartbeatRendererState(notificationListeners, 'thread-1', {
+      eligible: false,
+      reason: 'Collaboration mode unavailable for heartbeat renderer',
+    })
+
+    await expect(service.runNow('daily-check')).rejects.toThrow('Collaboration mode unavailable for heartbeat renderer')
+
+    expect(rpcCalls.map((call) => call.method)).toEqual(['config/read'])
+  })
+
+  it('revalidates stale renderer busy state before scheduled heartbeat starts', async () => {
+    const now = new Date('2026-04-30T10:00:00.000Z')
+    const { codexHomeDir, service, rpcCalls, notificationListeners } = await createHarness({
+      threadReadById: {
+        'thread-1': { thread: { id: 'thread-1', turns: [{ id: 'turn-done', status: 'completed' }] } },
+      },
+    })
+    const automationDir = await writeNative(codexHomeDir, 'daily-check-dir', nativeRecord)
+    await writeFreshScheduler(service, 'daily-check', automationDir)
+    notifyHeartbeatRendererState(notificationListeners, 'thread-1', {
+      eligible: false,
+      reason: 'Heartbeat target thread is busy',
+    })
+
+    await new AutomationScheduler({ service, now: () => now }).tick()
+
+    const runs = await createAutomationRunStore(automationDir).listRuns()
+    expect(runs).toHaveLength(1)
+    expect(runs[0]).toMatchObject({ automationId: 'daily-check', trigger: 'schedule' })
+    expect(rpcCalls.map((call) => call.method)).toEqual(['config/read', 'thread/read', 'thread/resume', 'turn/start'])
+  })
+
+  it('revalidates stale renderer pending-input state before scheduled heartbeat starts', async () => {
+    const now = new Date('2026-04-30T10:00:00.000Z')
+    const { codexHomeDir, service, rpcCalls, notificationListeners } = await createHarness({
+      threadReadById: {
+        'thread-1': { thread: { id: 'thread-1', turns: [] } },
+      },
+    })
+    const automationDir = await writeNative(codexHomeDir, 'daily-check-dir', nativeRecord)
+    await writeFreshScheduler(service, 'daily-check', automationDir)
+    notifyHeartbeatRendererState(notificationListeners, 'thread-1', {
+      eligible: false,
+      reason: 'Heartbeat target thread is waiting for user input',
+    })
+
+    await new AutomationScheduler({ service, now: () => now }).tick()
+
+    const runs = await createAutomationRunStore(automationDir).listRuns()
+    expect(runs).toHaveLength(1)
+    expect(rpcCalls.map((call) => call.method)).toEqual(['config/read', 'thread/read', 'thread/resume', 'turn/start'])
+  })
+
+  it('reports a clear manual heartbeat error when the target thread cannot be read', async () => {
+    const { codexHomeDir, service, notificationListeners } = await createHarness({
+      threadReadById: {
+        'thread-1': new Error('thread not found'),
+      },
+    })
+    await writeNative(codexHomeDir, 'daily-check-dir', nativeRecord)
+    notifyHeartbeatRendererState(notificationListeners, 'thread-1')
+
+    await expect(service.runNow('daily-check')).rejects.toThrow('Heartbeat target thread is unavailable: thread not found')
+  })
+
+  it('reports a clear manual heartbeat error when renderer state has not loaded', async () => {
+    const { codexHomeDir, service, rpcCalls } = await createHarness()
+    const automationDir = await writeNative(codexHomeDir, 'daily-check-dir', nativeRecord)
+
+    await expect(service.runNow('daily-check')).rejects.toThrow('Heartbeat renderer state has not loaded for target thread')
+
+    expect(await createAutomationRunStore(automationDir).listRuns()).toEqual([])
+    expect(rpcCalls.map((call) => call.method)).toEqual(['config/read'])
+  })
+
+  it('marks scheduled heartbeats unavailable until renderer state is published', async () => {
+    const now = new Date('2026-04-30T10:00:00.000Z')
+    const { codexHomeDir, service, rpcCalls } = await createHarness()
+    const automationDir = await writeNative(codexHomeDir, 'daily-check-dir', nativeRecord)
+    await writeFreshScheduler(service, 'daily-check', automationDir)
+
+    await new AutomationScheduler({ service, now: () => now }).tick()
+
+    let schedulerState = JSON.parse(await readFile(join(automationDir, 'scheduler.json'), 'utf8')) as AutomationSchedulerState
+    expect(await createAutomationRunStore(automationDir).listRuns()).toEqual([])
+    expect(schedulerState.nextDueAtIso).toBeNull()
+    expect(schedulerState.unsupportedReason).toBe('Heartbeat renderer state has not loaded for target thread')
+    expect(rpcCalls.map((call) => call.method)).toEqual(['config/read'])
+
+    await service.recordHeartbeatThreadState({ threadId: 'thread-1', eligible: true, reason: null })
+
+    schedulerState = JSON.parse(await readFile(join(automationDir, 'scheduler.json'), 'utf8')) as AutomationSchedulerState
+    expect(schedulerState.unsupportedReason).toBeNull()
+    expect(schedulerState.nextDueAtIso).toEqual(expect.any(String))
   })
 
   it('uses canonical TOML fields instead of stale legacy sidecar execution metadata', async () => {
@@ -519,9 +702,10 @@ describe('AutomationScheduler', () => {
 
   it('scans persisted active definitions and starts one due scheduled run', async () => {
     const now = new Date('2026-04-30T10:00:00.000Z')
-    const { codexHomeDir, service, rpcCalls } = await createHarness()
+    const { codexHomeDir, service, rpcCalls, notificationListeners } = await createHarness()
     const automationDir = await writeNative(codexHomeDir, 'daily-check-dir', nativeRecord)
     await writeFreshScheduler(service, 'daily-check', automationDir)
+    notifyHeartbeatRendererState(notificationListeners, 'thread-1')
 
     await new AutomationScheduler({ service, now: () => now }).tick()
 
@@ -537,7 +721,7 @@ describe('AutomationScheduler', () => {
     expect(Date.parse(schedulerState.nextDueAtIso ?? '')).toBeGreaterThan(now.getTime())
     expect(schedulerState.lastDueAtIso).toBe('2026-04-30T09:00:00.000Z')
     expect(schedulerState.lastScheduledRunId).toBe(runs[0]?.id)
-    expect(rpcCalls.map((call) => call.method)).toEqual(['config/read', 'thread/resume', 'turn/start'])
+    expect(rpcCalls.map((call) => call.method)).toEqual(['config/read', 'thread/read', 'thread/resume', 'turn/start'])
   })
 
   it('skips paused definitions and unsupported monthly or yearly scheduler states', async () => {
@@ -573,8 +757,9 @@ describe('AutomationScheduler', () => {
 
   it('lazily initializes imported native automations before scheduling decisions', async () => {
     const now = new Date('2026-04-30T10:00:00.000Z')
-    const { codexHomeDir, service } = await createHarness()
+    const { codexHomeDir, service, notificationListeners } = await createHarness()
     const automationDir = await writeNative(codexHomeDir, 'daily-check-dir', nativeRecord)
+    notifyHeartbeatRendererState(notificationListeners, 'thread-1')
 
     await new AutomationScheduler({ service, now: () => now }).tick()
 
@@ -645,7 +830,7 @@ describe('AutomationScheduler', () => {
 
   it('keeps scheduling healthy automations when another scheduler state file is invalid', async () => {
     const now = new Date('2026-04-30T10:00:00.000Z')
-    const { codexHomeDir, service } = await createHarness()
+    const { codexHomeDir, service, notificationListeners } = await createHarness()
     const badDir = await writeNative(codexHomeDir, 'bad-dir', {
       ...nativeRecord,
       id: 'bad-check',
@@ -663,6 +848,8 @@ describe('AutomationScheduler', () => {
       automationId: 'healthy-check',
       sourceDirName: 'healthy-dir',
     })
+    notifyHeartbeatRendererState(notificationListeners, 'thread-bad')
+    notifyHeartbeatRendererState(notificationListeners, 'thread-healthy')
 
     await new AutomationScheduler({ service, now: () => now }).tick()
 
@@ -675,7 +862,7 @@ describe('AutomationScheduler', () => {
 
   it('continues scanning healthy due automations when one due automation cannot run', async () => {
     const now = new Date('2026-04-30T10:00:00.000Z')
-    const { codexHomeDir, service } = await createHarness()
+    const { codexHomeDir, service, notificationListeners } = await createHarness()
     const badDir = await writeNative(codexHomeDir, 'bad-dir', {
       ...nativeRecord,
       id: 'bad-check',
@@ -693,6 +880,7 @@ describe('AutomationScheduler', () => {
       automationId: 'healthy-check',
       sourceDirName: 'healthy-dir',
     })
+    notifyHeartbeatRendererState(notificationListeners, 'thread-healthy')
 
     await new AutomationScheduler({ service, now: () => now }).tick()
 
@@ -705,12 +893,13 @@ describe('AutomationScheduler', () => {
 
   it('starts only one catch-up run per automation tick and advances next due beyond now', async () => {
     const now = new Date('2026-04-30T10:00:00.000Z')
-    const { codexHomeDir, service } = await createHarness()
+    const { codexHomeDir, service, notificationListeners } = await createHarness()
     const automationDir = await writeNative(codexHomeDir, 'daily-check-dir', {
       ...nativeRecord,
       rrule: 'FREQ=MINUTELY;INTERVAL=1',
     })
     await writeFreshScheduler(service, 'daily-check', automationDir, { nextDueAtIso: '2026-04-30T09:30:00.000Z' })
+    notifyHeartbeatRendererState(notificationListeners, 'thread-1')
 
     await new AutomationScheduler({ service, now: () => now }).tick()
 
@@ -723,13 +912,14 @@ describe('AutomationScheduler', () => {
 
   it('requeues an incomplete scheduler reservation when the recorded run is missing', async () => {
     const now = new Date('2026-04-30T10:00:00.000Z')
-    const { codexHomeDir, service } = await createHarness()
+    const { codexHomeDir, service, notificationListeners } = await createHarness()
     const automationDir = await writeNative(codexHomeDir, 'daily-check-dir', nativeRecord)
     await writeFreshScheduler(service, 'daily-check', automationDir, {
       nextDueAtIso: '2026-05-01T09:00:00.000Z',
       lastDueAtIso: '2026-04-30T09:00:00.000Z',
       lastScheduledRunId: 'missing-run',
     })
+    notifyHeartbeatRendererState(notificationListeners, 'thread-1')
 
     await new AutomationScheduler({ service, now: () => now }).tick()
 
@@ -841,9 +1031,10 @@ describe('AutomationScheduler', () => {
   })
 
   it('runs startup recovery before the first due scan and waits for delayed recovery', async () => {
-    const { codexHomeDir, service, rpcCalls } = await createHarness()
+    const { codexHomeDir, service, rpcCalls, notificationListeners } = await createHarness()
     const automationDir = await writeNative(codexHomeDir, 'daily-check-dir', nativeRecord)
     await writeFreshScheduler(service, 'daily-check', automationDir)
+    notifyHeartbeatRendererState(notificationListeners, 'thread-1')
     let releaseRecovery: () => void = () => {}
     const recoveryStarted = new Promise<void>((resolve) => {
       vi.spyOn(service, 'recoverInterruptedRuns').mockImplementation(async () => {
@@ -871,13 +1062,14 @@ describe('AutomationScheduler', () => {
     scheduler.stop()
 
     expect(service.recoverInterruptedRuns).toHaveBeenCalledTimes(1)
-    expect(rpcCalls.map((call) => call.method)).toEqual(['config/read', 'thread/resume', 'turn/start'])
+    expect(rpcCalls.map((call) => call.method)).toEqual(['config/read', 'thread/read', 'thread/resume', 'turn/start'])
   })
 
   it('retries startup recovery after a failure and then schedules due work', async () => {
-    const { codexHomeDir, service, rpcCalls } = await createHarness()
+    const { codexHomeDir, service, rpcCalls, notificationListeners } = await createHarness()
     const automationDir = await writeNative(codexHomeDir, 'daily-check-dir', nativeRecord)
     await writeFreshScheduler(service, 'daily-check', automationDir)
+    notifyHeartbeatRendererState(notificationListeners, 'thread-1')
     const recoveryError = new Error('first recovery failed')
     vi.spyOn(console, 'warn').mockImplementation(() => {})
     vi.spyOn(service, 'recoverInterruptedRuns')
@@ -900,6 +1092,6 @@ describe('AutomationScheduler', () => {
     expect(service.recoverInterruptedRuns).toHaveBeenCalledTimes(2)
     expect(runs).toHaveLength(1)
     expect(runs[0]).toMatchObject({ automationId: 'daily-check', trigger: 'schedule' })
-    expect(rpcCalls.map((call) => call.method)).toEqual(['config/read', 'thread/resume', 'turn/start'])
+    expect(rpcCalls.map((call) => call.method)).toEqual(['config/read', 'thread/read', 'thread/resume', 'turn/start'])
   })
 })

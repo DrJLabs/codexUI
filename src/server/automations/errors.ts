@@ -12,6 +12,16 @@ export class AutomationValidationError extends Error {
   }
 }
 
+export class AutomationDeferredRunError extends AutomationValidationError {
+  readonly deferMode: 'retry_at_next_due' | 'requires_renderer_state'
+
+  constructor(message: string, options: { deferMode?: 'retry_at_next_due' | 'requires_renderer_state' } = {}) {
+    super(message)
+    this.name = 'AutomationDeferredRunError'
+    this.deferMode = options.deferMode ?? 'retry_at_next_due'
+  }
+}
+
 export class AutomationConflictError extends Error {
   constructor(message: string) {
     super(message)
