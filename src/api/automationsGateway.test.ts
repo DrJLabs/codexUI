@@ -67,15 +67,26 @@ describe('automationsGateway', () => {
     expect(fetchMock).toHaveBeenCalledTimes(2)
   })
 
-  it('sends destructive delete with removeNative=true when requested', async () => {
+  it('sends destructive delete without requiring a query flag', async () => {
     const fetchMock = vi.fn(async (url: string) => {
       if (url === '/codex-api/automations/csrf') return jsonResponse(200, { data: { csrfToken: 'token' } })
-      expect(url).toBe('/codex-api/automations/auto_1?removeNative=true')
+      expect(url).toBe('/codex-api/automations/auto_1')
       return jsonResponse(200, { data: { removed: true, removedNative: true } })
     })
     vi.stubGlobal('fetch', fetchMock)
     const { deleteAutomation } = await import('./automationsGateway')
-    await expect(deleteAutomation('auto_1', { removeNative: true })).resolves.toEqual({ removed: true, removedNative: true })
+    await expect(deleteAutomation('auto_1')).resolves.toEqual({ removed: true, removedNative: true })
+  })
+
+  it('keeps sidecar-only cleanup behind an explicit debug query flag', async () => {
+    const fetchMock = vi.fn(async (url: string) => {
+      if (url === '/codex-api/automations/csrf') return jsonResponse(200, { data: { csrfToken: 'token' } })
+      expect(url).toBe('/codex-api/automations/auto_1?sidecarOnly=true')
+      return jsonResponse(200, { data: { removed: true, removedNative: false } })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    const { deleteAutomation } = await import('./automationsGateway')
+    await expect(deleteAutomation('auto_1', { sidecarOnly: true })).resolves.toEqual({ removed: true, removedNative: false })
   })
 
   it('starts manual runs through the protected run endpoint', async () => {

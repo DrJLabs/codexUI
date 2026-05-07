@@ -188,9 +188,9 @@ export async function resumeAutomation(id: string): Promise<AutomationDefinition
   })
 }
 
-export async function deleteAutomation(id: string, options: { removeNative?: boolean } = {}): Promise<{ removed: boolean; removedNative: boolean }> {
+export async function deleteAutomation(id: string, options: { sidecarOnly?: boolean } = {}): Promise<{ removed: boolean; removedNative: boolean }> {
   const query = new URLSearchParams()
-  if (options.removeNative === true) query.set('removeNative', 'true')
+  if (options.sidecarOnly === true) query.set('sidecarOnly', 'true')
   const encodedQuery = query.toString()
   return await requestProtectedAutomations<{ removed: boolean; removedNative: boolean }>(
     `/${encodeURIComponent(id)}${encodedQuery ? `?${encodedQuery}` : ''}`,

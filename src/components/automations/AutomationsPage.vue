@@ -138,24 +138,28 @@
               v-if="draft.mode === 'edit'"
               type="button"
               class="automations-run-now-button"
-              :disabled="isSaving || isRunningNow || !manualRunsEnabled"
+              :disabled="isSaving || isRunningNow || !manualRunsEnabled || isSelectedAutomationDeleted"
               @click="runSelectedNow"
             >
               <IconTablerPlayerPlay v-if="!isRunningNow" class="automations-run-now-icon" />
               <span>{{ isRunningNow ? 'Starting...' : 'Run now' }}</span>
             </button>
-            <button class="automations-primary" type="submit" :disabled="isLoading || isSaving || isDraftThreadUnavailable">
+            <button class="automations-primary" type="submit" :disabled="isLoading || isSaving || isDraftThreadUnavailable || isSelectedAutomationDeleted">
               {{ isSaving ? 'Saving...' : draft.mode === 'edit' ? 'Save changes' : 'Create automation' }}
             </button>
           </div>
         </div>
 
         <p v-if="mutationError" class="automations-error-inline" role="alert">{{ mutationError }}</p>
+        <p v-if="missingAutomationMessage" class="automations-error-inline" role="alert">{{ missingAutomationMessage }}</p>
+        <p v-if="isSelectedAutomationDeleted" class="automations-error-inline" role="alert">
+          This automation was deleted in Desktop or marked deleted in storage. It cannot be edited, resumed, or run.
+        </p>
         <p v-if="isDraftThreadUnavailable" class="automations-error-inline" role="alert">
           This thread already has an active heartbeat automation.
         </p>
 
-        <fieldset class="automations-editor-fieldset" :disabled="isLoading || isSaving">
+        <fieldset class="automations-editor-fieldset" :disabled="isLoading || isSaving || isSelectedAutomationDeleted">
           <section v-if="draft.mode === 'create'" class="automations-template-strip" aria-label="Choose a starting point">
             <h3>Choose a starting point</h3>
             <div class="automations-template-groups">
@@ -502,6 +506,7 @@ const {
   errorMessage,
   mutationError,
   runHistoryError,
+  missingAutomationMessage,
   selectedAutomationId,
   selectedAutomation,
   templates,
@@ -518,7 +523,7 @@ const {
   archiveRun,
   unarchiveRun,
   loadRunHistory,
-  deleteSelectedRemoveNative,
+  deleteSelectedAutomation,
   applyThreadPrefill,
   clearThreadPrefill,
 } = useAutomations()
@@ -688,6 +693,7 @@ const isDraftThreadUnavailable = computed(() => {
   const targetThreadId = draft.value.targetThreadId.trim()
   return Boolean(targetThreadId && unavailableHeartbeatThreadIdSet.value.has(targetThreadId))
 })
+const isSelectedAutomationDeleted = computed(() => selectedAutomation.value?.status === 'deleted')
 const advancedDetails = computed(() => [
   { label: 'Native storage root', value: state.value.storageRoot || 'Unavailable', mono: true },
   { label: 'Feature flags', value: featureFlagSummary.value || 'Unavailable', mono: false },
@@ -758,7 +764,7 @@ async function confirmDelete(): Promise<void> {
     `Delete "${name}"? This also removes the native automation folder from the Codex automations storage root. This cannot be undone.`,
   )
   if (!confirmed) return
-  await deleteSelectedRemoveNative()
+  await deleteSelectedAutomation()
 }
 
 function applyTemplate(templateId: string): void {

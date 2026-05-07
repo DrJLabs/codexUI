@@ -225,13 +225,20 @@ it('clears a route prefill and returns to the first automation when query state 
   expect(automations.draft.value.mode).toBe('edit')
 })
 
-it('deletes the selected automation with removeNative=true and reloads state', async () => {
+it('deletes the selected automation through the Desktop-native delete path and reloads state', async () => {
   const gateway = createGatewayFixture([automationFixture({ id: 'auto_1' })])
   const automations = useAutomations({ gateway })
   await automations.loadAll()
-  await automations.deleteSelectedRemoveNative()
-  expect(gateway.deleteAutomation).toHaveBeenCalledWith('auto_1', { removeNative: true })
+  await automations.deleteSelectedAutomation()
+  expect(gateway.deleteAutomation).toHaveBeenCalledWith('auto_1')
   expect(gateway.loadAutomationsState).toHaveBeenCalledTimes(2)
+})
+
+it('surfaces a missing automation message when the preferred automation is gone', async () => {
+  const automations = useAutomations({ gateway: createGatewayFixture([]) })
+  await automations.loadAll('desktop_deleted')
+  expect(automations.missingAutomationMessage.value).toContain('desktop_deleted')
+  expect(automations.draft.value.mode).toBe('create')
 })
 
 it('starts the selected automation now, refreshes state, and refreshes run history', async () => {

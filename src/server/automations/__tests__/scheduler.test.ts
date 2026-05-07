@@ -926,6 +926,61 @@ Run the cron task`)
     })).rejects.toThrow('Automation already exists for targetThreadId')
   })
 
+  it('deletes the canonical Desktop automation when removeNative is true', async () => {
+    const { codexHomeDir, service } = await createHarness()
+    const created = await service.createDefinition({
+      kind: 'heartbeat',
+      name: 'Thread heartbeat',
+      description: null,
+      prompt: 'Check this thread',
+      schedule: { type: 'rrule', rrule: 'FREQ=MINUTELY;INTERVAL=15' },
+      targetThreadId: 'thread-delete',
+      cwd: null,
+      cwds: [],
+      runMode: 'chat',
+      model: null,
+      reasoningEffort: null,
+      localEnvironmentConfigPath: null,
+      kanbanProjection: { mode: 'off' },
+      notes: '',
+    })
+    const automationDir = join(codexHomeDir, 'automations', created.id)
+
+    await expect(service.deleteDefinition(created.id, { removeNative: true })).resolves.toEqual({
+      removed: true,
+      removedNative: true,
+    })
+    await expect(readFile(join(automationDir, 'automation.toml'), 'utf8')).rejects.toThrow()
+  })
+
+  it('keeps sidecar-only deletion available for explicit debug maintenance', async () => {
+    const { codexHomeDir, service } = await createHarness()
+    const created = await service.createDefinition({
+      kind: 'heartbeat',
+      name: 'Thread heartbeat',
+      description: 'Local metadata',
+      prompt: 'Check this thread',
+      schedule: { type: 'rrule', rrule: 'FREQ=MINUTELY;INTERVAL=15' },
+      targetThreadId: 'thread-sidecar-delete',
+      cwd: null,
+      cwds: [],
+      runMode: 'chat',
+      model: null,
+      reasoningEffort: null,
+      localEnvironmentConfigPath: null,
+      kanbanProjection: { mode: 'off' },
+      notes: 'Debug metadata',
+    })
+    const automationDir = join(codexHomeDir, 'automations', created.id)
+
+    await expect(service.deleteDefinition(created.id, { removeNative: false })).resolves.toEqual({
+      removed: true,
+      removedNative: false,
+    })
+    await expect(readFile(join(automationDir, 'automation.toml'), 'utf8')).resolves.toContain('Thread heartbeat')
+    await expect(readFile(join(automationDir, 'codexui.local.json'), 'utf8')).rejects.toThrow()
+  })
+
   it('removes Desktop execution environment when a target is patched back to chat', async () => {
     const { codexHomeDir, service } = await createHarness()
     const repo = join(codexHomeDir, 'repo')

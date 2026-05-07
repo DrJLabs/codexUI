@@ -518,17 +518,21 @@ Acceptance:
 ### 15. Delete And Missing Automation Behavior
 
 Current CodexUI behavior:
-- Supports sidecar-only delete and native delete.
+- Normal delete removes the canonical Desktop automation folder.
+- Sidecar-only cleanup remains available only through the explicit debug `sidecarOnly=true` API flag.
+- Deleted or externally missing automation records produce visible non-revival messaging.
 
 Desktop behavior:
 - User delete means automation is permanently deleted/stopped.
 - Missing automation UI explains that it may have been deleted or unavailable.
 
-Plan:
-1. Make normal delete remove the canonical Desktop automation.
-2. Remove sidecar-only delete from primary UI.
-3. Preserve sidecar cleanup only as developer/debug maintenance.
-4. Add missing/deleted state messaging matching Desktop.
+Implementation:
+1. Changed delete request parsing so the default DELETE path is Desktop-native destructive deletion.
+2. Replaced primary UI/composable delete calls with the default canonical delete path.
+3. Preserved sidecar-only cleanup behind `sidecarOnly=true` and explicit service tests.
+4. Added UI messaging for a preferred automation that disappears during reload.
+5. Added UI messaging and disabled edit/run/save controls for records marked `deleted`.
+6. Added schema, gateway, composable, and service tests covering default destructive delete, debug sidecar cleanup, and missing automation messaging.
 
 Acceptance:
 - Deleting in CodexUI removes automation from Desktop.

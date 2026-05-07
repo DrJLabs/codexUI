@@ -310,7 +310,12 @@ function validateSelfContainedPatchTarget(value: Record<string, unknown>, patch:
 }
 
 export function parseAutomationDeleteOptions(query: unknown, body: unknown): AutomationDeleteOptions {
-  return { removeNative: readBooleanOption(query, body, 'removeNative') }
+  const sidecarOnly = readBooleanOption(query, body, 'sidecarOnly')
+  const removeNative = readBooleanOptionValue(query, body, 'removeNative')
+  if (sidecarOnly && removeNative === true) {
+    throw new AutomationValidationError('sidecarOnly cannot be combined with removeNative=true')
+  }
+  return { removeNative: sidecarOnly ? false : removeNative ?? true }
 }
 
 export function parseHeartbeatThreadStateInput(value: unknown): HeartbeatThreadStateInput {
@@ -334,10 +339,14 @@ export function parseAutomationRouteParams(params: unknown): { automationId: str
 }
 
 function readBooleanOption(query: unknown, body: unknown, field: string): boolean {
+  return readBooleanOptionValue(query, body, field) ?? false
+}
+
+function readBooleanOptionValue(query: unknown, body: unknown, field: string): boolean | null {
   const bodyValue = isRecord(body) && hasOwn(body, field) ? body[field] : undefined
   const queryValue = isRecord(query) && hasOwn(query, field) ? query[field] : undefined
   const value = bodyValue ?? queryValue
-  if (value === undefined || value === null || value === '') return false
+  if (value === undefined || value === null || value === '') return null
   if (value === true || value === 'true') return true
   if (value === false || value === 'false') return false
   throw new AutomationValidationError(`${field} must be true or false`)

@@ -162,6 +162,7 @@ export function useAutomations(options: UseAutomationsOptions = {}) {
   const errorMessage = ref('')
   const mutationError = ref('')
   const runHistoryError = ref('')
+  const missingAutomationMessage = ref('')
   const selectedAutomationId = ref('')
   const draft = ref<AutomationDraft>(createEmptyDraft())
   const runHistory: Ref<AutomationRun[]> = ref([])
@@ -178,6 +179,7 @@ export function useAutomations(options: UseAutomationsOptions = {}) {
   async function loadAll(preferredAutomationId = selectedAutomationId.value): Promise<void> {
     isLoading.value = true
     errorMessage.value = ''
+    if (!preferredAutomationId) missingAutomationMessage.value = ''
     try {
       const [nextState, nextTemplates] = await Promise.all([
         gateway.loadAutomationsState(),
@@ -193,12 +195,23 @@ export function useAutomations(options: UseAutomationsOptions = {}) {
         applyThreadPrefill(pendingThreadId, { keepPending: false })
         return
       }
-      if (preferredAutomationId && await selectAutomation(preferredAutomationId)) return
+      if (preferredAutomationId && await selectAutomation(preferredAutomationId)) {
+        missingAutomationMessage.value = ''
+        return
+      }
+      const unavailablePreferredMessage = preferredAutomationId
+        ? `Automation "${preferredAutomationId}" is no longer available. It may have been deleted in Codex Desktop or removed from storage.`
+        : ''
+      if (preferredAutomationId) {
+        missingAutomationMessage.value = unavailablePreferredMessage
+      }
       const first = definitions.value[0]
       if (first) {
         await selectAutomation(first.id)
+        missingAutomationMessage.value = unavailablePreferredMessage
       } else {
         startCreate()
+        missingAutomationMessage.value = unavailablePreferredMessage
       }
     } catch (error) {
       errorMessage.value = error instanceof Error ? error.message : 'Failed to load automations'
@@ -215,6 +228,7 @@ export function useAutomations(options: UseAutomationsOptions = {}) {
     runHistory.value = definition.recentRuns ?? []
     pendingThreadPrefill.value = ''
     mutationError.value = ''
+    missingAutomationMessage.value = ''
     await loadRunHistory(definition.id)
     return true
   }
@@ -227,6 +241,7 @@ export function useAutomations(options: UseAutomationsOptions = {}) {
     runHistory.value = []
     runHistoryError.value = ''
     mutationError.value = ''
+    missingAutomationMessage.value = ''
   }
 
   function clearThreadPrefill(): void {
@@ -294,11 +309,11 @@ export function useAutomations(options: UseAutomationsOptions = {}) {
     }
   }
 
-  async function deleteSelectedRemoveNative(): Promise<void> {
+  async function deleteSelectedAutomation(): Promise<void> {
     const id = selectedAutomationId.value
     if (!id) return
     await runMutation(async () => {
-      await gateway.deleteAutomation(id, { removeNative: true })
+      await gateway.deleteAutomation(id)
       await loadAll('')
     }, 'Failed to delete automation')
   }
@@ -333,6 +348,7 @@ export function useAutomations(options: UseAutomationsOptions = {}) {
     runHistory.value = []
     runHistoryError.value = ''
     mutationError.value = ''
+    missingAutomationMessage.value = ''
   }
 
   async function loadRunHistory(id = selectedAutomationId.value): Promise<void> {
@@ -415,6 +431,7 @@ export function useAutomations(options: UseAutomationsOptions = {}) {
     errorMessage,
     mutationError,
     runHistoryError,
+    missingAutomationMessage,
     selectedAutomationId,
     selectedAutomation,
     draft,
@@ -431,7 +448,7 @@ export function useAutomations(options: UseAutomationsOptions = {}) {
     archiveRun,
     unarchiveRun,
     loadRunHistory,
-    deleteSelectedRemoveNative,
+    deleteSelectedAutomation,
     applyThreadPrefill,
     clearThreadPrefill,
   }
