@@ -463,7 +463,8 @@ Acceptance:
 ### 13. Templates
 
 Current CodexUI behavior:
-- Provides three templates:
+- Provides Desktop's grouped template catalog from a plain server-side data module.
+- Keeps the previous three CodexUI starting points as explicit aliases:
   - Thread heartbeat
   - Project cron
   - Worktree check
@@ -475,14 +476,16 @@ Desktop behavior:
   - incidents and triage
   - code quality
   - repo maintenance
+  - growth and exploration
 - Templates include schedule presets and automation-specific prompts.
 
-Plan:
-1. Port Desktop's automation template catalog into a plain data module.
-2. Store template outputs using canonical Desktop TOML fields only.
-3. Keep simplified CodexUI templates only as aliases if they map cleanly to Desktop templates.
-4. Make heartbeat template default to a short interval, not daily.
-5. Add tests for template-to-TOML output.
+Implementation:
+1. Ported Desktop's automation template catalog into `src/server/automations/templates.ts`.
+2. Returned that catalog from `/codex-api/automations/templates`.
+3. Rendered templates in grouped create-mode sections instead of a hard-coded three-button strip.
+4. Kept simplified CodexUI templates only as `Quick aliases`.
+5. Made heartbeat alias use `FREQ=MINUTELY;INTERVAL=15`.
+6. Added template catalog tests for Desktop group coverage, schedule defaults, canonical RRULE strings, and alias behavior.
 
 Acceptance:
 - Template-created automation is Desktop-readable without sidecars.

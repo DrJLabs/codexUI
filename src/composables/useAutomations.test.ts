@@ -501,7 +501,11 @@ function templatesFixture(): AutomationTemplate[] {
       kind: 'heartbeat',
       name: 'Daily thread check',
       description: 'Check a thread daily.',
+      prompt: 'Check this thread and report anything that needs attention.',
       schedule: { type: 'rrule', rrule: 'FREQ=DAILY;BYHOUR=9;BYMINUTE=0' },
+      runMode: 'chat',
+      groupId: 'test-templates',
+      groupName: 'Test templates',
     },
   ]
 }

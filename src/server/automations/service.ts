@@ -38,6 +38,7 @@ import { AutomationRunner } from './runner'
 import { evaluateRruleSchedule } from './scheduleCalculator'
 import { createAutomationSchedulerStore, type AutomationSchedulerState } from './schedulerStore'
 import { parseAutomationSidecarRead, type AutomationCreateInput, type AutomationPatchInput, type AutomationSidecarRead, type HeartbeatThreadStateInput } from './schema.js'
+import { AUTOMATION_TEMPLATES } from './templates'
 import {
   assertAutomationExecutionPolicy,
   assertAutomationRunProfileAllowed,
@@ -206,13 +207,7 @@ export class AutomationsService {
   }
 
   listTemplates(): AutomationTemplate[] {
-    return [{
-      id: 'heartbeat-thread-check',
-      kind: 'heartbeat',
-      name: 'Thread heartbeat',
-      description: 'Continuously watches one target thread on a short interval and only starts when the thread is idle.',
-      schedule: { type: 'rrule', rrule: 'FREQ=MINUTELY;INTERVAL=15' },
-    }]
+    return AUTOMATION_TEMPLATES
   }
 
   async getDefinition(automationId: string): Promise<AutomationDefinition> {

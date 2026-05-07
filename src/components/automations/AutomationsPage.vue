@@ -155,15 +155,21 @@
         <fieldset class="automations-editor-fieldset" :disabled="isLoading || isSaving">
           <section v-if="draft.mode === 'create'" class="automations-template-strip" aria-label="Choose a starting point">
             <h3>Choose a starting point</h3>
-            <div>
-              <button
-                v-for="template in scheduleTemplates"
-                :key="template.id"
-                type="button"
-                @click="applyTemplate(template.id)"
-              >
-                {{ template.label }}
-              </button>
+            <div class="automations-template-groups">
+              <section v-for="group in templateGroups" :key="group.id" class="automations-template-group">
+                <h4>{{ group.name }}</h4>
+                <div class="automations-template-actions">
+                  <button
+                    v-for="template in group.templates"
+                    :key="template.id"
+                    type="button"
+                    @click="applyTemplate(template.id)"
+                  >
+                    <span>{{ template.name }}</span>
+                    <small>{{ describeAutomationSchedule(template.schedule.rawRrule ?? template.schedule.rrule) }}</small>
+                  </button>
+                </div>
+              </section>
             </div>
           </section>
 
@@ -456,7 +462,7 @@ import AutomationThreadPicker from './AutomationThreadPicker.vue'
 import IconTablerPlayerPause from '../icons/IconTablerPlayerPause.vue'
 import IconTablerPlayerPlay from '../icons/IconTablerPlayerPlay.vue'
 import IconTablerTrash from '../icons/IconTablerTrash.vue'
-import type { AutomationRun, AutomationRunMode } from '../../types/automations'
+import type { AutomationRun, AutomationRunMode, AutomationTemplate } from '../../types/automations'
 import {
   buildDailyRrule,
   buildHourlyRrule,
@@ -491,6 +497,7 @@ const {
   runHistoryError,
   selectedAutomationId,
   selectedAutomation,
+  templates,
   draft,
   runHistory,
   loadAll,
@@ -519,11 +526,29 @@ const weekdayOptions = [
   { value: 'SU', label: 'Sunday' },
 ] as const
 
-const scheduleTemplates = [
-  { id: 'thread-heartbeat', label: 'Thread heartbeat' },
-  { id: 'project-cron', label: 'Project cron' },
-  { id: 'worktree-check', label: 'Worktree check' },
-] as const
+type TemplateGroup = {
+  id: string
+  name: string
+  templates: AutomationTemplate[]
+}
+
+const templateGroups = computed<TemplateGroup[]>(() => {
+  const groups = new Map<string, TemplateGroup>()
+  for (const template of templates.value) {
+    const group = groups.get(template.groupId)
+    if (group) {
+      group.templates.push(template)
+      continue
+    }
+    groups.set(template.groupId, {
+      id: template.groupId,
+      name: template.groupName,
+      templates: [template],
+    })
+  }
+  return Array.from(groups.values())
+})
+const templateById = computed(() => new Map(templates.value.map((template) => [template.id, template])))
 const baseModelOptions = [
   { value: '', label: 'Default model' },
   { value: 'gpt-5.5', label: 'GPT-5.5' },
@@ -714,41 +739,21 @@ async function confirmDelete(): Promise<void> {
 }
 
 function applyTemplate(templateId: string): void {
-  if (templateId === 'thread-heartbeat') {
-    applyTemplateValues({
-      name: 'Thread heartbeat',
-      description: 'Continuous short-interval watcher for one target thread.',
-      prompt: 'Review this thread and report anything that needs attention.',
-      runMode: 'chat',
-      frequency: 'minute_interval',
-      time: '09:00',
-      intervalCount: 15,
-    })
-    return
-  }
-
-  if (templateId === 'project-cron') {
-    applyTemplateValues({
-      name: 'Project cron',
-      description: 'Recurring project maintenance run.',
-      prompt: 'Run the scheduled project check and summarize anything that needs follow-up.',
-      runMode: 'local',
-      frequency: 'daily',
-      time: '02:00',
-      clearThread: true,
-    })
-    return
-  }
-
+  const template = templateById.value.get(templateId)
+  if (!template) return
+  const rrule = template.schedule.rawRrule ?? template.schedule.rrule
+  const classification = classifyAutomationRrule(rrule)
   applyTemplateValues({
-    name: 'Worktree check',
-    description: 'Weekly worktree status check.',
-    prompt: 'Check the worktree status and report blockers, uncommitted changes, or failed checks.',
-    runMode: 'worktree',
-    frequency: 'hour_interval',
-    time: '09:00',
-    intervalCount: 6,
-    clearThread: true,
+    name: template.name,
+    description: template.description,
+    prompt: template.prompt,
+    runMode: template.runMode,
+    frequency: classification.frequency,
+    time: classification.time ?? '09:00',
+    weekday: classification.weekday ?? undefined,
+    intervalCount: classification.intervalCount ?? undefined,
+    rrule,
+    clearThread: template.kind === 'cron',
   })
 }
 
@@ -1128,7 +1133,44 @@ function shouldShowReadAction(run: AutomationRun): boolean {
   text-transform: uppercase;
 }
 
-.automations-template-strip div,
+.automations-template-groups,
+.automations-template-group {
+  display: grid;
+  min-width: 0;
+  gap: 8px;
+}
+
+.automations-template-group h4 {
+  margin: 2px 0 0;
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.automations-template-actions {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 8px;
+}
+
+.automations-template-actions button {
+  display: grid;
+  min-width: 0;
+  justify-items: start;
+  gap: 3px;
+  text-align: left;
+}
+
+.automations-template-actions small {
+  width: 100%;
+  min-width: 0;
+  color: #64748b;
+  font-size: 11px;
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+
 .automations-editor-actions,
 .automations-run-actions {
   display: flex;

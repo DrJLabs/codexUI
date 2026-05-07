@@ -147,5 +147,11 @@ export type AutomationTemplate = {
   kind: AutomationKind
   name: string
   description: string
+  prompt: string
   schedule: AutomationSchedule
+  runMode: AutomationRunMode
+  groupId: string
+  groupName: string
+  iconName?: string
+  aliasFor?: string
 }
