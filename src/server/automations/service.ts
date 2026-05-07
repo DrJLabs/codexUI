@@ -255,6 +255,9 @@ export class AutomationsService {
   async patchDefinition(automationId: string, patch: AutomationPatchInput): Promise<AutomationDefinition> {
     const entry = await this.findEntry(automationId)
     if (!entry) throw new AutomationNotFoundError(automationId)
+    if (entry.record.status === 'DELETED') {
+      throw createServiceError(409, 'Deleted automations cannot be edited')
+    }
     const sidecarResult = await readSidecar(entry)
     if (hasOwn(patch, 'targetThreadId') && typeof patch.targetThreadId === 'string') {
       const targetThreadId = patch.targetThreadId

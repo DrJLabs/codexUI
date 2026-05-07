@@ -337,6 +337,7 @@ describe('AutomationScheduler', () => {
 
     await expect(service.runNow('deleted-check')).rejects.toThrow('Deleted automations cannot be run')
     await expect(service.resumeDefinition('deleted-check')).rejects.toThrow('Deleted automations cannot be paused or resumed')
+    await expect(service.patchDefinition('deleted-check', { name: 'Revived by stale client' })).rejects.toThrow('Deleted automations cannot be edited')
   })
 
   it('blocks manual heartbeat starts when the target thread is busy', async () => {

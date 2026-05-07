@@ -267,7 +267,7 @@ $CODEX_HOME/automations/<native_dir>/scheduler-lock.<generation>.json
 - The lease is intentionally separate from `automation.toml`: TOML remains the canonical definition, while `scheduler.json` and `scheduler-lock*.json` are CodexUI runtime cache/coordination files only.
 - Lease records include `automationId`, `sourceDirName`, `owner`, `ownerId`, `leaseId`, `generation`, `pid`, `hostname`, `acquiredAtIso`, `expiresAtIso`, `dueAtIso`, and `releasedAtIso`. Acquisition publishes complete temp-file content with an atomic hard link to the next deterministic generation path. Released and stale generations stay as inert history so acquisition never deletes or renames an unqualified shared lock path.
 - CodexUI now re-reads the current automation entry and due state after acquiring the lease, then starts the run only if the automation is still active and due. This prevents stale pre-lock decisions from queuing work after another process has advanced scheduler state.
-- CodexUI scheduler auto mode remains enabled for standalone use, but ticks and startup recovery skip while a Codex Desktop process is detected. `CODEXUI_AUTOMATIONS_SCHEDULER=enabled` forces CodexUI scheduling; `CODEXUI_AUTOMATIONS_SCHEDULER=desktop` disables it.
+- Desktop owns scheduling by default because CodexUI's `scheduler.json` cursor is private runtime state, not a shared Desktop scheduling contract. `CODEXUI_AUTOMATIONS_SCHEDULER=enabled` opts CodexUI into standalone scheduling; `CODEXUI_AUTOMATIONS_SCHEDULER=desktop` or an unset value disables CodexUI scheduling. `CODEXUI_AUTOMATIONS_SCHEDULER=auto` remains a best-effort development mode that skips ticks and startup recovery while a Codex Desktop process is detected.
 - The CodexUI scheduler now follows Desktop's max-three-runs-per-tick behavior.
 
 ### 7. RRULE And Schedule Semantics
@@ -532,11 +532,13 @@ Implementation:
 3. Preserved sidecar-only cleanup behind `sidecarOnly=true` and explicit service tests.
 4. Added UI messaging for a preferred automation that disappears during reload.
 5. Added UI messaging and disabled edit/run/save controls for records marked `deleted`.
-6. Added schema, gateway, composable, and service tests covering default destructive delete, debug sidecar cleanup, and missing automation messaging.
+6. Added service-level protection so stale patch requests cannot mutate `DELETED` automation records.
+7. Added schema, gateway, composable, and service tests covering default destructive delete, debug sidecar cleanup, and missing automation messaging.
 
 Acceptance:
 - Deleting in CodexUI removes automation from Desktop.
 - If Desktop deletes an automation, CodexUI shows missing/deleted state without recreating it.
+- If Desktop marks an automation `DELETED`, CodexUI rejects stale edit requests and keeps the record read-only.
 
 ## Implementation Phases
 

@@ -19,11 +19,12 @@ export function resolveAutomationSchedulerPreference(
 }
 
 function readSchedulerSetting(env: NodeJS.ProcessEnv): 'auto' | 'enabled' | 'disabled' {
-  const raw = env.CODEXUI_AUTOMATIONS_SCHEDULER ?? env.CODEXUI_ENABLE_AUTOMATION_SCHEDULER ?? 'auto'
+  const raw = env.CODEXUI_AUTOMATIONS_SCHEDULER ?? env.CODEXUI_ENABLE_AUTOMATION_SCHEDULER ?? 'desktop'
   const normalized = raw.trim().toLowerCase()
   if (['1', 'true', 'yes', 'on', 'enabled', 'enable', 'codexui'].includes(normalized)) return 'enabled'
   if (['0', 'false', 'no', 'off', 'disabled', 'disable', 'desktop'].includes(normalized)) return 'disabled'
-  return 'auto'
+  if (['auto', 'best-effort'].includes(normalized)) return 'auto'
+  return 'disabled'
 }
 
 export function detectCodexDesktopProcess(): boolean {
