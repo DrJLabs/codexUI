@@ -223,6 +223,25 @@ function readRecord(params: unknown): { threadId: string } {
   throw new Error('Missing threadId')
 }
 
+function readTurnStartText(rpcCalls: Array<{ method: string; params: unknown }>): string {
+  let turnStart: { method: string; params: unknown } | undefined
+  for (let index = rpcCalls.length - 1; index >= 0; index -= 1) {
+    if (rpcCalls[index].method === 'turn/start') {
+      turnStart = rpcCalls[index]
+      break
+    }
+  }
+  const params = turnStart?.params
+  if (!params || typeof params !== 'object' || !('input' in params) || !Array.isArray(params.input)) {
+    throw new Error('Missing turn/start input')
+  }
+  const [firstInput] = params.input
+  if (!firstInput || typeof firstInput !== 'object' || !('text' in firstInput) || typeof firstInput.text !== 'string') {
+    throw new Error('Missing turn/start text')
+  }
+  return firstInput.text
+}
+
 function notifyHeartbeatRendererState(
   listeners: Array<(notification: CodexBridgeNotification) => void>,
   threadId: string,
@@ -383,6 +402,46 @@ describe('AutomationScheduler', () => {
     await expect(service.runNow('daily-check')).rejects.toThrow('Collaboration mode unavailable for heartbeat renderer')
 
     expect(rpcCalls.map((call) => call.method)).toEqual(['config/read'])
+  })
+
+  it('wraps heartbeat turn input in the Desktop heartbeat envelope', async () => {
+    const { codexHomeDir, service, rpcCalls, notificationListeners } = await createHarness()
+    await writeNative(codexHomeDir, 'daily-check-dir', nativeRecord)
+    notifyHeartbeatRendererState(notificationListeners, 'thread-1')
+
+    await service.runNow('daily-check')
+
+    const promptText = readTurnStartText(rpcCalls)
+    expect(promptText).toMatch(/^<heartbeat>\n/)
+    expect(promptText).toContain('  <automation_id>daily-check</automation_id>\n')
+    expect(promptText).toMatch(/  <current_time_iso>\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z<\/current_time_iso>\n/)
+    expect(promptText).toContain('  <instructions>\nReview the thread\n  </instructions>\n')
+    expect(promptText.endsWith('</heartbeat>\n')).toBe(true)
+  })
+
+  it('keeps cron turn input as the raw automation prompt', async () => {
+    const { codexHomeDir, service, rpcCalls } = await createHarness()
+    const repo = join(codexHomeDir, 'repo')
+    await mkdir(repo, { recursive: true })
+    await writeNative(codexHomeDir, 'cron-check-dir', {
+      ...nativeRecord,
+      id: 'cron-check',
+      kind: 'cron',
+      name: 'Cron Check',
+      prompt: 'Run the cron task',
+      rrulePrefix: 'RRULE:',
+      targetThreadId: null,
+      executionEnvironment: 'local',
+      runMode: 'local',
+      cwd: repo,
+      cwds: [repo],
+    })
+
+    await service.runNow('cron-check')
+
+    const promptText = readTurnStartText(rpcCalls)
+    expect(promptText).toBe('Run the cron task')
+    expect(promptText).not.toContain('<heartbeat>')
   })
 
   it('revalidates stale renderer busy state before scheduled heartbeat starts', async () => {

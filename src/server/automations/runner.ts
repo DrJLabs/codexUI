@@ -16,6 +16,7 @@ import {
   type AutomationExecutionPolicy,
   type AutomationRunProfileInput,
 } from './policy'
+import { buildHeartbeatPrompt } from './prompts'
 import { type NativeAutomationEntry, type NativeAutomationStoreOptions } from './nativeStore'
 import {
   createAutomationRunPaths,
@@ -401,10 +402,17 @@ export class AutomationRunner {
   ): Promise<string> {
     const cwd = resolveRunCwd(definition, run)
     const runSettings = resolveCodexTurnStartRunSettings(profile, cwd)
+    const promptText = definition.kind === 'heartbeat'
+      ? buildHeartbeatPrompt({
+          automationId: definition.id,
+          nowIso: new Date().toISOString(),
+          prompt: definition.prompt,
+        })
+      : definition.prompt
     const started = await this.bridge.rpc<Record<string, unknown>>('turn/start', {
       threadId,
       ...(cwd ? { cwd } : {}),
-      input: [{ type: 'text', text: definition.prompt }],
+      input: [{ type: 'text', text: promptText }],
       ...runSettings,
     })
     const turnId = extractTurnId(started)

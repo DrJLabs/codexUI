@@ -185,6 +185,11 @@ Acceptance:
 - Heartbeat turns include automation id and current ISO time.
 - Cron turns do not get heartbeat XML.
 
+Section 4 implementation notes:
+- Desktop Linux build evidence: `/tmp/codex-desktop-asar-extracted/.vite/build/main-DlFGMsC6.js` defines a literal heartbeat prompt template named `Ut` and builds the prompt with `replaceAll('{{AUTOMATION_ID}}', e.id)`, `replaceAll('{{NOW_ISO}}', new Date().toISOString())`, and `replaceAll('{{AUTOMATION_PROMPT}}', e.prompt)`.
+- Mirror that raw substitution exactly, including the trailing newline and without escaping, trimming, or indenting the user prompt.
+- Scope the wrapper to `kind = "heartbeat"` in the turn-start payload only. Keep `promptSnapshot` canonical and keep cron/local/worktree input unchanged.
+
 ### 5. Automation Memory
 
 Current CodexUI behavior:
