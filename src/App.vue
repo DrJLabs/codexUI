@@ -61,12 +61,12 @@
           </button>
           <button
             v-if="!isSidebarCollapsed"
-            class="sidebar-skills-link"
+            class="sidebar-automations-link"
             :class="{ 'is-active': isAutomationsRoute }"
             type="button"
             @click="router.push({ name: 'automations' }); isMobile && setSidebarCollapsed(true)"
           >
-            <span class="sidebar-skills-link-icon" aria-hidden="true">
+            <span class="sidebar-automations-link-icon" aria-hidden="true">
               <IconTablerBolt />
             </span>
             <span class="sidebar-skills-link-copy">
@@ -4287,6 +4287,22 @@ async function loadWorktreeBranches(sourceCwd: string): Promise<void> {
 
 .sidebar-skills-link.is-active {
   @apply border-transparent bg-zinc-100 text-zinc-950;
+}
+
+.sidebar-automations-link {
+  @apply mx-2 flex items-center gap-3 rounded-2xl border border-transparent bg-transparent px-3 py-2.5 text-left text-zinc-700 transition hover:bg-sky-50 hover:text-sky-950 cursor-pointer;
+}
+
+.sidebar-automations-link.is-active {
+  @apply border-transparent bg-sky-50 text-sky-950;
+}
+
+.sidebar-automations-link-icon {
+  @apply flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-sky-600 text-white;
+}
+
+.sidebar-automations-link-icon :deep(svg) {
+  @apply h-5 w-5;
 }
 
 .sidebar-skills-link-icon {

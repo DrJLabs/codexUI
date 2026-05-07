@@ -1,4 +1,5 @@
 import type { RequestHandler } from 'express'
+import express from 'express'
 import { AutomationScheduler } from './scheduler.js'
 import { createAutomationsRouter, type CreateAutomationsRouterOptions } from './routes.js'
 import { AutomationsService } from './service.js'
@@ -23,7 +24,9 @@ export function createAutomationsMiddleware(options: CreateAutomationsMiddleware
     ...options,
     service,
     enableScheduler: schedulerEnabled,
-  }) as AutomationsRequestHandler
+  })
+  const app = express()
+  app.use(router)
   const scheduler = schedulerEnabled
     ? new AutomationScheduler({
         service,
@@ -31,9 +34,10 @@ export function createAutomationsMiddleware(options: CreateAutomationsMiddleware
       })
     : null
   scheduler?.start()
-  router.dispose = () => {
+  const middleware = app as AutomationsRequestHandler
+  middleware.dispose = () => {
     scheduler?.stop()
     if (ownsService) service.dispose()
   }
-  return router
+  return middleware
 }
