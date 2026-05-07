@@ -121,7 +121,7 @@ function draftFromDefinition(definition: AutomationDefinition): AutomationDraft 
     name: definition.name,
     targetThreadId: definition.targetThreadId ?? '',
     prompt: definition.prompt,
-    rrule: definition.schedule.rrule,
+    rrule: definition.schedule.rawRrule ?? definition.schedule.rrule,
     description: definition.description ?? '',
     notes: definition.notes,
     runMode: definition.runMode ?? 'chat',

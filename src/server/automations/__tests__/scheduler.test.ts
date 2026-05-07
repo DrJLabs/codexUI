@@ -289,7 +289,11 @@ describe('AutomationScheduler', () => {
       runMode: 'worktree',
       cwd: '/tmp/project',
       cwds: ['/tmp/project'],
-      schedule: { type: 'rrule', rrule: 'FREQ=HOURLY;INTERVAL=1' },
+      schedule: {
+        type: 'rrule',
+        rrule: 'FREQ=HOURLY;INTERVAL=1',
+        rawRrule: 'RRULE:FREQ=HOURLY;INTERVAL=1',
+      },
     })
   })
 

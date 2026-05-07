@@ -46,6 +46,7 @@ export type NativeAutomationWriteInput = {
   name: string
   prompt: string
   rrule: string
+  rrulePrefix?: 'RRULE:' | null
   status: ThreadAutomationStatus
   model?: string | null
   reasoningEffort?: string | null
@@ -771,7 +772,7 @@ export async function writeNativeAutomation(
     name,
     prompt,
     rrule,
-    rrulePrefix: existing?.record.rrulePrefix ?? (input.kind === 'cron' ? 'RRULE:' : null),
+    rrulePrefix: input.rrulePrefix ?? existing?.record.rrulePrefix ?? (input.kind === 'cron' ? 'RRULE:' : null),
     status: input.status,
     targetThreadId: threadId,
     model: input.model ?? existing?.record.model ?? null,

@@ -2,7 +2,13 @@ import { describe, expect, it } from 'vitest'
 import type { AutomationDefinition, AutomationRun } from '../types/automations'
 import {
   buildDailyRrule,
+  buildHourlyRrule,
+  buildHourlyIntervalRrule,
+  buildMinuteIntervalRrule,
+  buildWeekdaysRrule,
+  buildWeekendsRrule,
   buildWeeklyRrule,
+  classifyAutomationRrule,
   describeAutomationProjectLabel,
   describeAutomationRunListItem,
   describeAutomationRunMode,
@@ -13,10 +19,27 @@ import {
 } from './automationDisplay'
 
 describe('automationDisplay', () => {
+  it('describes Desktop interval RRULE schedules', () => {
+    expect(describeAutomationSchedule('FREQ=MINUTELY;INTERVAL=15')).toBe('Every 15 minutes')
+    expect(describeAutomationSchedule('RRULE:FREQ=MINUTELY;INTERVAL=1')).toBe('Every minute')
+    expect(describeAutomationSchedule('FREQ=HOURLY;INTERVAL=1')).toBe('Every hour')
+    expect(describeAutomationSchedule('FREQ=HOURLY;INTERVAL=6')).toBe('Every 6 hours')
+    expect(describeAutomationSchedule('RRULE:FREQ=HOURLY;INTERVAL=1;BYMINUTE=0;BYDAY=SU,MO,TU,WE,TH,FR,SA')).toBe('Hourly')
+  })
+
   it('describes daily RRULE schedules', () => {
     expect(describeAutomationSchedule('FREQ=DAILY;BYHOUR=9;BYMINUTE=0')).toBe('Daily at 9:00 AM')
     expect(describeAutomationSchedule('FREQ=DAILY;INTERVAL=1;BYHOUR=9;BYMINUTE=0')).toBe(
       'Daily at 9:00 AM',
+    )
+  })
+
+  it('describes weekdays and weekends RRULE schedules', () => {
+    expect(describeAutomationSchedule('FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR;BYHOUR=9;BYMINUTE=0')).toBe(
+      'Weekdays at 9:00 AM',
+    )
+    expect(describeAutomationSchedule('FREQ=WEEKLY;BYDAY=SA,SU;BYHOUR=10;BYMINUTE=30')).toBe(
+      'Weekends at 10:30 AM',
     )
   })
 
@@ -32,6 +55,9 @@ describe('automationDisplay', () => {
   it('keeps unknown RRULE schedules visible as custom schedules', () => {
     expect(describeAutomationSchedule('FREQ=MONTHLY;BYMONTHDAY=1')).toBe(
       'Custom schedule: FREQ=MONTHLY;BYMONTHDAY=1',
+    )
+    expect(describeAutomationSchedule('RRULE:FREQ=MONTHLY;BYMONTHDAY=1')).toBe(
+      'Custom schedule: RRULE:FREQ=MONTHLY;BYMONTHDAY=1',
     )
   })
 
@@ -76,6 +102,36 @@ describe('automationDisplay', () => {
 
   it('builds daily RRULE schedules from time input', () => {
     expect(buildDailyRrule('09:05')).toBe('FREQ=DAILY;BYHOUR=9;BYMINUTE=5')
+  })
+
+  it('builds Desktop interval and weekday RRULE schedules from controls', () => {
+    expect(buildMinuteIntervalRrule(15)).toBe('FREQ=MINUTELY;INTERVAL=15')
+    expect(buildHourlyRrule()).toBe('FREQ=HOURLY;INTERVAL=1;BYMINUTE=0;BYDAY=SU,MO,TU,WE,TH,FR,SA')
+    expect(buildHourlyIntervalRrule(6)).toBe('FREQ=HOURLY;INTERVAL=6')
+    expect(buildWeekdaysRrule('09:00')).toBe('FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR;BYHOUR=9;BYMINUTE=0')
+    expect(buildWeekendsRrule('10:30')).toBe('FREQ=WEEKLY;BYDAY=SA,SU;BYHOUR=10;BYMINUTE=30')
+  })
+
+  it('classifies interval schedules separately from wall-clock schedules', () => {
+    expect(classifyAutomationRrule('FREQ=MINUTELY;INTERVAL=15')).toMatchObject({
+      frequency: 'minute_interval',
+      scheduleKind: 'interval',
+      intervalCount: 15,
+    })
+    expect(classifyAutomationRrule('FREQ=HOURLY;INTERVAL=1')).toMatchObject({
+      frequency: 'hour_interval',
+      scheduleKind: 'interval',
+      intervalCount: 1,
+    })
+    expect(classifyAutomationRrule('RRULE:FREQ=HOURLY;INTERVAL=1;BYMINUTE=0;BYDAY=SU,MO,TU,WE,TH,FR,SA')).toMatchObject({
+      frequency: 'hourly',
+      scheduleKind: 'wall_clock',
+      intervalCount: null,
+    })
+    expect(classifyAutomationRrule('FREQ=DAILY;BYHOUR=9;BYMINUTE=0')).toMatchObject({
+      frequency: 'daily',
+      scheduleKind: 'wall_clock',
+    })
   })
 
   it('rejects invalid daily RRULE time input', () => {

@@ -232,16 +232,29 @@
               <span>Repeats</span>
               <div class="automations-inline-controls">
                 <select v-model="scheduleFrequency">
+                  <option value="minute_interval">Every N minutes</option>
+                  <option value="hourly">Hourly</option>
+                  <option value="hour_interval">Every N hours</option>
                   <option value="daily">Daily</option>
+                  <option value="weekdays">Weekdays</option>
+                  <option value="weekends">Weekends</option>
                   <option value="weekly">Weekly</option>
                   <option value="custom">Custom</option>
                 </select>
+                <input
+                  v-if="isIntervalSchedule"
+                  v-model.number="scheduleIntervalCount"
+                  type="number"
+                  min="1"
+                  step="1"
+                  :aria-label="scheduleFrequency === 'minute_interval' ? 'Interval minutes' : 'Interval hours'"
+                />
                 <select v-if="scheduleFrequency === 'weekly'" v-model="scheduleWeekday" aria-label="Schedule weekday">
                   <option v-for="day in weekdayOptions" :key="day.value" :value="day.value">
                     {{ day.label }}
                   </option>
                 </select>
-                <input v-if="scheduleFrequency !== 'custom'" v-model="scheduleTime" type="time" aria-label="Schedule time" />
+                <input v-if="usesScheduleTime" v-model="scheduleTime" type="time" aria-label="Schedule time" />
               </div>
             </div>
 
@@ -431,16 +444,23 @@ import IconTablerTrash from '../icons/IconTablerTrash.vue'
 import type { AutomationRun, AutomationRunMode } from '../../types/automations'
 import {
   buildDailyRrule,
+  buildHourlyRrule,
+  buildHourlyIntervalRrule,
+  buildMinuteIntervalRrule,
+  buildWeekdaysRrule,
+  buildWeekendsRrule,
   buildWeeklyRrule,
+  classifyAutomationRrule,
   describeAutomationProjectLabel,
   describeAutomationRunListItem,
   describeAutomationSchedule,
   describeAutomationTarget,
   describeRunHealth,
   formatAutomationRelativeTime,
+  type AutomationScheduleFrequency,
 } from '../../utils/automationDisplay'
 
-type ScheduleFrequency = 'daily' | 'weekly' | 'custom'
+type ScheduleFrequency = AutomationScheduleFrequency
 
 const route = useRoute()
 const {
@@ -483,7 +503,6 @@ const weekdayOptions = [
   { value: 'SA', label: 'Saturday' },
   { value: 'SU', label: 'Sunday' },
 ] as const
-const validWeekdayValues = new Set(weekdayOptions.map((option) => option.value))
 
 const scheduleTemplates = [
   { id: 'thread-heartbeat', label: 'Thread heartbeat' },
@@ -513,6 +532,7 @@ const baseReasoningEffortOptions = [
 const scheduleFrequency = ref<ScheduleFrequency>('daily')
 const scheduleTime = ref('09:00')
 const scheduleWeekday = ref('MO')
+const scheduleIntervalCount = ref(15)
 let isSyncingScheduleControls = false
 
 const activeCount = computed(() => definitions.value.filter((definition) => definition.status === 'active').length)
@@ -545,7 +565,7 @@ const automationCards = computed(() =>
     const health = describeRunHealth(definition.recentRuns ?? [])
     return {
       definition,
-      scheduleLabel: describeAutomationSchedule(definition.schedule.rrule),
+      scheduleLabel: describeAutomationSchedule(definition.schedule.rawRrule ?? definition.schedule.rrule),
       target: describeAutomationTarget(definition),
       health,
       lastRunLabel: definition.lastRunAtIso ? `Last run ${formatTimestamp(definition.lastRunAtIso)}` : 'No completed runs',
@@ -577,7 +597,14 @@ const compactRunItems = computed(() =>
     run,
   })),
 )
-const currentRruleClassification = computed(() => classifyRrule(draft.value.rrule))
+const currentRruleClassification = computed(() => classifyAutomationRrule(draft.value.rrule))
+const isIntervalSchedule = computed(() => scheduleFrequency.value === 'minute_interval' || scheduleFrequency.value === 'hour_interval')
+const usesScheduleTime = computed(() =>
+  scheduleFrequency.value === 'daily' ||
+  scheduleFrequency.value === 'weekdays' ||
+  scheduleFrequency.value === 'weekends' ||
+  scheduleFrequency.value === 'weekly',
+)
 const showRawRrule = computed(() => scheduleFrequency.value === 'custom' || currentRruleClassification.value.frequency === 'custom')
 const modelSelectOptions = computed(() => ensureOption(baseModelOptions, draft.value.model, 'Current model'))
 const reasoningEffortSelectOptions = computed(() =>
@@ -618,12 +645,10 @@ watch(
   { immediate: true },
 )
 
-watch([scheduleFrequency, scheduleTime, scheduleWeekday], () => {
+watch([scheduleFrequency, scheduleTime, scheduleWeekday, scheduleIntervalCount], () => {
   if (scheduleFrequency.value === 'custom') return
   try {
-    const nextRrule = scheduleFrequency.value === 'daily'
-      ? buildDailyRrule(scheduleTime.value || '09:00')
-      : buildWeeklyRrule(scheduleWeekday.value || 'MO', scheduleTime.value || '09:00')
+    const nextRrule = buildRruleFromScheduleControls()
     isSyncingScheduleControls = true
     draft.value.rrule = nextRrule
   } catch {
@@ -653,9 +678,9 @@ function applyTemplate(templateId: string): void {
       description: 'Continuous short-interval watcher for one target thread.',
       prompt: 'Review this thread and report anything that needs attention.',
       runMode: 'chat',
-      frequency: 'custom',
-      time: '00:15',
-      rrule: 'FREQ=MINUTELY;INTERVAL=15',
+      frequency: 'minute_interval',
+      time: '09:00',
+      intervalCount: 15,
     })
     return
   }
@@ -678,10 +703,9 @@ function applyTemplate(templateId: string): void {
     description: 'Weekly worktree status check.',
     prompt: 'Check the worktree status and report blockers, uncommitted changes, or failed checks.',
     runMode: 'worktree',
-    frequency: 'custom',
-    time: '00:30',
-    weekday: 'MO',
-    rrule: 'FREQ=HOURLY;INTERVAL=6',
+    frequency: 'hour_interval',
+    time: '09:00',
+    intervalCount: 6,
     clearThread: true,
   })
 }
@@ -694,6 +718,7 @@ function applyTemplateValues(values: {
   frequency: ScheduleFrequency
   time: string
   weekday?: string
+  intervalCount?: number
   rrule?: string
   clearThread?: boolean
 }): void {
@@ -705,6 +730,7 @@ function applyTemplateValues(values: {
   scheduleFrequency.value = values.frequency
   scheduleTime.value = values.time
   scheduleWeekday.value = values.weekday ?? scheduleWeekday.value
+  scheduleIntervalCount.value = values.intervalCount ?? scheduleIntervalCount.value
   if (values.rrule) {
     draft.value.rrule = values.rrule
     return
@@ -715,9 +741,7 @@ function applyTemplateValues(values: {
 function writeScheduleFromControls(): void {
   if (scheduleFrequency.value === 'custom') return
   try {
-    draft.value.rrule = scheduleFrequency.value === 'daily'
-      ? buildDailyRrule(scheduleTime.value || '09:00')
-      : buildWeeklyRrule(scheduleWeekday.value || 'MO', scheduleTime.value || '09:00')
+    draft.value.rrule = buildRruleFromScheduleControls()
   } catch {
     draft.value.rrule = buildDailyRrule('09:00')
     scheduleFrequency.value = 'daily'
@@ -726,63 +750,28 @@ function writeScheduleFromControls(): void {
 }
 
 function syncScheduleControlsFromRrule(rrule: string): void {
-  const classification = classifyRrule(rrule)
+  const classification = classifyAutomationRrule(rrule)
   scheduleFrequency.value = classification.frequency
   if (classification.time) scheduleTime.value = classification.time
   if (classification.weekday) scheduleWeekday.value = classification.weekday
+  if (classification.intervalCount) scheduleIntervalCount.value = classification.intervalCount
 }
 
-function classifyRrule(rrule: string): { frequency: ScheduleFrequency; time: string | null; weekday: string | null } {
-  const parts = parseRrule(rrule)
-  const hour = parseInteger(parts.BYHOUR)
-  const minute = parseInteger(parts.BYMINUTE)
-  const time = hour === null || minute === null || hour > 23 || minute > 59
-    ? null
-    : `${hour.toString().padStart(2, '0')}:${minute.toString().padStart(2, '0')}`
-  const hasDefaultInterval = !parts.INTERVAL || parts.INTERVAL === '1'
-
-  if (
-    parts.FREQ === 'DAILY' &&
-    time &&
-    hasDefaultInterval &&
-    hasOnlyRruleKeys(parts, parts.INTERVAL ? ['BYHOUR', 'BYMINUTE', 'FREQ', 'INTERVAL'] : ['BYHOUR', 'BYMINUTE', 'FREQ'])
-  ) {
-    return { frequency: 'daily', time, weekday: null }
+function buildRruleFromScheduleControls(): string {
+  if (scheduleFrequency.value === 'minute_interval') {
+    return buildMinuteIntervalRrule(Number(scheduleIntervalCount.value || 15))
   }
-
-  if (
-    parts.FREQ === 'WEEKLY' &&
-    time &&
-    parts.BYDAY &&
-    hasDefaultInterval &&
-    validWeekdayValues.has(parts.BYDAY as typeof weekdayOptions[number]['value']) &&
-    hasOnlyRruleKeys(parts, parts.INTERVAL ? ['BYDAY', 'BYHOUR', 'BYMINUTE', 'FREQ', 'INTERVAL'] : ['BYDAY', 'BYHOUR', 'BYMINUTE', 'FREQ'])
-  ) {
-    return { frequency: 'weekly', time, weekday: parts.BYDAY }
+  if (scheduleFrequency.value === 'hourly') return buildHourlyRrule()
+  if (scheduleFrequency.value === 'hour_interval') {
+    return buildHourlyIntervalRrule(Number(scheduleIntervalCount.value || 1))
   }
-
-  return { frequency: 'custom', time, weekday: null }
-}
-
-function parseRrule(rrule: string): Record<string, string> {
-  return rrule.split(';').reduce<Record<string, string>>((parts, rawPart) => {
-    const [rawKey, rawValue] = rawPart.split('=')
-    const key = rawKey?.trim().toUpperCase()
-    const value = rawValue?.trim()
-    if (key && value) parts[key] = value.toUpperCase()
-    return parts
-  }, {})
-}
-
-function parseInteger(value: string | undefined): number | null {
-  if (!value || !/^\d+$/.test(value)) return null
-  const parsed = Number.parseInt(value, 10)
-  return Number.isFinite(parsed) ? parsed : null
-}
-
-function hasOnlyRruleKeys(parts: Record<string, string>, expectedKeys: string[]): boolean {
-  const keys = Object.keys(parts).sort()
-  return keys.length === expectedKeys.length && keys.every((key, index) => key === expectedKeys[index])
+  if (scheduleFrequency.value === 'daily') return buildDailyRrule(scheduleTime.value || '09:00')
+  if (scheduleFrequency.value === 'weekdays') return buildWeekdaysRrule(scheduleTime.value || '09:00')
+  if (scheduleFrequency.value === 'weekends') return buildWeekendsRrule(scheduleTime.value || '09:00')
+  if (scheduleFrequency.value === 'weekly') {
+    return buildWeeklyRrule(scheduleWeekday.value || 'MO', scheduleTime.value || '09:00')
+  }
+  return draft.value.rrule
 }
 
 function ensureOption<T extends readonly { value: string; label: string }[]>(

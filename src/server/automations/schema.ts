@@ -7,7 +7,7 @@ export type AutomationCreateInput = {
   name: string
   description: string | null
   prompt: string
-  schedule: { type: 'rrule'; rrule: string }
+  schedule: { type: 'rrule'; rrule: string; rawRrule?: string }
   targetThreadId: string | null
   cwd: string | null
   cwds: string[]
@@ -23,7 +23,7 @@ export type AutomationPatchInput = Partial<{
   name: string
   description: string | null
   prompt: string
-  schedule: { type: 'rrule'; rrule: string }
+  schedule: { type: 'rrule'; rrule: string; rawRrule?: string }
   targetThreadId: string | null
   cwd: string | null
   cwds: string[]
@@ -84,12 +84,13 @@ function readOptionalRequiredString(input: Record<string, unknown>, field: strin
   return readTrimmedString(input[field], field)
 }
 
-function readSchedule(value: unknown): { type: 'rrule'; rrule: string } {
+function readSchedule(value: unknown): { type: 'rrule'; rrule: string; rawRrule?: string } {
   if (!isRecord(value)) throw new AutomationValidationError('schedule is required')
   if (value.type !== 'rrule') throw new AutomationValidationError('schedule.type must be rrule')
-  const rrule = normalizeAutomationRrule(readTrimmedString(value.rrule, 'schedule.rrule'))
+  const rawRrule = readTrimmedString(value.rrule, 'schedule.rrule')
+  const rrule = normalizeAutomationRrule(rawRrule)
   validateRrule(rrule)
-  return { type: 'rrule', rrule }
+  return rawRrule === rrule ? { type: 'rrule', rrule } : { type: 'rrule', rrule, rawRrule }
 }
 
 export function normalizeAutomationRrule(rrule: string): string {
@@ -97,7 +98,7 @@ export function normalizeAutomationRrule(rrule: string): string {
   return trimmed.startsWith('RRULE:') ? trimmed.slice('RRULE:'.length) : trimmed
 }
 
-function readOptionalSchedule(input: Record<string, unknown>): { type: 'rrule'; rrule: string } | undefined {
+function readOptionalSchedule(input: Record<string, unknown>): { type: 'rrule'; rrule: string; rawRrule?: string } | undefined {
   if (!hasOwn(input, 'schedule')) return undefined
   return readSchedule(input.schedule)
 }

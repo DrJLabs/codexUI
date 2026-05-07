@@ -300,6 +300,13 @@ Acceptance:
 - CodexUI does not rewrite custom RRULEs on load.
 - Heartbeat interval RRULEs are not treated as ordinary wall-clock cron schedules.
 
+Section 7 implementation notes:
+- Added a shared schedule classifier that understands Desktop-visible presets: minute intervals, Desktop wall-clock hourly, hour intervals, daily, weekdays, weekends, weekly-by-day, and custom RRULEs.
+- Interval-only `MINUTELY`/`HOURLY` RRULEs are classified separately from wall-clock RRULEs for backend execution semantics. Constrained hourly RRULEs such as `RRULE:FREQ=HOURLY;INTERVAL=1;BYMINUTE=0;BYDAY=SU,MO,TU,WE,TH,FR,SA` remain wall-clock schedules while displaying as `Hourly`, and the editor uses a separate `Hourly` control so it cannot rewrite that Desktop RRULE into `FREQ=HOURLY;INTERVAL=1`.
+- The automation editor now exposes menu selections for minute interval, Desktop hourly, hour interval, daily, weekdays, weekends, weekly, and custom. Raw custom RRULE editing remains in Advanced and preserves the user's raw string in the UI.
+- Template presets now select interval controls directly instead of hiding interval RRULEs behind `Custom`.
+- Display labels preserve the raw `RRULE:` prefix for custom schedules through the API/UI path while keeping the canonical normalized RRULE prefix-free internally; saving keeps existing Desktop prefixes in `automation.toml`, and CodexUI-created cron automations continue to write the Desktop `RRULE:` prefix.
+
 ### 8. Multi-CWD Cron Execution
 
 Current CodexUI behavior:

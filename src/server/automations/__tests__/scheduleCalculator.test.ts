@@ -1,7 +1,26 @@
 import { describe, expect, it } from 'vitest'
-import { evaluateRruleSchedule } from '../scheduleCalculator'
+import { classifyRruleScheduleKind, evaluateRruleSchedule } from '../scheduleCalculator'
 
 describe('evaluateRruleSchedule', () => {
+  it('classifies Desktop interval schedules separately from wall-clock schedules', () => {
+    expect(classifyRruleScheduleKind('FREQ=MINUTELY;INTERVAL=15')).toEqual({
+      scheduleKind: 'interval',
+      intervalMs: 15 * 60_000,
+    })
+    expect(classifyRruleScheduleKind('FREQ=HOURLY;INTERVAL=6')).toEqual({
+      scheduleKind: 'interval',
+      intervalMs: 6 * 60 * 60_000,
+    })
+    expect(classifyRruleScheduleKind('RRULE:FREQ=HOURLY;INTERVAL=1;BYMINUTE=0;BYDAY=SU,MO,TU,WE,TH,FR,SA')).toEqual({
+      scheduleKind: 'wall_clock',
+      intervalMs: null,
+    })
+    expect(classifyRruleScheduleKind('FREQ=DAILY;BYHOUR=9;BYMINUTE=0')).toEqual({
+      scheduleKind: 'wall_clock',
+      intervalMs: null,
+    })
+  })
+
   it('accepts Desktop-prefixed RRULE strings through scheduler normalization', () => {
     const decision = evaluateRruleSchedule({
       rrule: 'RRULE:FREQ=HOURLY;INTERVAL=1;BYMINUTE=0;BYDAY=SU,MO,TU,WE,TH,FR,SA',

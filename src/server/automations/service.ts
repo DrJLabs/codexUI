@@ -230,6 +230,7 @@ export class AutomationsService {
       name: input.name,
       prompt: input.prompt,
       rrule: input.schedule.rrule,
+      rrulePrefix: scheduleRrulePrefix(input.schedule),
       status: 'ACTIVE',
       model: input.model,
       reasoningEffort: input.reasoningEffort,
@@ -278,6 +279,7 @@ export class AutomationsService {
       name: patch.name ?? entry.record.name,
       prompt: patch.prompt ?? entry.record.prompt,
       rrule: patch.schedule?.rrule ?? entry.record.rrule,
+      rrulePrefix: patch.schedule ? scheduleRrulePrefix(patch.schedule) ?? entry.record.rrulePrefix : entry.record.rrulePrefix,
       targetThreadId: hasOwn(patch, 'targetThreadId') ? patch.targetThreadId ?? null : entry.record.targetThreadId,
       model: hasOwn(patch, 'model') ? patch.model ?? null : entry.record.model,
       reasoningEffort: hasOwn(patch, 'reasoningEffort') ? patch.reasoningEffort ?? null : entry.record.reasoningEffort,
@@ -872,7 +874,7 @@ async function mapDefinition(
       prompt: entry.record.prompt,
       status: automationStatusForView(entry.record.status),
       legacyStatus: entry.record.status,
-      schedule: { type: 'rrule', rrule: entry.record.rrule },
+      schedule: { type: 'rrule', rrule: entry.record.rrule, rawRrule: rawAutomationRrule(entry) },
       targetThreadId: entry.record.targetThreadId,
       projectRoot: null,
       cwd: entry.record.cwd,
@@ -1005,6 +1007,14 @@ function automationStatusForView(status: ThreadAutomationRecord['status']): Auto
   if (status === 'PAUSED') return 'paused'
   if (status === 'DELETED') return 'deleted'
   return 'active'
+}
+
+function rawAutomationRrule(entry: NativeAutomationEntry): string {
+  return `${entry.record.rrulePrefix ?? ''}${entry.record.rrule}`
+}
+
+function scheduleRrulePrefix(schedule: { rawRrule?: string }): 'RRULE:' | undefined {
+  return schedule.rawRrule?.trim().startsWith('RRULE:') ? 'RRULE:' : undefined
 }
 
 function assertAutomationNotDeleted(definition: AutomationDefinition): void {

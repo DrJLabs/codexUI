@@ -12,6 +12,25 @@ it('loads state and selects the first automation', async () => {
   expect(gateway.reportHeartbeatThreadState).toHaveBeenCalledWith({ threadId: 'thread_1', eligible: true, reason: null })
 })
 
+it('keeps Desktop raw RRULE prefixes visible in editable drafts', async () => {
+  const gateway = createGatewayFixture([
+    automationFixture({
+      id: 'cron_1',
+      kind: 'cron',
+      targetThreadId: null,
+      schedule: {
+        type: 'rrule',
+        rrule: 'FREQ=MONTHLY;BYMONTHDAY=1',
+        rawRrule: 'RRULE:FREQ=MONTHLY;BYMONTHDAY=1',
+      },
+    }),
+  ])
+  const automations = useAutomations({ gateway })
+  await automations.loadAll()
+
+  expect(automations.draft.value.rrule).toBe('RRULE:FREQ=MONTHLY;BYMONTHDAY=1')
+})
+
 it('prefills create draft from a thread shortcut when no matching automation exists', async () => {
   const automations = useAutomations({ gateway: createGatewayFixture([]) })
   await automations.loadAll()

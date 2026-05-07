@@ -604,7 +604,7 @@ export class AutomationRunner {
       prompt: entry.record.prompt,
       status: automationStatusForView(entry.record.status),
       legacyStatus: entry.record.status,
-      schedule: { type: 'rrule', rrule: entry.record.rrule },
+      schedule: { type: 'rrule', rrule: entry.record.rrule, rawRrule: `${entry.record.rrulePrefix ?? ''}${entry.record.rrule}` },
       targetThreadId: entry.record.targetThreadId,
       projectRoot: null,
       cwd: entry.record.cwd,

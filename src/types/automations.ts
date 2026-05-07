@@ -21,6 +21,7 @@ export type AutomationRunState =
 export type AutomationSchedule = {
   type: 'rrule'
   rrule: string
+  rawRrule?: string
 }
 
 export type AutomationKanbanProjection =

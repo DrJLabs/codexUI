@@ -4,7 +4,7 @@ export type CreateAutomationInput = {
   kind: 'heartbeat' | 'cron'
   name: string
   prompt: string
-  schedule: { type: 'rrule'; rrule: string }
+  schedule: { type: 'rrule'; rrule: string; rawRrule?: string }
   targetThreadId: string | null
   description?: string | null
   cwd?: string | null

@@ -8,6 +8,11 @@ export type SchedulerDecision = {
   unsupportedReason: string | null
 }
 
+export type RruleScheduleExecutionKind = {
+  scheduleKind: 'interval' | 'wall_clock'
+  intervalMs: number | null
+}
+
 type SupportedFrequency = 'MINUTELY' | 'HOURLY' | 'DAILY' | 'WEEKLY'
 type Frequency = SupportedFrequency | 'MONTHLY' | 'YEARLY'
 type Weekday = 'MO' | 'TU' | 'WE' | 'TH' | 'FR' | 'SA' | 'SU'
@@ -31,6 +36,17 @@ const WEEKDAY_INDEX: Record<Weekday, number> = {
   TH: 4,
   FR: 5,
   SA: 6,
+}
+
+export function classifyRruleScheduleKind(rrule: string): RruleScheduleExecutionKind {
+  const parsed = parseRrule(rrule)
+  if (parsed.freq === 'MINUTELY' && parsed.byhour === null && parsed.byminute === null && parsed.byday === null) {
+    return { scheduleKind: 'interval', intervalMs: parsed.interval * 60_000 }
+  }
+  if (parsed.freq === 'HOURLY' && parsed.byhour === null && parsed.byminute === null && parsed.byday === null) {
+    return { scheduleKind: 'interval', intervalMs: parsed.interval * 60 * 60_000 }
+  }
+  return { scheduleKind: 'wall_clock', intervalMs: null }
 }
 
 export function evaluateRruleSchedule(input: {
