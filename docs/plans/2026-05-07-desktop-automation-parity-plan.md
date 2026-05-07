@@ -365,25 +365,36 @@ Section 9 implementation notes:
 
 Current CodexUI behavior:
 - Uses `ManagedWorktreeService`.
-- Does not fully round-trip `localEnvironmentConfigPath`.
+- Round-trips `localEnvironmentConfigPath` through Desktop TOML, service mapping, and API models.
+- Before this slice, worktree execution did not consume that path or record the Desktop git config marker.
 
 Desktop behavior:
 - Uses Desktop local-environment/worktree flow.
 - Worktree creation considers repository root, current branch, and `localEnvironmentConfigPath`.
+- Stores the selected local environment in worktree git config key `codex.localEnvironmentConfigPath`, using `__none__` when absent.
+- Runs setup scripts with `CODEX_SOURCE_TREE_PATH` and `CODEX_WORKTREE_PATH` injected, then stores captured shell environment in `codex-shell-environment.json`.
+- Does not create a managed worktree for non-git or projectless targets; those run against the original/generated folder.
 
 Plan:
-1. Add canonical `local_environment_config_path` parsing/writing.
-2. Prefer calling app-server/local-environment APIs where available rather than duplicating Desktop worktree behavior.
-3. If local reimplementation is necessary, match Desktop inputs:
+1. Keep canonical `local_environment_config_path` parsing/writing as-is; the earlier storage slices already handle it.
+2. Use the local managed-worktree service because the current bridge does not expose a Desktop local-environment setup API.
+3. Match Desktop inputs:
    - source workspace root
    - starting branch
    - local environment config path
    - host path normalization
-4. Keep CodexUI worktree lock metadata private and non-canonical.
+4. Store only Desktop-compatible local-environment metadata in git config / git-path JSON. Keep CodexUI worktree lock metadata private and non-canonical.
+5. Treat "not a git repository" as Desktop-style local execution fallback, while preserving hard failures for branch/setup errors.
+
+Implementation notes:
+- `ManagedWorktreeService` now prefers the source repository current branch before default-branch fallbacks.
+- Worktree creation writes `codex.localEnvironmentConfigPath`, runs Desktop-shape local environment setup when configured, injects `CODEX_SOURCE_TREE_PATH` / `CODEX_WORKTREE_PATH`, and writes `codex-shell-environment.json` in the worktree git path.
+- Automation runs pass `localEnvironmentConfigPath` to worktree creation and record a local fallback if the target cannot host a managed worktree.
 
 Acceptance:
 - Desktop-created worktree automation with local environment config opens correctly in CodexUI.
 - CodexUI-created worktree automation includes Desktop-compatible `execution_environment = "worktree"` and `cwds`.
+- Configured local environment setup runs before `thread/start`, and non-git worktree targets run locally instead of failing startup.
 
 ### 11. Permissions, Sandbox, Model, And Reasoning
 

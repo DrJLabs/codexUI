@@ -6,7 +6,7 @@ import type { CodexRunProfile } from '../../types/execution'
 import type { CodexBridgeNotification, CodexBridgeRuntime } from '../codexAppServerBridge'
 import { createRestrictedCodexBridgeAdapter, type RestrictedCodexBridgeAdapter } from '../execution/codexBridgeAdapter'
 import { resolveCodexTurnStartRunSettings } from '../execution/runProfiles'
-import { ManagedWorktreeService } from '../workspaces/managedWorktreeService'
+import { ManagedWorktreeService, ManagedWorktreeUnavailableError } from '../workspaces/managedWorktreeService'
 import { AutomationConflictError, AutomationDeferredRunError, AutomationValidationError } from './errors'
 import { classifyAutomationRunFailure, classifyAutomationRunResult } from './resultClassifier'
 import {
@@ -219,6 +219,7 @@ export class AutomationRunner {
     this.ownedActiveRunIds.add(run.id)
     let activeTurnKeyForRun: string | null = null
     let markRunningRecordReady: (ready: boolean) => void = () => {}
+    let runtimeDefinition = definition
     try {
       if (input.trigger === 'schedule') {
         await store.appendEvent(run, {
@@ -250,20 +251,39 @@ export class AutomationRunner {
       }
       if (runMode === 'worktree') {
         const worktree = await this.createAutomationWorktree(definition, run, store)
-        run = await store.updateRun(run.id, {
-          worktreePath: worktree.worktreePath,
-          branchName: worktree.branchName,
-        })
-        await store.appendEvent(run, {
-          type: `${eventPrefix}.worktree_created`,
-          worktreePath: worktree.worktreePath,
-          branchName: worktree.branchName,
-        })
-        await store.appendLog(run, `Managed worktree created: ${worktree.worktreePath}`)
+        if (worktree) {
+          run = await store.updateRun(run.id, {
+            worktreePath: worktree.worktreePath,
+            branchName: worktree.branchName,
+          })
+          await store.appendEvent(run, {
+            type: `${eventPrefix}.worktree_created`,
+            worktreePath: worktree.worktreePath,
+            branchName: worktree.branchName,
+          })
+          await store.appendLog(run, `Managed worktree created: ${worktree.worktreePath}`)
+          if (worktree.localEnvironmentSetup) {
+            await store.appendEvent(run, {
+              type: `${eventPrefix}.local_environment_setup_completed`,
+              configPath: worktree.localEnvironmentConfigPath,
+              cwd: worktree.localEnvironmentSetup.cwd,
+            })
+            await store.appendLog(run, `Local environment setup completed: ${worktree.localEnvironmentConfigPath}`)
+          }
+        } else {
+          runtimeDefinition = { ...definition, runMode: 'local' }
+          run = await store.updateRun(run.id, {
+            runMode: 'local',
+            worktreePath: null,
+            branchName: null,
+          })
+          await store.appendEvent(run, { type: `${eventPrefix}.worktree_unavailable_fell_back_to_local` })
+          await store.appendLog(run, 'Target is not a git repository; running locally without a managed worktree.')
+        }
       }
-      const threadId = await this.startThread(definition, run, projectlessWorkspace)
+      const threadId = await this.startThread(runtimeDefinition, run, projectlessWorkspace)
       const turnId = await this.startTurn(
-        definition,
+        runtimeDefinition,
         run,
         threadId,
         runProfileSnapshot,
@@ -275,7 +295,7 @@ export class AutomationRunner {
       })
       activeTurnKeyForRun = activeRunTurnKey(threadId, turnId)
       this.activeRunsByTurn.set(activeTurnKeyForRun, {
-        entry: createNativeEntryForRun(definition, input.automationDirPath, input.sourceDirName),
+        entry: createNativeEntryForRun(runtimeDefinition, input.automationDirPath, input.sourceDirName),
         runId: run.id,
         runningRecordReady,
       })
@@ -306,7 +326,7 @@ export class AutomationRunner {
         })
         await store.appendEvent(failedRun, { type: `${eventPrefix}.failed`, errorMessage: message })
         await store.appendLog(failedRun, `Run failed: ${message}`)
-        await this.projectTerminalRun({ definition, store, run: failedRun })
+        await this.projectTerminalRun({ definition: runtimeDefinition, store, run: failedRun })
       } catch {
         // Preserve the original startup failure while still releasing in-memory ownership.
       } finally {
@@ -389,7 +409,12 @@ export class AutomationRunner {
     definition: AutomationDefinition,
     run: AutomationRun,
     store: ReturnType<typeof createAutomationRunStore>,
-  ): Promise<{ worktreePath: string; branchName: string }> {
+  ): Promise<{
+    worktreePath: string
+    branchName: string
+    localEnvironmentConfigPath: string | null
+    localEnvironmentSetup: { cwd: string } | null
+  } | null> {
     if (!definition.cwd) throw new AutomationValidationError('worktree automation runs require an absolute cwd')
     const service = new ManagedWorktreeService({
       dataDir: resolveCodexHomeDir(this.options),
@@ -405,12 +430,18 @@ export class AutomationRunner {
         }
       },
     })
-    return await service.createManagedWorktree({
-      owner: { source: 'automation', id: definition.id },
-      taskId: definition.id,
-      runId: run.id,
-      name: definition.name,
-    })
+    try {
+      return await service.createManagedWorktree({
+        owner: { source: 'automation', id: definition.id },
+        taskId: definition.id,
+        runId: run.id,
+        name: definition.name,
+        localEnvironmentConfigPath: definition.localEnvironmentConfigPath,
+      })
+    } catch (error) {
+      if (error instanceof ManagedWorktreeUnavailableError) return null
+      throw error
+    }
   }
 
   private async startThread(

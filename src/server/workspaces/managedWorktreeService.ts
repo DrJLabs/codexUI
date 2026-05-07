@@ -11,6 +11,10 @@ import {
   type ManagedWorktreeLock,
   type ManagedWorktreeOwner,
 } from './worktreeLocks'
+import {
+  applyManagedWorktreeLocalEnvironment,
+  type ManagedWorktreeLocalEnvironmentSetupResult,
+} from './localEnvironment'
 
 const execFileAsync = promisify(execFile)
 
@@ -20,6 +24,7 @@ export type CreateManagedWorktreeInput = {
   runId: string
   name: string
   baseBranch?: string
+  localEnvironmentConfigPath?: string | null
 }
 
 export type ManagedWorktree = {
@@ -30,6 +35,8 @@ export type ManagedWorktree = {
   baseRef: string
   worktreePath: string
   lockPath: string
+  localEnvironmentConfigPath: string | null
+  localEnvironmentSetup: ManagedWorktreeLocalEnvironmentSetupResult | null
 }
 
 export type ManagedWorktreeServiceOptions = {
@@ -67,7 +74,15 @@ export class ManagedWorktreeService {
     await runGit(gitRoot, ['worktree', 'add', '-b', branchName, worktreePath, baseRef])
     worktreeCreated = true
     const now = new Date().toISOString()
+    let localEnvironment: Awaited<ReturnType<typeof applyManagedWorktreeLocalEnvironment>> | null = null
     try {
+      localEnvironment = await applyManagedWorktreeLocalEnvironment({
+        sourceWorkspaceRoot: this.projectRoot,
+        sourceGitRoot: gitRoot,
+        worktreeGitRoot: worktreePath,
+        worktreeWorkspaceRoot: worktreePath,
+        localEnvironmentConfigPath: input.localEnvironmentConfigPath,
+      })
       await writeFile(lockPath, `${JSON.stringify({
         taskId: input.taskId,
         owner: input.owner,
@@ -97,16 +112,26 @@ export class ManagedWorktreeService {
       baseRef,
       worktreePath,
       lockPath,
+      localEnvironmentConfigPath: localEnvironment?.localEnvironmentConfigPath ?? null,
+      localEnvironmentSetup: localEnvironment?.setupResult ?? null,
     }
   }
 
   private async resolveGitRoot(): Promise<string> {
-    return resolve((await runGit(this.projectRoot, ['rev-parse', '--show-toplevel'])).trim())
+    try {
+      return resolve((await runGit(this.projectRoot, ['rev-parse', '--show-toplevel'])).trim())
+    } catch (error) {
+      if (isNotGitRepositoryError(error)) {
+        throw new ManagedWorktreeUnavailableError('Managed worktree source is not a Git repository')
+      }
+      throw error
+    }
   }
 
   private async resolveBaseRef(gitRoot: string, configuredBaseBranch?: string): Promise<string> {
     const candidates = [
       configuredBaseBranch?.trim(),
+      await readGitRef(gitRoot, ['branch', '--show-current']),
       await readGitRef(gitRoot, ['symbolic-ref', '--quiet', '--short', 'refs/remotes/origin/HEAD']),
       'main',
       'master',
@@ -159,6 +184,13 @@ export class ManagedWorktreeService {
       }
     }
     return locks
+  }
+}
+
+export class ManagedWorktreeUnavailableError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'ManagedWorktreeUnavailableError'
   }
 }
 
@@ -225,4 +257,11 @@ async function cleanupWorktreeAndBranch(gitRoot: string, worktreePath: string, b
 
 function isMissingFileError(error: unknown): boolean {
   return Boolean(error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT')
+}
+
+function isNotGitRepositoryError(error: unknown): boolean {
+  if (!(error instanceof Error)) return false
+  const stderr = (error as Error & { stderr?: unknown }).stderr
+  const text = typeof stderr === 'string' ? stderr : error.message
+  return text.toLowerCase().includes('not a git repository')
 }

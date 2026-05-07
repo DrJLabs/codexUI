@@ -567,6 +567,43 @@ Run the cron task`)
     }
   })
 
+  it('falls back to local execution for Desktop worktree automations outside git repositories', async () => {
+    const { codexHomeDir, service, rpcCalls } = await createHarness()
+    const plainDirectory = join(codexHomeDir, 'plain-directory')
+    await mkdir(plainDirectory, { recursive: true })
+    const automationDir = await writeNative(codexHomeDir, 'plain-worktree-dir', {
+      ...nativeRecord,
+      id: 'plain-worktree-cron',
+      kind: 'cron',
+      name: 'Plain worktree cron',
+      rrulePrefix: 'RRULE:',
+      targetThreadId: null,
+      executionEnvironment: 'worktree',
+      runMode: 'worktree',
+      cwd: plainDirectory,
+      cwds: [plainDirectory],
+    })
+
+    await service.runScheduled('plain-worktree-cron', {
+      dueAtIso: '2026-05-07T12:00:00.000Z',
+      nextDueAtIso: '2026-05-07T13:00:00.000Z',
+    })
+
+    const runs = await createAutomationRunStore(automationDir).listRuns()
+    const threadStartParams = rpcCalls.find((call) => call.method === 'thread/start')?.params as { cwd?: string } | undefined
+    const turnStartParams = rpcCalls.find((call) => call.method === 'turn/start')?.params as { cwd?: string } | undefined
+
+    expect(runs).toHaveLength(1)
+    expect(runs[0]).toMatchObject({
+      runMode: 'local',
+      cwd: plainDirectory,
+      worktreePath: null,
+      branchName: null,
+    })
+    expect(threadStartParams?.cwd).toBe(plainDirectory)
+    expect(turnStartParams?.cwd).toBe(plainDirectory)
+  })
+
   it('marks scheduled cron automations without cwds unsupported instead of starting runs', async () => {
     const { codexHomeDir, service, rpcCalls } = await createHarness()
     const automationDir = await writeNative(codexHomeDir, 'empty-cwds-dir', {

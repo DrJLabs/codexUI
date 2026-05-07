@@ -1,7 +1,7 @@
 import { execFile } from 'node:child_process'
 import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { isAbsolute, join } from 'node:path'
 import { promisify } from 'node:util'
 import { describe, expect, it, vi } from 'vitest'
 import { MANAGED_WORKTREE_LOCK_FILENAME, resolveManagedWorktreeRoot } from '../worktreeLocks'
@@ -56,6 +56,84 @@ describe('ManagedWorktreeService', () => {
       branchName: worktree.branchName,
       worktreePath: worktree.worktreePath,
     })
+  })
+
+  it('uses the source repository current branch as the managed worktree base', async () => {
+    const { dataDir, projectRoot } = await createGitRepo()
+    await runGit(projectRoot, ['switch', '-c', 'feature/source-work'])
+    await writeFile(join(projectRoot, 'feature.txt'), 'feature branch content', 'utf8')
+    await runGit(projectRoot, ['add', 'feature.txt'])
+    await runGit(projectRoot, ['commit', '-m', 'feature content'])
+    const service = new ManagedWorktreeService({ dataDir, projectRoot })
+
+    const worktree = await service.createManagedWorktree({
+      owner: { source: 'automation', id: 'branch-check' },
+      taskId: 'branch-check',
+      runId: 'automation-run-branch',
+      name: 'Branch Check',
+    })
+
+    expect(worktree.baseRef).toBe('feature/source-work')
+    await expect(readFile(join(worktree.worktreePath, 'feature.txt'), 'utf8')).resolves.toBe('feature branch content')
+  })
+
+  it('stores and applies Desktop local environment setup for managed worktrees', async () => {
+    const { dataDir, projectRoot } = await createGitRepo()
+    const localEnvironmentConfigPath = join(projectRoot, '.codex', 'local-env.toml')
+    await mkdir(join(projectRoot, '.codex'), { recursive: true })
+    await writeFile(localEnvironmentConfigPath, `version = 1
+name = "Test setup"
+
+[setup]
+script = """
+printf "%s\\n" "$CODEX_SOURCE_TREE_PATH" > setup-env.txt
+printf "%s\\n" "$CODEX_WORKTREE_PATH" >> setup-env.txt
+printf "%s\\n" "$PWD" >> setup-env.txt
+export CODEXUI_LOCAL_ENV_MARKER=ready
+"""
+`, 'utf8')
+    const service = new ManagedWorktreeService({ dataDir, projectRoot })
+
+    const worktree = await service.createManagedWorktree({
+      owner: { source: 'automation', id: 'local-env-check' },
+      taskId: 'local-env-check',
+      runId: 'automation-run-local-env',
+      name: 'Local Env Check',
+      localEnvironmentConfigPath,
+    })
+    const selectedConfig = await runGit(worktree.worktreePath, ['config', '--worktree', '--get', 'codex.localEnvironmentConfigPath'])
+    const shellEnvironmentPath = (await runGit(worktree.worktreePath, ['rev-parse', '--git-path', 'codex-shell-environment.json'])).trim()
+    const shellEnvironment = JSON.parse(await readFile(isAbsolute(shellEnvironmentPath) ? shellEnvironmentPath : join(worktree.worktreePath, shellEnvironmentPath), 'utf8')) as {
+      set: Record<string, string>
+    }
+
+    expect(selectedConfig.trim()).toBe(localEnvironmentConfigPath)
+    expect(worktree.localEnvironmentConfigPath).toBe(localEnvironmentConfigPath)
+    expect(worktree.localEnvironmentSetup).toMatchObject({ status: 'succeeded', cwd: worktree.worktreePath })
+    await expect(readFile(join(worktree.worktreePath, 'setup-env.txt'), 'utf8')).resolves.toBe([
+      projectRoot,
+      worktree.worktreePath,
+      worktree.worktreePath,
+      '',
+    ].join('\n'))
+    expect(shellEnvironment.set.CODEXUI_LOCAL_ENV_MARKER).toBe('ready')
+  })
+
+  it('stores Desktop no-environment marker when no local environment is selected', async () => {
+    const { dataDir, projectRoot } = await createGitRepo()
+    const service = new ManagedWorktreeService({ dataDir, projectRoot })
+
+    const worktree = await service.createManagedWorktree({
+      owner: { source: 'automation', id: 'no-env-check' },
+      taskId: 'no-env-check',
+      runId: 'automation-run-no-env',
+      name: 'No Env Check',
+    })
+    const selectedConfig = await runGit(worktree.worktreePath, ['config', '--worktree', '--get', 'codex.localEnvironmentConfigPath'])
+
+    expect(selectedConfig.trim()).toBe('__none__')
+    expect(worktree.localEnvironmentConfigPath).toBeNull()
+    expect(worktree.localEnvironmentSetup).toBeNull()
   })
 
   it('blocks a second active worktree for the same automation owner', async () => {
