@@ -514,7 +514,7 @@ export class AutomationRunner {
       name: entry.record.name,
       description: sidecar.description,
       prompt: entry.record.prompt,
-      status: entry.record.status === 'PAUSED' ? 'paused' : 'active',
+      status: automationStatusForView(entry.record.status),
       legacyStatus: entry.record.status,
       schedule: { type: 'rrule', rrule: entry.record.rrule },
       targetThreadId: entry.record.targetThreadId,
@@ -639,6 +639,12 @@ function activeRunTurnKey(threadId: string, turnId: string): string {
   return JSON.stringify([threadId, turnId])
 }
 
+function automationStatusForView(status: NativeAutomationEntry['record']['status']): AutomationDefinition['status'] {
+  if (status === 'PAUSED') return 'paused'
+  if (status === 'DELETED') return 'deleted'
+  return 'active'
+}
+
 function createNativeEntryForRun(
   definition: AutomationDefinition,
   automationDirPath: string,
@@ -653,7 +659,9 @@ function createNativeEntryForRun(
       prompt: definition.prompt,
       rrule: definition.schedule.rrule,
       rrulePrefix: definition.kind === 'cron' ? 'RRULE:' : null,
-      status: definition.legacyStatus === 'PAUSED' ? 'PAUSED' : 'ACTIVE',
+      status: definition.legacyStatus === 'DELETED'
+        ? 'DELETED'
+        : definition.legacyStatus === 'PAUSED' ? 'PAUSED' : 'ACTIVE',
       targetThreadId: definition.targetThreadId,
       model: definition.model,
       reasoningEffort: definition.reasoningEffort,

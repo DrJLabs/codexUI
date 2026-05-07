@@ -367,6 +367,7 @@ export class AutomationsService {
     const entries = await listNativeAutomationEntries(this.options)
     const schedulerEntries: AutomationSchedulerEntry[] = []
     for (const entry of entries.records) {
+      if (entry.record.status === 'DELETED') continue
       const sidecarResult = await readSidecar(entry)
       const mapped = await mapDefinition(entry, sidecarResult.sidecar, { includeRecentRuns: false })
       if (entry.record.executionEnvironment && !entry.record.runMode) {
@@ -432,6 +433,7 @@ export class AutomationsService {
       if (!this.runner) throw createServiceError(503, 'Codex bridge is not available for automation manual runs')
       const sidecarResult = await readSidecar(entry)
       const definition = (await mapDefinition(entry, sidecarResult.sidecar, { includeRecentRuns: false })).definition
+      assertAutomationNotDeleted(definition)
       await this.ensureInterruptedRunRecoveryBeforeCapacity(definition.id)
       await this.assertRunStartCapacity(definition)
       assertAutomationExecutionPolicy(this.policy)
@@ -487,6 +489,7 @@ export class AutomationsService {
       if (!this.runner) throw createServiceError(503, 'Codex bridge is not available for automation scheduled runs')
       const sidecarResult = await readSidecar(entry)
       const definition = (await mapDefinition(entry, sidecarResult.sidecar, { includeRecentRuns: false })).definition
+      assertAutomationNotDeleted(definition)
       await this.ensureInterruptedRunRecoveryBeforeCapacity(definition.id)
       await this.assertRunStartCapacity(definition)
       const executionOptions = input.runProfiles
@@ -640,6 +643,9 @@ export class AutomationsService {
   private async updateStatus(automationId: string, status: 'ACTIVE' | 'PAUSED'): Promise<AutomationDefinition> {
     const entry = await this.findEntry(automationId)
     if (!entry) throw new AutomationNotFoundError(automationId)
+    if (entry.record.status === 'DELETED') {
+      throw createServiceError(409, 'Deleted automations cannot be paused or resumed')
+    }
     await writeNativeHeartbeatAutomationBySourceDir(entry.sourceDirName, {
       ...entry.record,
       status,
@@ -811,7 +817,7 @@ async function mapDefinition(
       name: entry.record.name,
       description: sidecar.description,
       prompt: entry.record.prompt,
-      status: entry.record.status === 'PAUSED' ? 'paused' : 'active',
+      status: automationStatusForView(entry.record.status),
       legacyStatus: entry.record.status,
       schedule: { type: 'rrule', rrule: entry.record.rrule },
       targetThreadId: entry.record.targetThreadId,
@@ -939,6 +945,18 @@ function automationRepoLimitKey(definition: AutomationDefinition): string | null
   const runMode = definition.runMode ?? 'chat'
   if (runMode !== 'local' && runMode !== 'worktree') return null
   return definition.cwd
+}
+
+function automationStatusForView(status: ThreadAutomationRecord['status']): AutomationDefinition['status'] {
+  if (status === 'PAUSED') return 'paused'
+  if (status === 'DELETED') return 'deleted'
+  return 'active'
+}
+
+function assertAutomationNotDeleted(definition: AutomationDefinition): void {
+  if (definition.legacyStatus === 'DELETED' || definition.status === 'deleted') {
+    throw createServiceError(409, 'Deleted automations cannot be run')
+  }
 }
 
 function assertAutomationRunTarget(runMode: AutomationRunMode | null, cwd: string | null, targetThreadId: string | null): void {

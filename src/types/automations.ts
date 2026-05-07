@@ -4,9 +4,9 @@ export type AutomationKind = 'heartbeat' | 'cron'
 
 export type AutomationSource = 'native' | 'codexui'
 
-export type AutomationStatus = 'active' | 'paused'
+export type AutomationStatus = 'active' | 'paused' | 'deleted'
 
-export type AutomationLegacyStatus = 'ACTIVE' | 'PAUSED'
+export type AutomationLegacyStatus = 'ACTIVE' | 'PAUSED' | 'DELETED'
 
 export type AutomationRunMode = 'chat' | 'local' | 'worktree'
 

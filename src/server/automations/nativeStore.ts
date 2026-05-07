@@ -6,7 +6,7 @@ import { resolveCodexHomeDir } from './paths'
 
 export type DesktopAutomationKind = 'heartbeat' | 'cron'
 
-export type DesktopAutomationStatus = 'ACTIVE' | 'PAUSED'
+export type DesktopAutomationStatus = 'ACTIVE' | 'PAUSED' | 'DELETED'
 
 export type ThreadAutomationStatus = DesktopAutomationStatus
 
@@ -466,7 +466,7 @@ export function parseAutomationToml(raw: string): ThreadAutomationRecord | null 
 
   if (!id || !name || !prompt || !normalizedRrule.rrule) return null
   if (kindValue !== 'heartbeat' && kindValue !== 'cron') return null
-  if (statusValue !== 'ACTIVE' && statusValue !== 'PAUSED') return null
+  if (statusValue !== 'ACTIVE' && statusValue !== 'PAUSED' && statusValue !== 'DELETED') return null
 
   const kind = kindValue
   const runMode = deriveRunModeForRecord({ kind, executionEnvironment, targetThreadId })
@@ -669,6 +669,7 @@ async function listThreadHeartbeatAutomationEntries(
     if (!entry.isDirectory()) continue
     const automation = await readAutomationRecordFromFile(join(automationRoot, entry.name, 'automation.toml'))
     if (!automation || automation.kind !== 'heartbeat' || !automation.targetThreadId) continue
+    if (automation.status === 'DELETED') continue
     next[automation.targetThreadId] = {
       record: automation,
       sourceDirName: entry.name,

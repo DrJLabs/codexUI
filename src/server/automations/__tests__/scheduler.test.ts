@@ -248,6 +248,46 @@ describe('AutomationScheduler', () => {
     })
   })
 
+  it('lists Desktop-deleted automations without scheduling them', async () => {
+    const { codexHomeDir, service } = await createHarness()
+    const automationDir = await writeNative(codexHomeDir, 'deleted-dir', {
+      ...nativeRecord,
+      id: 'deleted-check',
+      status: 'DELETED',
+      kind: 'cron',
+      rrulePrefix: 'RRULE:',
+      targetThreadId: null,
+      executionEnvironment: 'local',
+      runMode: 'local',
+      cwd: '/tmp/project',
+      cwds: ['/tmp/project'],
+    })
+
+    const definitions = await service.listDefinitions()
+    const schedulerEntries = await service.listSchedulerEntries()
+
+    expect(definitions).toHaveLength(1)
+    expect(definitions[0]).toMatchObject({
+      id: 'deleted-check',
+      status: 'deleted',
+      legacyStatus: 'DELETED',
+    })
+    expect(schedulerEntries).toEqual([])
+    await expect(readFile(join(automationDir, 'automation.toml'), 'utf8')).resolves.toContain('status = "DELETED"')
+  })
+
+  it('does not run or revive Desktop-deleted automations', async () => {
+    const { codexHomeDir, service } = await createHarness()
+    await writeNative(codexHomeDir, 'deleted-dir', {
+      ...nativeRecord,
+      id: 'deleted-check',
+      status: 'DELETED',
+    })
+
+    await expect(service.runNow('deleted-check')).rejects.toThrow('Deleted automations cannot be run')
+    await expect(service.resumeDefinition('deleted-check')).rejects.toThrow('Deleted automations cannot be paused or resumed')
+  })
+
   it('uses canonical TOML fields instead of stale legacy sidecar execution metadata', async () => {
     const { codexHomeDir, service } = await createHarness()
     const canonicalRepo = join(codexHomeDir, 'canonical-repo')

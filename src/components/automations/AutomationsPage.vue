@@ -1057,6 +1057,7 @@ function shouldShowReadAction(run: AutomationRun): boolean {
   color: #475569;
 }
 
+.automations-status-pill[data-status='deleted'],
 .automations-status-pill[data-status='failed'],
 .automations-health-pill[data-tone='danger'] {
   background: rgba(220, 38, 38, 0.12);

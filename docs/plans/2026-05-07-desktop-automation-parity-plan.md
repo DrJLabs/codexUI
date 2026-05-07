@@ -111,6 +111,12 @@ Acceptance:
 - Pause/resume write only `PAUSED`/`ACTIVE`.
 - Delete behavior matches Desktop permanent delete semantics.
 
+Section 2 implementation notes:
+- Extend canonical and display status unions to include `DELETED`/`deleted`.
+- Keep deleted automations visible as deleted records for now so users can understand Desktop-created state instead of silently losing them.
+- Exclude deleted automations from scheduler candidates and manual/scheduled run starts.
+- Do not let pause/resume revive a deleted automation; deletion mechanics remain Section 15.
+
 ### 3. Heartbeat Semantics
 
 Current CodexUI behavior:

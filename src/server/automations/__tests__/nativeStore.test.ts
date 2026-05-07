@@ -305,6 +305,17 @@ describe('native automation store TOML compatibility', () => {
     expect(parseAutomationToml(raw)).toEqual(pausedRecord)
   })
 
+  it('round trips Desktop DELETED status without rewriting it', () => {
+    const deletedRecord: ThreadAutomationRecord = {
+      ...pausedRecord,
+      status: 'DELETED',
+    }
+    const raw = serializeAutomationToml(deletedRecord)
+
+    expect(raw).toContain('status = "DELETED"')
+    expect(parseAutomationToml(raw)).toEqual(deletedRecord)
+  })
+
   it('tolerates unknown top-level TOML fields while parsing known fields', () => {
     const raw = `${serializeAutomationToml(pausedRecord)}desktop_only = "ignored"\nnext_run_at = "2026-05-01T00:00:00Z"\n`
 
@@ -695,6 +706,8 @@ describe('legacy thread automation adapter', () => {
     expect(normalizeThreadAutomationStatus('PAUSED')).toBe('PAUSED')
     expect(normalizeThreadAutomationStatus('paused')).toBe('PAUSED')
     expect(normalizeThreadAutomationStatus(' paused ')).toBe('PAUSED')
+    expect(normalizeThreadAutomationStatus('DELETED')).toBe('DELETED')
+    expect(normalizeThreadAutomationStatus('deleted')).toBe('DELETED')
 
     expect(parseThreadAutomationWritePayload({
       threadId: ' thread-1 ',

@@ -116,4 +116,35 @@ describe('legacy thread automation routes', () => {
     expect(missing).toEqual({ data: null })
 
   })
+
+  it('keeps deleted thread automations out of the legacy sidebar map', async () => {
+    const { baseUrl } = await createTestServer()
+
+    const deleted = await requestJson<{ data: { targetThreadId: string; status: string } }>(
+      `${baseUrl}/codex-api/thread-automation`,
+      {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          threadId: 'thread-deleted',
+          name: 'Deleted Check',
+          prompt: 'Check this thread',
+          rrule: 'FREQ=DAILY',
+          status: 'DELETED',
+        }),
+      },
+    )
+    expect(deleted.data).toMatchObject({
+      targetThreadId: 'thread-deleted',
+      status: 'DELETED',
+    })
+
+    const read = await requestJson<{ data: null }>(
+      `${baseUrl}/codex-api/thread-automation?threadId=thread-deleted`,
+    )
+    expect(read).toEqual({ data: null })
+
+    const list = await requestJson<{ data: Record<string, unknown> }>(`${baseUrl}/codex-api/thread-automations`)
+    expect(list.data).not.toHaveProperty('thread-deleted')
+  })
 })
