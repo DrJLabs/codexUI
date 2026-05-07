@@ -45,6 +45,26 @@ Automation review sections use `${WORKTREE_ROOT}` for the current checkout and `
 #### Rollback/Cleanup
 - Remove `CODEXUI_VITE_ALLOWED_HOSTS` from `.env.local` or the shell environment.
 
+### Feature: Branch-swapped dev server stale header component compatibility
+
+#### Prerequisites
+- Dev server is running from this repository.
+- A browser tab may still have a Vite module graph from a previously served branch.
+
+#### Steps
+1. Request `/src/components/content/HeaderGitBranchDropdown.vue?vue&type=script&setup=true&lang.ts` from the dev server.
+2. Request `/src/components/content/HeaderGitBranchDropdown.vue?vue&type=style&index=0&scoped=true&lang.css` from the dev server.
+3. Open the app in light theme and confirm no Vite error overlay appears.
+4. Open the app in dark theme and confirm no Vite error overlay appears.
+
+#### Expected Results
+- The stale header component submodule URLs return transformed module content instead of a Vite `ENOENT` overlay.
+- Existing tabs from a previously served branch can recover without blocking the app behind the Vite overlay.
+- The compatibility component uses neutral light and dark theme styling if a stale tab renders it.
+
+#### Rollback/Cleanup
+- Remove `src/components/content/HeaderGitBranchDropdown.vue` after active dev clients no longer need stale branch-swap compatibility.
+
 ### Feature: Thread heartbeat automations
 
 #### Prerequisites
