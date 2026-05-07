@@ -759,7 +759,6 @@ Run the cron task`)
       cwd: canonicalRepo,
       cwds: [canonicalRepo, secondRepo],
       runMode: 'local',
-      runProfileId: null,
       model: 'gpt-5.5',
       reasoningEffort: 'low',
       localEnvironmentConfigPath: join(canonicalRepo, '.codex', 'local-env.toml'),
@@ -967,6 +966,7 @@ Run the cron task`)
 
     const runs = await createAutomationRunStore(automationDir).listRuns()
     const schedulerState = JSON.parse(await readFile(join(automationDir, 'scheduler.json'), 'utf8')) as AutomationSchedulerState
+    const turnStartParams = rpcCalls.find((call) => call.method === 'turn/start')?.params as Record<string, unknown> | undefined
     expect(runs).toHaveLength(1)
     expect(runs[0]).toMatchObject({
       automationId: 'daily-check',
@@ -978,6 +978,40 @@ Run the cron task`)
     expect(schedulerState.lastDueAtIso).toBe('2026-04-30T09:00:00.000Z')
     expect(schedulerState.lastScheduledRunId).toBe(runs[0]?.id)
     expect(rpcCalls.map((call) => call.method)).toEqual(['config/read', 'thread/read', 'thread/resume', 'turn/start'])
+    expect(turnStartParams).toMatchObject({ model: null, effort: null })
+  })
+
+  it('passes canonical cron model settings to thread and turn startup', async () => {
+    const { codexHomeDir, service, rpcCalls } = await createHarness()
+    const repo = join(codexHomeDir, 'cron-model-repo')
+    await mkdir(repo, { recursive: true })
+    const automationDir = await writeNative(codexHomeDir, 'cron-model-dir', {
+      ...nativeRecord,
+      id: 'cron-model-check',
+      kind: 'cron',
+      name: 'Cron model check',
+      rrulePrefix: 'RRULE:',
+      targetThreadId: null,
+      executionEnvironment: 'local',
+      runMode: 'local',
+      cwd: repo,
+      cwds: [repo],
+      model: 'gpt-5.5',
+      reasoningEffort: 'low',
+    })
+
+    await service.runScheduled('cron-model-check', {
+      dueAtIso: '2026-05-07T12:00:00.000Z',
+      nextDueAtIso: '2026-05-07T13:00:00.000Z',
+    })
+
+    const runs = await createAutomationRunStore(automationDir).listRuns()
+    const threadStartParams = rpcCalls.find((call) => call.method === 'thread/start')?.params as Record<string, unknown> | undefined
+    const cronTurnStartParams = rpcCalls.find((call) => call.method === 'turn/start')?.params as Record<string, unknown> | undefined
+
+    expect(runs).toHaveLength(1)
+    expect(threadStartParams).toMatchObject({ cwd: repo, model: 'gpt-5.5' })
+    expect(cronTurnStartParams).toMatchObject({ cwd: repo, model: 'gpt-5.5', effort: 'low' })
   })
 
   it('does not start a due run while another CodexUI scheduler owns the lease', async () => {

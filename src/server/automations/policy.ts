@@ -77,7 +77,7 @@ export function resolveAutomationRunProfile(
   input: AutomationRunProfileInput,
 ): CodexRunProfile {
   const profiles = mergeRunProfiles(input.runProfiles)
-  const explicitProfileId = (input.runProfileId ?? definition.runProfileId ?? '').trim()
+  const explicitProfileId = (input.runProfileId ?? '').trim()
   const requestedId = explicitProfileId || input.defaultRunProfileId?.trim() || DEFAULT_CODEX_RUN_PROFILE_ID
   const profileExists = profiles.some((profile) => profile.id === requestedId)
   if (explicitProfileId && !profileExists) {

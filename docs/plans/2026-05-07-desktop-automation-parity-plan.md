@@ -399,29 +399,38 @@ Acceptance:
 ### 11. Permissions, Sandbox, Model, And Reasoning
 
 Current CodexUI behavior:
-- Exposes Codex `runProfileId` and uses config-derived profiles.
-- Stores `runProfileId` in sidecar.
-- Applies model/reasoning through run profile resolution.
+- Definitions now store canonical `model` and `reasoning_effort` in `automation.toml`.
+- `runProfileId` is no longer accepted in create/patch payloads or written to local sidecars.
+- Runtime still resolves execution settings through config-derived profiles.
 
 Desktop behavior:
 - Canonical TOML stores `model` and `reasoning_effort`.
 - Runtime derives approval/sandbox from saved config and config requirements.
 - Heartbeat uses `model = null` and `effort = null`, relying on thread/current mode.
+- Cron thread creation receives the selected/default automation model, and the turn receives both model and reasoning effort.
 
 Plan:
-1. Remove `runProfileId` from any shared automation persistence.
-2. Keep profile selection as UI sugar that writes only canonical Desktop fields:
+1. Keep `runProfileId` out of shared automation persistence.
+2. Keep profile selection as UI sugar that copies only canonical Desktop fields exposed by config profiles:
    - `model`
    - `reasoning_effort`
-   - `execution_environment`
-   - `local_environment_config_path`
-3. For heartbeat, do not force model/reasoning into turn start unless Desktop does.
-4. Use Desktop-compatible config resolution for approval/sandbox.
-5. Preserve unsupported values visibly instead of rewriting them.
+3. Expose `local_environment_config_path` as an Advanced canonical field instead of hiding it behind profile/run-profile state.
+4. For heartbeat, send Desktop's explicit default model/reasoning markers and let the resumed thread/current mode determine effective settings.
+5. Use existing config-derived profile resolution for approval/sandbox until the bridge exposes Desktop's config-requirements surface directly.
+6. Preserve unsupported values visibly instead of rewriting them.
+
+Implementation notes:
+- Shared automation DTOs no longer include `runProfileId`; run records still snapshot the profile used for audit/history.
+- Profile defaults in the editor copy only `model` and `reasoning_effort` into the canonical draft and never submit `runProfileId`.
+- Advanced editor state now round-trips `localEnvironmentConfigPath` to the Desktop TOML field `local_environment_config_path`.
+- Heartbeat `turn/start` payloads now send `model: null` and `effort: null`, while retaining approval/sandbox settings.
+- Cron `thread/start` and `turn/start` payloads receive the canonical/resolved model settings, and `turn/start` receives the canonical/resolved reasoning effort.
+- The storage contract remains Desktop TOML plus CodexUI-private sidecar fields only.
 
 Acceptance:
-- Changing profile in CodexUI results in Desktop-readable TOML only.
+- Applying profile defaults in CodexUI results in Desktop-readable TOML only.
 - Heartbeat runs do not override thread model/reasoning.
+- Local environment config is editable without introducing a CodexUI-only profile id.
 - Partial config profiles still inherit defaults in UI, but only canonical resolved values are persisted.
 
 ### 12. Run History And Inbox Compatibility

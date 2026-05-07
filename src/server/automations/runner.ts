@@ -281,7 +281,7 @@ export class AutomationRunner {
           await store.appendLog(run, 'Target is not a git repository; running locally without a managed worktree.')
         }
       }
-      const threadId = await this.startThread(runtimeDefinition, run, projectlessWorkspace)
+      const threadId = await this.startThread(runtimeDefinition, run, projectlessWorkspace, runProfileSnapshot)
       const turnId = await this.startTurn(
         runtimeDefinition,
         run,
@@ -448,6 +448,7 @@ export class AutomationRunner {
     definition: AutomationDefinition,
     run: AutomationRun,
     projectlessWorkspace: ProjectlessAutomationWorkspace | null,
+    profile: CodexRunProfile,
   ): Promise<string> {
     if (run.runMode === 'chat') {
       const resumed = await this.bridge.rpc<Record<string, unknown>>('thread/resume', { threadId: definition.targetThreadId })
@@ -457,6 +458,7 @@ export class AutomationRunner {
     const started = await this.bridge.rpc<Record<string, unknown>>('thread/start', {
       cwd,
       title: definition.name,
+      ...(definition.kind === 'cron' && profile.model.trim() ? { model: profile.model.trim() } : {}),
       ...(projectlessWorkspace
         ? { developerInstructions: buildProjectlessAutomationInstructions(projectlessWorkspace.outputDirectory) }
         : {}),
@@ -481,6 +483,9 @@ export class AutomationRunner {
       cwd,
       definition.kind === 'cron' ? [automationDirPath] : [],
     )
+    const turnRunSettings = definition.kind === 'heartbeat'
+      ? withDesktopDefaultModelAndEffort(runSettings)
+      : runSettings
     const promptText = definition.kind === 'heartbeat'
       ? buildHeartbeatPrompt({
           automationId: definition.id,
@@ -498,7 +503,7 @@ export class AutomationRunner {
       threadId,
       ...(cwd ? { cwd } : {}),
       input: [{ type: 'text', text: promptText }],
-      ...runSettings,
+      ...turnRunSettings,
     })
     const turnId = extractTurnId(started)
     if (!turnId) throw new Error('turn/start did not return turn id')
@@ -673,7 +678,6 @@ export class AutomationRunner {
       cwd: entry.record.cwd,
       cwds: entry.record.cwds,
       runMode: entry.record.runMode,
-      runProfileId: null,
       model: entry.record.model,
       reasoningEffort: entry.record.reasoningEffort,
       localEnvironmentConfigPath: entry.record.localEnvironmentConfigPath,
@@ -1071,6 +1075,13 @@ function resolveRunCwd(definition: AutomationDefinition, run: AutomationRun): st
   if (run.runMode === 'worktree') return run.worktreePath ?? undefined
   if (run.runMode === 'local') return run.cwd ?? definition.cwd ?? undefined
   return undefined
+}
+
+function withDesktopDefaultModelAndEffort<T extends { model?: string; effort?: string }>(
+  settings: T,
+): Omit<T, 'model' | 'effort'> & { model: null; effort: null } {
+  const { model: _model, effort: _effort, ...rest } = settings
+  return { ...rest, model: null, effort: null }
 }
 
 function resolveTargetCwd(

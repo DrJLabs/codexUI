@@ -275,6 +275,16 @@
                 </option>
               </select>
             </label>
+
+            <label class="automations-compact-row automations-compact-control">
+              <span>Profile defaults</span>
+              <select :value="selectedRunProfileId" @change="applyRunProfileDefaultsFromEvent">
+                <option value="">Do not copy profile defaults</option>
+                <option v-for="profile in availableRunProfiles" :key="profile.id" :value="profile.id">
+                  {{ profile.name }}
+                </option>
+              </select>
+            </label>
           </section>
 
           <details v-if="draft.mode === 'edit'" class="automations-runs" aria-label="Previous automation runs">
@@ -410,6 +420,11 @@
                   <span>Notes</span>
                   <textarea v-model="draft.notes" rows="4" />
                 </label>
+
+                <label class="automations-field automations-field-wide">
+                  <span>Local environment config</span>
+                  <input v-model="draft.localEnvironmentConfigPath" type="text" placeholder="/absolute/path/to/local-env.toml" />
+                </label>
               </div>
 
               <dl class="automations-storage">
@@ -533,6 +548,7 @@ const scheduleFrequency = ref<ScheduleFrequency>('daily')
 const scheduleTime = ref('09:00')
 const scheduleWeekday = ref('MO')
 const scheduleIntervalCount = ref(15)
+const selectedRunProfileId = ref('')
 let isSyncingScheduleControls = false
 
 const activeCount = computed(() => definitions.value.filter((definition) => definition.status === 'active').length)
@@ -623,6 +639,7 @@ const modelSelectOptions = computed(() => ensureOption(baseModelOptions, draft.v
 const reasoningEffortSelectOptions = computed(() =>
   ensureOption(baseReasoningEffortOptions, draft.value.reasoningEffort, 'Current reasoning effort'),
 )
+const availableRunProfiles = computed(() => state.value.executionOptions.runProfiles)
 const advancedDetails = computed(() => [
   { label: 'Native storage root', value: state.value.storageRoot || 'Unavailable', mono: true },
   { label: 'Feature flags', value: featureFlagSummary.value || 'Unavailable', mono: false },
@@ -634,6 +651,11 @@ const advancedDetails = computed(() => [
   { label: 'Kind', value: selectedAutomation.value?.kind || 'Created on save', mono: true },
   { label: 'Model', value: draft.value.model || selectedAutomation.value?.model || 'Default', mono: true },
   { label: 'Reasoning effort', value: draft.value.reasoningEffort || selectedAutomation.value?.reasoningEffort || 'Default', mono: true },
+  {
+    label: 'Local environment config',
+    value: draft.value.localEnvironmentConfigPath || selectedAutomation.value?.localEnvironmentConfigPath || 'None',
+    mono: true,
+  },
 ])
 
 watch(
@@ -656,6 +678,13 @@ watch(
     syncScheduleControlsFromRrule(rrule)
   },
   { immediate: true },
+)
+
+watch(
+  () => draft.value.id,
+  () => {
+    selectedRunProfileId.value = ''
+  },
 )
 
 watch([scheduleFrequency, scheduleTime, scheduleWeekday, scheduleIntervalCount], () => {
@@ -749,6 +778,19 @@ function applyTemplateValues(values: {
     return
   }
   writeScheduleFromControls()
+}
+
+function applyRunProfileDefaults(profileId: string): void {
+  selectedRunProfileId.value = profileId
+  const profile = availableRunProfiles.value.find((candidate) => candidate.id === profileId)
+  if (!profile) return
+  draft.value.model = profile.model
+  draft.value.reasoningEffort = profile.reasoningEffort
+}
+
+function applyRunProfileDefaultsFromEvent(event: Event): void {
+  const target = event.target
+  applyRunProfileDefaults(target instanceof HTMLSelectElement ? target.value : '')
 }
 
 function writeScheduleFromControls(): void {

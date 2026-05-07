@@ -84,6 +84,7 @@ it('normalizes optional blank draft fields before save', async () => {
     runMode: 'chat',
     model: null,
     reasoningEffort: null,
+    localEnvironmentConfigPath: null,
     notes: '',
   }))
 })
@@ -96,6 +97,7 @@ it('serializes run mode and cwd draft fields before save', async () => {
   automations.draft.value.prompt = 'Check in a worktree'
   automations.draft.value.runMode = 'worktree'
   automations.draft.value.cwd = '/tmp/project'
+  automations.draft.value.localEnvironmentConfigPath = '/tmp/project/.codex/local-env.toml'
   await automations.saveDraft()
 
   expect(gateway.createAutomation).toHaveBeenCalledWith(expect.objectContaining({
@@ -103,6 +105,7 @@ it('serializes run mode and cwd draft fields before save', async () => {
     targetThreadId: null,
     runMode: 'worktree',
     cwd: '/tmp/project',
+    localEnvironmentConfigPath: '/tmp/project/.codex/local-env.toml',
   }))
 })
 
@@ -198,6 +201,7 @@ it('does not serialize hidden thread targets for non-chat updates', async () => 
   await automations.loadAll()
   automations.draft.value.runMode = 'local'
   automations.draft.value.cwd = '/tmp/project'
+  automations.draft.value.localEnvironmentConfigPath = '/tmp/project/.codex/local-env.toml'
 
   await automations.saveDraft()
 
@@ -205,6 +209,7 @@ it('does not serialize hidden thread targets for non-chat updates', async () => 
     targetThreadId: null,
     runMode: 'local',
     cwd: '/tmp/project',
+    localEnvironmentConfigPath: '/tmp/project/.codex/local-env.toml',
   }))
 })
 
@@ -390,6 +395,7 @@ function createGatewayFixture(
         runMode: input.runMode ?? null,
         model: input.model ?? null,
         reasoningEffort: input.reasoningEffort ?? null,
+        localEnvironmentConfigPath: input.localEnvironmentConfigPath ?? null,
         notes: input.notes ?? '',
       })
       currentDefinitions = [created, ...currentDefinitions]
@@ -517,7 +523,6 @@ function automationFixture(overrides: Partial<AutomationDefinition> = {}): Autom
     cwd: null,
     cwds: [],
     runMode: null,
-    runProfileId: null,
     model: null,
     reasoningEffort: null,
     localEnvironmentConfigPath: null,

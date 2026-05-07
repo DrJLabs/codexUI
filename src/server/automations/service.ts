@@ -925,7 +925,6 @@ async function mapDefinition(
       cwd: entry.record.cwd,
       cwds: entry.record.cwds,
       runMode: entry.record.runMode,
-      runProfileId: null,
       model: entry.record.model,
       reasoningEffort: entry.record.reasoningEffort,
       localEnvironmentConfigPath: entry.record.localEnvironmentConfigPath,

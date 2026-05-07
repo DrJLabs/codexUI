@@ -336,7 +336,6 @@ function automationFixture(overrides: Partial<AutomationDefinition> = {}): Autom
     cwd: null,
     cwds: [],
     runMode: null,
-    runProfileId: null,
     model: null,
     reasoningEffort: null,
     localEnvironmentConfigPath: null,

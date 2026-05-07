@@ -33,6 +33,7 @@ export type AutomationDraft = {
   cwds: string[]
   model: string
   reasoningEffort: string
+  localEnvironmentConfigPath: string
 }
 
 export type AutomationsGateway = {
@@ -111,6 +112,7 @@ function createEmptyDraft(threadId = ''): AutomationDraft {
     cwds: [],
     model: '',
     reasoningEffort: '',
+    localEnvironmentConfigPath: '',
   }
 }
 
@@ -129,6 +131,7 @@ function draftFromDefinition(definition: AutomationDefinition): AutomationDraft 
     cwds: definition.cwds,
     model: definition.model ?? '',
     reasoningEffort: definition.reasoningEffort ?? '',
+    localEnvironmentConfigPath: definition.localEnvironmentConfigPath ?? '',
   }
 }
 
@@ -449,6 +452,7 @@ function toCreateInput(draft: AutomationDraft): CreateAutomationInput {
     runMode: draft.runMode,
     model: normalizeOptionalNullable(draft.model),
     reasoningEffort: normalizeOptionalNullable(draft.reasoningEffort),
+    localEnvironmentConfigPath: normalizeOptionalNullable(draft.localEnvironmentConfigPath),
     notes: normalizeNotes(draft.notes),
   }
 }
@@ -467,6 +471,7 @@ function toPatchInput(draft: AutomationDraft): PatchAutomationInput {
     runMode: draft.runMode,
     model: normalizeOptionalNullable(draft.model),
     reasoningEffort: normalizeOptionalNullable(draft.reasoningEffort),
+    localEnvironmentConfigPath: normalizeOptionalNullable(draft.localEnvironmentConfigPath),
     notes: normalizeNotes(draft.notes),
   }
 }
