@@ -123,6 +123,32 @@ describe('native automation store TOML compatibility', () => {
     })
   })
 
+  it('preserves Desktop projectless cwd sentinels in cwds', () => {
+    const raw = [
+      'version = 1',
+      'id = "projectless"',
+      'kind = "cron"',
+      'name = "Projectless"',
+      'prompt = "Run"',
+      'status = "ACTIVE"',
+      'rrule = "RRULE:FREQ=DAILY"',
+      'execution_environment = "worktree"',
+      'cwds = ["~"]',
+      'created_at = 1777654085276',
+      'updated_at = 1777654085276',
+      '',
+    ].join('\n')
+
+    const record = parseAutomationToml(raw)
+
+    expect(record).toMatchObject({
+      cwd: '~',
+      cwds: ['~'],
+      runMode: 'worktree',
+    })
+    expect(serializeAutomationToml(record!, raw)).toBe(raw)
+  })
+
   it('parses multiline Desktop cwds arrays with comments, brackets, and multiline strings', () => {
     const raw = [
       'version = 1',

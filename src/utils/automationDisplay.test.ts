@@ -190,6 +190,21 @@ describe('automationDisplay', () => {
     })
   })
 
+  it('describes Desktop projectless automation targets', () => {
+    const definition = automationFixture({
+      targetThreadId: null,
+      cwd: '~',
+      cwds: ['~'],
+      runMode: 'local',
+    })
+
+    expect(describeAutomationTarget(definition)).toEqual({
+      label: 'Projectless automation',
+      detail: 'Documents/Codex generated folder',
+    })
+    expect(describeAutomationProjectLabel(definition)).toBe('Projectless')
+  })
+
   it('marks failed latest runs as needing attention', () => {
     expect(describeRunHealth([automationRunFixture({ state: 'failed' })])).toEqual({
       label: 'Needs attention',

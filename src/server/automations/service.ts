@@ -21,6 +21,7 @@ import {
   type CodexConfigProfileDefaults,
 } from '../execution/runProfiles'
 import { AutomationConflictError, AutomationDeferredRunError, AutomationNotFoundError, AutomationValidationError } from './errors.js'
+import { isProjectlessCwd } from './projectless'
 import {
   deleteNativeAutomationBySourceDir,
   getNativeAutomationsRoot,
@@ -71,6 +72,7 @@ export type AutomationsServiceOptions = NativeAutomationStoreOptions & {
   projectionAdapter?: AutomationProjectionAdapter | null
   kanbanProjectionTaskValidator?: KanbanProjectionTaskValidator | null
   artifactIndexing?: boolean
+  projectlessHomeDir?: string
 }
 
 type CodexConfigReadResult = {
@@ -113,6 +115,7 @@ export class AutomationsService {
           bridge: options.bridge,
           policy: this.policy,
           projectionAdapter: this.projectionAdapter,
+          projectlessHomeDir: options.projectlessHomeDir,
         })
       : null
   }
@@ -178,7 +181,11 @@ export class AutomationsService {
       readCodexConfigProfileMap(configRead),
       readCodexConfigProfileDefaultsFromLayers(configRead),
     )
-    const uniqueCwds = Array.from(new Set(cwds.map((value) => value?.trim()).filter(Boolean)))
+    const uniqueCwds = Array.from(new Set(
+      cwds
+        .map((value) => value?.trim())
+        .filter((value): value is string => Boolean(value) && !isProjectlessCwd(value)),
+    ))
     const cwdConfigReads = await Promise.all(uniqueCwds.map((cwd) => this.readCodexConfig(cwd)))
     let currentConfigProfileId = readCurrentConfigProfileId(configRead.config)
     if (options.preferCwdDefault && cwdConfigReads.length === 1) {
@@ -484,7 +491,7 @@ export class AutomationsService {
       assertAutomationRunnerTarget(definition)
       const executionOptions = options.runProfiles
         ? null
-        : await this.readExecutionOptions([definition.cwd], { preferCwdDefault: true })
+        : await this.readExecutionOptions(definitionTargetConfigCwds(definition), { preferCwdDefault: true })
       const runProfiles = options.runProfiles ?? executionOptions?.runProfiles
       assertAutomationRunProfileAllowed(resolveAutomationRunProfile(definition, {
         ...options,
@@ -548,7 +555,7 @@ export class AutomationsService {
           assertAutomationRunnerTarget(targetDefinition)
           const executionOptions = input.runProfiles
             ? null
-            : await this.readExecutionOptions(targetCwd ? [targetCwd] : [targetDefinition.cwd], { preferCwdDefault: true })
+            : await this.readExecutionOptions(targetConfigCwds(targetCwd, targetDefinition), { preferCwdDefault: true })
           const runProfiles = input.runProfiles ?? executionOptions?.runProfiles
           assertAutomationRunProfileAllowed(resolveAutomationRunProfile(targetDefinition, {
             ...input,
@@ -1054,6 +1061,15 @@ function definitionTargetCwds(definition: AutomationDefinition): Array<string | 
   return definition.cwds.length > 0 ? definition.cwds : [definition.cwd]
 }
 
+function definitionTargetConfigCwds(definition: AutomationDefinition): Array<string | null> {
+  return definitionTargetCwds(definition).filter((cwd) => !isProjectlessCwd(cwd))
+}
+
+function targetConfigCwds(targetCwd: string | null, definition: AutomationDefinition): Array<string | null> {
+  if (isProjectlessCwd(targetCwd)) return []
+  return targetCwd ? [targetCwd] : definitionTargetConfigCwds(definition)
+}
+
 function scheduledRunCwds(definition: AutomationDefinition): Array<string | null> {
   const runMode = definition.runMode ?? 'chat'
   if (definition.kind !== 'cron' || (runMode !== 'local' && runMode !== 'worktree')) return [null]
@@ -1098,8 +1114,8 @@ function assertAutomationRunTarget(runMode: AutomationRunMode | null, cwd: strin
   if ((effectiveRunMode === 'local' || effectiveRunMode === 'worktree') && !cwd) {
     throw createServiceError(400, 'cwd is required for local and worktree automations')
   }
-  if ((effectiveRunMode === 'local' || effectiveRunMode === 'worktree') && cwd && !isAbsolute(cwd)) {
-    throw createServiceError(400, 'cwd must be an absolute path for local and worktree automations')
+  if ((effectiveRunMode === 'local' || effectiveRunMode === 'worktree') && cwd && !isProjectlessCwd(cwd) && !isAbsolute(cwd)) {
+    throw createServiceError(400, 'cwd must be an absolute path or ~ for projectless automations')
   }
   if (effectiveRunMode === 'chat' && !targetThreadId) {
     throw createServiceError(400, 'targetThreadId is required for chat automations')
@@ -1111,8 +1127,8 @@ function assertAutomationRunnerTarget(definition: AutomationDefinition): void {
   if (runMode === 'chat' && !definition.targetThreadId) {
     throw new AutomationValidationError('chat automation runs require a targetThreadId')
   }
-  if ((runMode === 'local' || runMode === 'worktree') && (!definition.cwd || !isAbsolute(definition.cwd))) {
-    throw new AutomationValidationError(`${runMode} automation runs require an absolute cwd`)
+  if ((runMode === 'local' || runMode === 'worktree') && (!definition.cwd || (!isProjectlessCwd(definition.cwd) && !isAbsolute(definition.cwd)))) {
+    throw new AutomationValidationError(`${runMode} automation runs require an absolute cwd or ~ for projectless automations`)
   }
 }
 

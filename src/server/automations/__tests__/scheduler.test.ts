@@ -81,6 +81,7 @@ async function createHarness(options: {
   policy?: AutomationExecutionPolicy
   turnStartDelayMs?: number
   threadReadById?: Record<string, unknown>
+  projectlessHomeDir?: string
 } = {}) {
   const codexHomeDir = await mkdtemp(join(tmpdir(), 'codexui-automation-scheduler-'))
   codexHomeDirs.push(codexHomeDir)
@@ -122,6 +123,7 @@ async function createHarness(options: {
     bridge,
     policy: options.policy ?? enabledPolicy,
     enableScheduler: true,
+    projectlessHomeDir: options.projectlessHomeDir,
   })
   return { codexHomeDir, service, bridge, rpcCalls, notificationListeners }
 }
@@ -509,6 +511,60 @@ Run the cron task`)
       repoOne,
       repoTwo,
     ])
+  })
+
+  it('runs Desktop projectless cron automations in generated Documents/Codex folders', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-05-07T12:00:00.000Z'))
+    try {
+      const projectlessHomeDir = await mkdtemp(join(tmpdir(), 'codexui-projectless-home-'))
+      codexHomeDirs.push(projectlessHomeDir)
+      const { codexHomeDir, service, rpcCalls } = await createHarness({ projectlessHomeDir })
+      const automationDir = await writeNative(codexHomeDir, 'projectless-dir', {
+        ...nativeRecord,
+        id: 'projectless-cron',
+        kind: 'cron',
+        name: 'Projectless cron',
+        prompt: 'Investigate the bug report',
+        rrulePrefix: 'RRULE:',
+        targetThreadId: null,
+        executionEnvironment: 'worktree',
+        runMode: 'worktree',
+        cwd: '~',
+        cwds: ['~'],
+      })
+
+      await service.runScheduled('projectless-cron', {
+        dueAtIso: '2026-05-07T12:00:00.000Z',
+        nextDueAtIso: '2026-05-07T13:00:00.000Z',
+      })
+
+      const expectedCwd = join(projectlessHomeDir, 'Documents', 'Codex', '2026-05-07', 'investigate-the-bug-report')
+      const runs = await createAutomationRunStore(automationDir).listRuns()
+      const threadStartParams = rpcCalls.find((call) => call.method === 'thread/start')?.params as {
+        cwd?: string
+        developerInstructions?: string
+      } | undefined
+      const turnStartParams = rpcCalls.find((call) => call.method === 'turn/start')?.params as { cwd?: string } | undefined
+
+      expect(runs).toHaveLength(1)
+      expect(runs[0]).toMatchObject({
+        runMode: 'local',
+        cwd: expectedCwd,
+      })
+      expect(threadStartParams).toMatchObject({
+        cwd: expectedCwd,
+        developerInstructions: expect.stringContaining('### Projectless Chat'),
+      })
+      expect(threadStartParams?.developerInstructions).toContain(`put them in ${expectedCwd}`)
+      expect(turnStartParams?.cwd).toBe(expectedCwd)
+      expect(rpcCalls.filter((call) => call.method === 'config/read').map((call) => call.params)).toEqual([
+        { includeLayers: true },
+      ])
+      await expect(readFile(join(automationDir, 'automation.toml'), 'utf8')).resolves.toContain('cwds = ["~"]')
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('marks scheduled cron automations without cwds unsupported instead of starting runs', async () => {

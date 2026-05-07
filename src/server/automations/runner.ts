@@ -17,6 +17,12 @@ import {
   type AutomationRunProfileInput,
 } from './policy'
 import { buildCronPrompt, buildHeartbeatPrompt } from './prompts'
+import {
+  buildProjectlessAutomationInstructions,
+  createProjectlessAutomationWorkspace,
+  isProjectlessCwd,
+  type ProjectlessAutomationWorkspace,
+} from './projectless'
 import { type NativeAutomationEntry, type NativeAutomationStoreOptions } from './nativeStore'
 import {
   createAutomationRunPaths,
@@ -32,6 +38,7 @@ export type AutomationRunnerOptions = NativeAutomationStoreOptions & {
   bridge: CodexBridgeRuntime
   policy: AutomationExecutionPolicy
   projectionAdapter?: AutomationProjectionAdapter | null
+  projectlessHomeDir?: string
 }
 
 const AUTOMATION_BRIDGE_METHODS = ['thread/start', 'thread/resume', 'thread/read', 'turn/start'] as const
@@ -52,7 +59,7 @@ type HeartbeatRendererState = {
 export class AutomationRunner {
   private readonly bridge: RestrictedCodexBridgeAdapter
   private readonly policy: AutomationExecutionPolicy
-  private readonly options: NativeAutomationStoreOptions
+  private readonly options: NativeAutomationStoreOptions & { projectlessHomeDir?: string }
   private readonly projectionAdapter: AutomationProjectionAdapter | null
   private readonly locks = new Map<string, Promise<unknown>>()
   private readonly completionLocks = new Map<string, Promise<void>>()
@@ -67,7 +74,7 @@ export class AutomationRunner {
       allowedMethods: AUTOMATION_BRIDGE_METHODS,
     })
     this.policy = options.policy
-    this.options = { codexHomeDir: options.codexHomeDir }
+    this.options = { codexHomeDir: options.codexHomeDir, projectlessHomeDir: options.projectlessHomeDir }
     this.projectionAdapter = options.projectionAdapter ?? null
     this.unsubscribeNotifications = this.bridge.subscribeNotifications((notification) => this.handleBridgeNotification(notification))
   }
@@ -136,10 +143,18 @@ export class AutomationRunner {
   } & AutomationRunProfileInput): Promise<AutomationRun> {
     assertAutomationExecutionPolicy(this.policy)
     const baseDefinition = input.definition
-    const runMode = baseDefinition.runMode ?? 'chat'
-    const targetCwd = resolveTargetCwd(baseDefinition, runMode, input.cwd)
-    const definition = targetCwd !== baseDefinition.cwd
-      ? { ...baseDefinition, cwd: targetCwd }
+    const baseRunMode = baseDefinition.runMode ?? 'chat'
+    const requestedCwd = resolveTargetCwd(baseDefinition, baseRunMode, input.cwd)
+    const projectlessWorkspace = isProjectlessCwd(requestedCwd)
+      ? await createProjectlessAutomationWorkspace({
+          prompt: baseDefinition.prompt,
+          homeDir: this.options.projectlessHomeDir,
+        })
+      : null
+    const runMode = projectlessWorkspace ? 'local' : baseRunMode
+    const targetCwd = projectlessWorkspace?.cwd ?? requestedCwd
+    const definition = targetCwd !== baseDefinition.cwd || runMode !== baseRunMode
+      ? { ...baseDefinition, cwd: targetCwd, runMode }
       : baseDefinition
     this.validateRunTarget(definition, runMode)
     const runProfileSnapshot = resolveAutomationRunProfile(definition, input)
@@ -246,7 +261,7 @@ export class AutomationRunner {
         })
         await store.appendLog(run, `Managed worktree created: ${worktree.worktreePath}`)
       }
-      const threadId = await this.startThread(definition, run)
+      const threadId = await this.startThread(definition, run, projectlessWorkspace)
       const turnId = await this.startTurn(
         definition,
         run,
@@ -398,7 +413,11 @@ export class AutomationRunner {
     })
   }
 
-  private async startThread(definition: AutomationDefinition, run: AutomationRun): Promise<string> {
+  private async startThread(
+    definition: AutomationDefinition,
+    run: AutomationRun,
+    projectlessWorkspace: ProjectlessAutomationWorkspace | null,
+  ): Promise<string> {
     if (run.runMode === 'chat') {
       const resumed = await this.bridge.rpc<Record<string, unknown>>('thread/resume', { threadId: definition.targetThreadId })
       return extractThreadId(resumed) || definition.targetThreadId || ''
@@ -407,6 +426,9 @@ export class AutomationRunner {
     const started = await this.bridge.rpc<Record<string, unknown>>('thread/start', {
       cwd,
       title: definition.name,
+      ...(projectlessWorkspace
+        ? { developerInstructions: buildProjectlessAutomationInstructions(projectlessWorkspace.outputDirectory) }
+        : {}),
     })
     const threadId = extractStartedThreadId(started)
     if (!threadId) throw new Error('thread/start did not return thread id')

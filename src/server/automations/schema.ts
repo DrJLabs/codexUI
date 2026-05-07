@@ -1,6 +1,7 @@
 import { isAbsolute } from 'node:path'
 import type { AutomationKanbanProjection, AutomationRunMode } from '../../types/automations'
 import { AutomationValidationError } from './errors.js'
+import { isProjectlessCwd } from './projectless'
 
 export type AutomationCreateInput = {
   kind: 'heartbeat' | 'cron'
@@ -105,7 +106,9 @@ function readOptionalSchedule(input: Record<string, unknown>): { type: 'rrule'; 
 
 function readCwd(value: unknown): string | null {
   const cwd = readNullableString(value, 'cwd')
-  if (cwd !== null && !isAbsolute(cwd)) throw new AutomationValidationError('cwd must be an absolute path')
+  if (cwd !== null && !isProjectlessCwd(cwd) && !isAbsolute(cwd)) {
+    throw new AutomationValidationError('cwd must be an absolute path or ~ for projectless automations')
+  }
   return cwd
 }
 
@@ -116,7 +119,9 @@ function readCwds(value: unknown): string[] {
     if (typeof item !== 'string') throw new AutomationValidationError(`cwds[${index}] must be a string`)
     const cwd = item.trim()
     if (!cwd) throw new AutomationValidationError(`cwds[${index}] must be non-empty`)
-    if (!isAbsolute(cwd)) throw new AutomationValidationError(`cwds[${index}] must be an absolute path`)
+    if (!isProjectlessCwd(cwd) && !isAbsolute(cwd)) {
+      throw new AutomationValidationError(`cwds[${index}] must be an absolute path or ~ for projectless automations`)
+    }
     return cwd
   })
   return Array.from(new Set(cwds))

@@ -24,6 +24,12 @@ export function describeAutomationTarget(definition: AutomationDefinition): { la
   }
 
   const path = definition.cwd ?? definition.projectRoot ?? definition.cwds[0] ?? null
+  if (isProjectlessPath(path)) {
+    return {
+      label: 'Projectless automation',
+      detail: 'Documents/Codex generated folder',
+    }
+  }
   if (path) {
     return {
       label: basename(path),
@@ -45,6 +51,7 @@ export function describeAutomationRunMode(mode: AutomationRunMode | null | undef
 
 export function describeAutomationProjectLabel(definition: AutomationDefinition): string {
   const path = definition.cwd ?? definition.projectRoot ?? definition.cwds[0] ?? null
+  if (isProjectlessPath(path)) return 'Projectless'
   if (path) return basename(path)
   if (definition.targetThreadId) return 'Thread'
   return 'No project'
@@ -109,6 +116,10 @@ export function describeRunHealth(
 function basename(path: string): string {
   const normalized = path.replace(/[\\/]+$/, '')
   return normalized.split(/[\\/]/).pop() || normalized || path
+}
+
+function isProjectlessPath(path: string | null): boolean {
+  return path?.trim() === '~'
 }
 
 function mostRecentRun(runs: AutomationRun[]): AutomationRun | null {
