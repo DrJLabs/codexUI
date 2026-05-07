@@ -832,6 +832,100 @@ Run the cron task`)
     await expect(readFile(join(automationDir, 'automation.toml'), 'utf8')).resolves.not.toContain('execution_environment = "chat"')
   })
 
+  it('blocks a second active heartbeat automation for the same target thread', async () => {
+    const { codexHomeDir, service } = await createHarness()
+    await writeNative(codexHomeDir, 'active-thread-dir', {
+      ...nativeRecord,
+      id: 'active-thread-check',
+      targetThreadId: 'thread-duplicate',
+      status: 'ACTIVE',
+    })
+
+    await expect(service.createDefinition({
+      kind: 'heartbeat',
+      name: 'Duplicate heartbeat',
+      description: null,
+      prompt: 'Check this thread',
+      schedule: { type: 'rrule', rrule: 'FREQ=MINUTELY;INTERVAL=15' },
+      targetThreadId: 'thread-duplicate',
+      cwd: null,
+      cwds: [],
+      runMode: 'chat',
+      model: null,
+      reasoningEffort: null,
+      localEnvironmentConfigPath: null,
+      kanbanProjection: { mode: 'off' },
+      notes: '',
+    })).rejects.toThrow('Automation already exists for targetThreadId')
+  })
+
+  it('allows a new heartbeat target when only a paused automation uses that thread', async () => {
+    const { codexHomeDir, service } = await createHarness()
+    await writeNative(codexHomeDir, 'paused-thread-dir', {
+      ...nativeRecord,
+      id: 'paused-thread-check',
+      targetThreadId: 'thread-paused-duplicate',
+      status: 'PAUSED',
+    })
+
+    const created = await service.createDefinition({
+      kind: 'heartbeat',
+      name: 'Replacement heartbeat',
+      description: null,
+      prompt: 'Check this thread',
+      schedule: { type: 'rrule', rrule: 'FREQ=MINUTELY;INTERVAL=15' },
+      targetThreadId: 'thread-paused-duplicate',
+      cwd: null,
+      cwds: [],
+      runMode: 'chat',
+      model: null,
+      reasoningEffort: null,
+      localEnvironmentConfigPath: null,
+      kanbanProjection: { mode: 'off' },
+      notes: '',
+    })
+
+    expect(created).toMatchObject({
+      kind: 'heartbeat',
+      status: 'active',
+      targetThreadId: 'thread-paused-duplicate',
+    })
+  })
+
+  it('blocks patching an automation onto another active heartbeat target', async () => {
+    const { codexHomeDir, service } = await createHarness()
+    await writeNative(codexHomeDir, 'active-thread-dir', {
+      ...nativeRecord,
+      id: 'active-thread-check',
+      targetThreadId: 'thread-owned',
+      status: 'ACTIVE',
+    })
+    const repo = join(codexHomeDir, 'repo')
+    const created = await service.createDefinition({
+      kind: 'cron',
+      name: 'Local cron',
+      description: null,
+      prompt: 'Run local maintenance',
+      schedule: { type: 'rrule', rrule: 'FREQ=DAILY;BYHOUR=9;BYMINUTE=0' },
+      targetThreadId: null,
+      cwd: repo,
+      cwds: [repo],
+      runMode: 'local',
+      model: null,
+      reasoningEffort: null,
+      localEnvironmentConfigPath: null,
+      kanbanProjection: { mode: 'off' },
+      notes: '',
+    })
+
+    await expect(service.patchDefinition(created.id, {
+      targetThreadId: 'thread-owned',
+      cwd: null,
+      cwds: [],
+      runMode: 'chat',
+    })).rejects.toThrow('Automation already exists for targetThreadId')
+  })
+
   it('removes Desktop execution environment when a target is patched back to chat', async () => {
     const { codexHomeDir, service } = await createHarness()
     const repo = join(codexHomeDir, 'repo')

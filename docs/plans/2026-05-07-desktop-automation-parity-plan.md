@@ -494,19 +494,22 @@ Acceptance:
 ### 14. Thread Selection
 
 Current CodexUI behavior:
-- Allows broad chat search and manual thread ID entry.
+- Uses the picker for normal chat-thread selection.
+- Marks active heartbeat targets unavailable in the picker.
+- Keeps raw thread ID editing in Advanced as an explicit escape hatch.
 
 Desktop behavior:
 - Heartbeat selection is tied to eligible local/pinned threads.
 - Threads already targeted by active heartbeat automations are marked unavailable.
 
-Plan:
-1. Keep project/title search, but align validation with Desktop:
-   - local supported hosts only
-   - target thread must exist unless user uses Advanced manual mode
-   - active duplicate heartbeat target is blocked
-2. Mark unavailable threads in the picker instead of allowing silent duplicate creation.
-3. Move raw thread ID entry into Advanced.
+Implementation:
+1. Kept project/title search as the normal thread-selection path.
+2. Removed raw manual ID entry from the picker panel.
+3. Added an Advanced `Manual thread ID` field for cases where a known eligible local/pinned thread is not visible in the picker.
+4. Passed active heartbeat target IDs into the picker and rendered those rows as disabled/unavailable.
+5. Disabled save when the draft targets another active heartbeat automation.
+6. Updated service duplicate checks so only active heartbeat targets block create/patch; paused targets remain reusable.
+7. Added tests for active duplicate blocking and paused-target reuse.
 
 Acceptance:
 - User cannot accidentally create two active heartbeat automations for one thread.

@@ -144,13 +144,16 @@
               <IconTablerPlayerPlay v-if="!isRunningNow" class="automations-run-now-icon" />
               <span>{{ isRunningNow ? 'Starting...' : 'Run now' }}</span>
             </button>
-            <button class="automations-primary" type="submit" :disabled="isLoading || isSaving">
+            <button class="automations-primary" type="submit" :disabled="isLoading || isSaving || isDraftThreadUnavailable">
               {{ isSaving ? 'Saving...' : draft.mode === 'edit' ? 'Save changes' : 'Create automation' }}
             </button>
           </div>
         </div>
 
         <p v-if="mutationError" class="automations-error-inline" role="alert">{{ mutationError }}</p>
+        <p v-if="isDraftThreadUnavailable" class="automations-error-inline" role="alert">
+          This thread already has an active heartbeat automation.
+        </p>
 
         <fieldset class="automations-editor-fieldset" :disabled="isLoading || isSaving">
           <section v-if="draft.mode === 'create'" class="automations-template-strip" aria-label="Choose a starting point">
@@ -185,6 +188,7 @@
               <AutomationThreadPicker
                 v-model="draft.targetThreadId"
                 :required="draft.mode === 'create' && draft.runMode === 'chat'"
+                :unavailable-thread-ids="unavailableHeartbeatThreadIds"
               />
             </div>
 
@@ -399,10 +403,13 @@
                   <input v-model="draft.name" type="text" required />
                 </label>
 
-                <div v-if="draft.mode === 'edit' && draft.runMode === 'chat'" class="automations-field">
-                  <span>Thread</span>
-                  <AutomationThreadPicker v-model="draft.targetThreadId" required />
-                </div>
+                <label v-if="draft.runMode === 'chat'" class="automations-field">
+                  <span>Manual thread ID</span>
+                  <input v-model="draft.targetThreadId" type="text" required />
+                  <small class="automations-field-help">
+                    Advanced override for an eligible local or pinned thread that is not visible in the picker.
+                  </small>
+                </label>
 
                 <label v-if="draft.mode === 'edit'" class="automations-field automations-field-wide">
                   <span>Prompt</span>
@@ -665,6 +672,22 @@ const reasoningEffortSelectOptions = computed(() =>
   ensureOption(baseReasoningEffortOptions, draft.value.reasoningEffort, 'Current reasoning effort'),
 )
 const availableRunProfiles = computed(() => state.value.executionOptions.runProfiles)
+const unavailableHeartbeatThreadIds = computed(() =>
+  definitions.value
+    .filter((definition) => (
+      definition.kind === 'heartbeat' &&
+      definition.status === 'active' &&
+      definition.id !== draft.value.id &&
+      definition.targetThreadId
+    ))
+    .map((definition) => definition.targetThreadId as string),
+)
+const unavailableHeartbeatThreadIdSet = computed(() => new Set(unavailableHeartbeatThreadIds.value))
+const isDraftThreadUnavailable = computed(() => {
+  if (draft.value.runMode !== 'chat') return false
+  const targetThreadId = draft.value.targetThreadId.trim()
+  return Boolean(targetThreadId && unavailableHeartbeatThreadIdSet.value.has(targetThreadId))
+})
 const advancedDetails = computed(() => [
   { label: 'Native storage root', value: state.value.storageRoot || 'Unavailable', mono: true },
   { label: 'Feature flags', value: featureFlagSummary.value || 'Unavailable', mono: false },

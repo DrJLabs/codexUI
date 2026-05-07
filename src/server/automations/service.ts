@@ -220,7 +220,8 @@ export class AutomationsService {
   async createDefinition(input: AutomationCreateInput): Promise<AutomationDefinition> {
     const entries = await listNativeAutomationEntries(this.options)
     if (input.targetThreadId !== null) {
-      const existing = entries.records.find((entry) => entry.record.targetThreadId === input.targetThreadId)
+      const targetThreadId = input.targetThreadId
+      const existing = entries.records.find((entry) => isActiveHeartbeatTarget(entry.record, targetThreadId))
       if (existing) throw new AutomationConflictError('Automation already exists for targetThreadId')
     }
     await this.assertKanbanProjectionTarget(input.kanbanProjection)
@@ -255,10 +256,11 @@ export class AutomationsService {
     const entry = await this.findEntry(automationId)
     if (!entry) throw new AutomationNotFoundError(automationId)
     const sidecarResult = await readSidecar(entry)
-    if (hasOwn(patch, 'targetThreadId') && patch.targetThreadId !== null) {
+    if (hasOwn(patch, 'targetThreadId') && typeof patch.targetThreadId === 'string') {
+      const targetThreadId = patch.targetThreadId
       const entries = await listNativeAutomationEntries(this.options)
       const duplicate = entries.records.find((candidate) => (
-        candidate.record.targetThreadId === patch.targetThreadId &&
+        isActiveHeartbeatTarget(candidate.record, targetThreadId) &&
         candidate.record.id !== entry.record.id &&
         candidate.sourceDirName !== entry.sourceDirName
       ))
@@ -1101,6 +1103,10 @@ function assertAutomationNotDeleted(definition: AutomationDefinition): void {
   if (definition.legacyStatus === 'DELETED' || definition.status === 'deleted') {
     throw createServiceError(409, 'Deleted automations cannot be run')
   }
+}
+
+function isActiveHeartbeatTarget(record: ThreadAutomationRecord, targetThreadId: string): boolean {
+  return record.kind === 'heartbeat' && record.status === 'ACTIVE' && record.targetThreadId === targetThreadId
 }
 
 function assertAutomationRunTarget(runMode: AutomationRunMode | null, cwd: string | null, targetThreadId: string | null): void {

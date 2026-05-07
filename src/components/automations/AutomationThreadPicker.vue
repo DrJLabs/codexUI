@@ -52,11 +52,16 @@
             class="automation-thread-picker-row"
             type="button"
             :data-selected="thread.id === modelValue"
+            :data-unavailable="isThreadUnavailable(thread.id)"
+            :disabled="isThreadUnavailable(thread.id)"
             @click="selectThread(thread.id)"
           >
             <span>
               <strong>{{ thread.title }}</strong>
-              <small>{{ thread.preview || thread.id }}</small>
+              <small v-if="isThreadUnavailable(thread.id)" class="automation-thread-picker-unavailable">
+                Already has an active heartbeat
+              </small>
+              <small v-else>{{ thread.preview || thread.id }}</small>
             </span>
             <time>{{ formatThreadDate(thread.updatedAtIso) }}</time>
           </button>
@@ -72,17 +77,6 @@
       >
         {{ isLoadingMore ? 'Loading...' : 'Load more chats' }}
       </button>
-
-      <details class="automation-thread-picker-manual">
-        <summary>Enter thread ID manually</summary>
-        <input
-          :value="modelValue"
-          type="text"
-          placeholder="thread id"
-          @input="emit('update:modelValue', ($event.target as HTMLInputElement).value)"
-          @keydown.escape.prevent="closePicker"
-        />
-      </details>
     </div>
   </div>
 </template>
@@ -99,6 +93,7 @@ const props = defineProps<{
   modelValue: string
   disabled?: boolean
   required?: boolean
+  unavailableThreadIds?: string[]
 }>()
 
 const emit = defineEmits<{
@@ -135,6 +130,7 @@ const knownThreads = computed<PickerThread[]>(() =>
 )
 
 const knownThreadById = computed(() => new Map(knownThreads.value.map((thread) => [thread.id, thread])))
+const unavailableThreadIdSet = computed(() => new Set(props.unavailableThreadIds ?? []))
 
 const selectedThread = computed(() => {
   const threadId = props.modelValue.trim()
@@ -259,8 +255,13 @@ function closePicker(): void {
 }
 
 function selectThread(threadId: string): void {
+  if (isThreadUnavailable(threadId)) return
   emit('update:modelValue', threadId)
   closePicker()
+}
+
+function isThreadUnavailable(threadId: string): boolean {
+  return threadId !== props.modelValue && unavailableThreadIdSet.value.has(threadId)
 }
 
 async function ensureLoaded(): Promise<void> {
@@ -424,7 +425,7 @@ function onDocumentPointerDown(event: PointerEvent): void {
   right: 0;
   left: 0;
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr) auto auto;
+  grid-template-rows: auto minmax(0, 1fr) auto;
   max-height: min(420px, 70vh);
   margin-top: 6px;
   border: 1px solid rgba(148, 163, 184, 0.38);
@@ -452,8 +453,7 @@ function onDocumentPointerDown(event: PointerEvent): void {
 }
 
 .automation-thread-picker-controls input,
-.automation-thread-picker-controls select,
-.automation-thread-picker-manual input {
+.automation-thread-picker-controls select {
   width: 100%;
   min-width: 0;
   border: 1px solid rgba(148, 163, 184, 0.42);
@@ -501,6 +501,11 @@ function onDocumentPointerDown(event: PointerEvent): void {
   background: rgba(37, 99, 235, 0.12);
 }
 
+.automation-thread-picker-row[data-unavailable='true'] {
+  cursor: not-allowed;
+  opacity: 0.62;
+}
+
 .automation-thread-picker-row span {
   display: grid;
   min-width: 0;
@@ -512,6 +517,11 @@ function onDocumentPointerDown(event: PointerEvent): void {
 .automation-thread-picker-empty {
   color: #64748b;
   font-size: 12px;
+}
+
+.automation-thread-picker-unavailable {
+  color: #b45309;
+  font-weight: 700;
 }
 
 .automation-thread-picker-empty,
@@ -528,27 +538,10 @@ function onDocumentPointerDown(event: PointerEvent): void {
   margin: 0 10px 10px;
 }
 
-.automation-thread-picker-manual {
-  border-top: 1px solid rgba(148, 163, 184, 0.2);
-  padding: 9px 10px 10px;
-}
-
-.automation-thread-picker-manual summary {
-  cursor: pointer;
-  color: #475569;
-  font-size: 12px;
-  font-weight: 800;
-}
-
-.automation-thread-picker-manual input {
-  margin-top: 8px;
-}
-
 :global(:root.dark) .automation-thread-picker-trigger,
 :global(:root.dark) .automation-thread-picker-panel,
 :global(:root.dark) .automation-thread-picker-controls input,
-:global(:root.dark) .automation-thread-picker-controls select,
-:global(:root.dark) .automation-thread-picker-manual input {
+:global(:root.dark) .automation-thread-picker-controls select {
   border-color: rgba(71, 85, 105, 0.82);
   background: rgba(2, 6, 23, 0.96);
   color: #e5e7eb;
@@ -564,9 +557,12 @@ function onDocumentPointerDown(event: PointerEvent): void {
 :global(:root.dark) .automation-thread-picker-results h4,
 :global(:root.dark) .automation-thread-picker-row small,
 :global(:root.dark) .automation-thread-picker-row time,
-:global(:root.dark) .automation-thread-picker-empty,
-:global(:root.dark) .automation-thread-picker-manual summary {
+:global(:root.dark) .automation-thread-picker-empty {
   color: #94a3b8;
+}
+
+:global(:root.dark) .automation-thread-picker-unavailable {
+  color: #f59e0b;
 }
 
 :global(:root.dark) .automation-thread-picker-row {
@@ -590,8 +586,7 @@ function onDocumentPointerDown(event: PointerEvent): void {
 
   .automation-thread-picker-trigger,
   .automation-thread-picker-controls input,
-  .automation-thread-picker-controls select,
-  .automation-thread-picker-manual input {
+  .automation-thread-picker-controls select {
     font-size: 16px;
     line-height: 1.4;
   }
