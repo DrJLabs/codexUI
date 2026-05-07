@@ -16,7 +16,7 @@ import {
   type AutomationExecutionPolicy,
   type AutomationRunProfileInput,
 } from './policy'
-import { buildHeartbeatPrompt } from './prompts'
+import { buildCronPrompt, buildHeartbeatPrompt } from './prompts'
 import { type NativeAutomationEntry, type NativeAutomationStoreOptions } from './nativeStore'
 import {
   createAutomationRunPaths,
@@ -149,6 +149,8 @@ export class AutomationRunner {
       const activeTrigger = activeRun.trigger === 'schedule' ? 'scheduled' : 'manual'
       throw new AutomationConflictError(`Automation ${definition.id} already has an active ${activeTrigger} run`)
     }
+    const previousRun = (await store.listRuns({ limit: 1 }))[0] ?? null
+    const previousRunAtIso = previousRun?.startedAtIso ?? previousRun?.createdAtIso ?? null
 
     const now = new Date().toISOString()
     const eventPrefix = input.trigger === 'schedule' ? 'scheduled_run' : 'manual_run'
@@ -235,7 +237,14 @@ export class AutomationRunner {
         await store.appendLog(run, `Managed worktree created: ${worktree.worktreePath}`)
       }
       const threadId = await this.startThread(definition, run)
-      const turnId = await this.startTurn(definition, run, threadId, runProfileSnapshot)
+      const turnId = await this.startTurn(
+        definition,
+        run,
+        threadId,
+        runProfileSnapshot,
+        previousRunAtIso,
+        input.automationDirPath,
+      )
       const runningRecordReady = new Promise<boolean>((resolve) => {
         markRunningRecordReady = resolve
       })
@@ -399,16 +408,29 @@ export class AutomationRunner {
     run: AutomationRun,
     threadId: string,
     profile: CodexRunProfile,
+    previousRunAtIso: string | null,
+    automationDirPath: string,
   ): Promise<string> {
     const cwd = resolveRunCwd(definition, run)
-    const runSettings = resolveCodexTurnStartRunSettings(profile, cwd)
+    const automationMemoryPath = join(automationDirPath, 'memory.md')
+    const runSettings = resolveCodexTurnStartRunSettings(
+      profile,
+      cwd,
+      definition.kind === 'cron' ? [automationDirPath] : [],
+    )
     const promptText = definition.kind === 'heartbeat'
       ? buildHeartbeatPrompt({
           automationId: definition.id,
           nowIso: new Date().toISOString(),
           prompt: definition.prompt,
         })
-      : definition.prompt
+      : buildCronPrompt({
+          automationId: definition.id,
+          automationName: definition.name,
+          automationMemoryPath,
+          lastRunAtIso: previousRunAtIso,
+          prompt: definition.prompt,
+        })
     const started = await this.bridge.rpc<Record<string, unknown>>('turn/start', {
       threadId,
       ...(cwd ? { cwd } : {}),
@@ -600,6 +622,7 @@ export class AutomationRunner {
         nativeDirName: entry.sourceDirName,
         nativePath: entry.automationTomlPath,
         sidecarPath: join(entry.automationDirPath, 'codexui.local.json'),
+        memoryPath: join(entry.automationDirPath, 'memory.md'),
       },
       createdAtIso,
       updatedAtIso,

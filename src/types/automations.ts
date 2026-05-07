@@ -48,6 +48,7 @@ export type AutomationStorageInfo = {
   nativeDirName: string | null
   nativePath: string | null
   sidecarPath: string | null
+  memoryPath: string | null
 }
 
 export type AutomationDiagnostic = {

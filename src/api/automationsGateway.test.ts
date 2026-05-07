@@ -246,6 +246,7 @@ function automationFixture(overrides: Partial<AutomationDefinition> = {}): Autom
       nativeDirName: 'auto_1',
       nativePath: '/tmp/automations/auto_1/automation.toml',
       sidecarPath: '/tmp/automations/auto_1/codexui.local.json',
+      memoryPath: '/tmp/automations/auto_1/memory.md',
     },
     createdAtIso: '2026-04-30T00:00:00.000Z',
     updatedAtIso: '2026-04-30T00:00:00.000Z',

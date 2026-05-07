@@ -173,12 +173,16 @@ export function resolveEffectiveCodexRunProfile(input: {
   }
 }
 
-export function resolveCodexTurnStartRunSettings(profile: CodexRunProfile | null | undefined, worktreePath?: string): CodexTurnStartRunSettings {
+export function resolveCodexTurnStartRunSettings(
+  profile: CodexRunProfile | null | undefined,
+  worktreePath?: string,
+  extraWritableRoots: string[] = [],
+): CodexTurnStartRunSettings {
   const effectiveProfile = profile
     ?? BUILTIN_CODEX_RUN_PROFILES.find((candidate) => candidate.id === DEFAULT_CODEX_RUN_PROFILE_ID)!
   const settings: CodexTurnStartRunSettings = {
     approvalPolicy: effectiveProfile.approvalPolicy,
-    sandboxPolicy: toSandboxPolicy(effectiveProfile, worktreePath),
+    sandboxPolicy: toSandboxPolicy(effectiveProfile, worktreePath, extraWritableRoots),
   }
   if (effectiveProfile.model.trim()) settings.model = effectiveProfile.model.trim()
   if (effectiveProfile.reasoningEffort) settings.effort = effectiveProfile.reasoningEffort
@@ -236,7 +240,11 @@ function readOptionalNetworkAccess(profile: Record<string, unknown>): boolean | 
   return undefined
 }
 
-function toSandboxPolicy(profile: CodexRunProfile, worktreePath?: string): CodexTurnStartRunSettings['sandboxPolicy'] {
+function toSandboxPolicy(
+  profile: CodexRunProfile,
+  worktreePath?: string,
+  extraWritableRoots: string[] = [],
+): CodexTurnStartRunSettings['sandboxPolicy'] {
   if (profile.sandboxMode === 'danger-full-access') {
     return { type: 'dangerFullAccess' }
   }
@@ -249,6 +257,7 @@ function toSandboxPolicy(profile: CodexRunProfile, worktreePath?: string): Codex
   }
   const writableRoots = Array.from(new Set([
     worktreePath?.trim() ?? '',
+    ...extraWritableRoots.map((root) => root.trim()),
     ...profile.writableRoots.map((root) => root.trim()),
   ].filter(Boolean)))
   return {

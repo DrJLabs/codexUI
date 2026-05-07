@@ -890,6 +890,7 @@ async function mapDefinition(
         nativeDirName: entry.sourceDirName,
         nativePath: entry.automationTomlPath,
         sidecarPath: sidecarPath(entry),
+        memoryPath: join(entry.automationDirPath, 'memory.md'),
       },
       createdAtIso,
       updatedAtIso,

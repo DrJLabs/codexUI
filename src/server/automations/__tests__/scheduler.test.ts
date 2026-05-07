@@ -176,6 +176,9 @@ async function writeActiveRun(automationDir: string, input: {
   automationName?: string
   runMode?: AutomationRun['runMode']
   cwd?: string | null
+  state?: AutomationRun['state']
+  startedAtIso?: string | null
+  completedAtIso?: string | null
 }) {
   const run: AutomationRun = {
     id: input.id,
@@ -183,7 +186,7 @@ async function writeActiveRun(automationDir: string, input: {
     automationName: input.automationName ?? input.automationId,
     trigger: 'manual',
     runMode: input.runMode ?? 'chat',
-    state: 'running',
+    state: input.state ?? 'running',
     promptSnapshot: 'Prompt',
     scheduleSnapshot: { type: 'rrule', rrule: 'FREQ=DAILY;INTERVAL=1' },
     dueAtIso: null,
@@ -208,8 +211,8 @@ async function writeActiveRun(automationDir: string, input: {
     proposalIds: [],
     ...createAutomationRunPaths(automationDir, input.id),
     createdAtIso: '2026-04-30T08:00:00.000Z',
-    startedAtIso: '2026-04-30T08:00:00.000Z',
-    completedAtIso: null,
+    startedAtIso: input.startedAtIso ?? '2026-04-30T08:00:00.000Z',
+    completedAtIso: input.completedAtIso ?? null,
     updatedAtIso: '2026-04-30T08:00:00.000Z',
   }
   await createAutomationRunStore(automationDir).createRun(run)
@@ -419,11 +422,11 @@ describe('AutomationScheduler', () => {
     expect(promptText.endsWith('</heartbeat>\n')).toBe(true)
   })
 
-  it('keeps cron turn input as the raw automation prompt', async () => {
+  it('prefixes cron turn input with Desktop automation memory metadata', async () => {
     const { codexHomeDir, service, rpcCalls } = await createHarness()
     const repo = join(codexHomeDir, 'repo')
     await mkdir(repo, { recursive: true })
-    await writeNative(codexHomeDir, 'cron-check-dir', {
+    const automationDir = await writeNative(codexHomeDir, 'cron-check-dir', {
       ...nativeRecord,
       id: 'cron-check',
       kind: 'cron',
@@ -436,12 +439,33 @@ describe('AutomationScheduler', () => {
       cwd: repo,
       cwds: [repo],
     })
+    await writeActiveRun(automationDir, {
+      id: 'previous-cron-run',
+      automationId: 'cron-check',
+      automationName: 'Cron Check',
+      runMode: 'local',
+      cwd: repo,
+      state: 'completed_no_findings',
+      startedAtIso: '2026-04-30T09:00:00.000Z',
+      completedAtIso: '2026-04-30T09:05:00.000Z',
+    })
 
     await service.runNow('cron-check')
 
     const promptText = readTurnStartText(rpcCalls)
-    expect(promptText).toBe('Run the cron task')
+    const turnStart = rpcCalls.find((call) => call.method === 'turn/start')
+    const turnStartParams = turnStart?.params as { sandboxPolicy?: { type: string; writableRoots?: string[] } } | undefined
+    expect(promptText).toBe(`Automation: Cron Check
+Automation ID: cron-check
+Automation memory: ${automationDir}/memory.md
+Last run: 2026-04-30T09:00:00.000Z (1777539600000)
+
+Run the cron task`)
     expect(promptText).not.toContain('<heartbeat>')
+    expect(turnStartParams?.sandboxPolicy).toMatchObject({
+      type: 'workspaceWrite',
+      writableRoots: [repo, automationDir],
+    })
   })
 
   it('revalidates stale renderer busy state before scheduled heartbeat starts', async () => {

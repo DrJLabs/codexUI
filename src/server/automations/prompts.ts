@@ -27,6 +27,28 @@ export function buildHeartbeatPrompt(input: {
   )
 }
 
+export function buildCronPrompt(input: {
+  automationId: string
+  automationName: string
+  automationMemoryPath: string
+  lastRunAtIso: string | null
+  prompt: string
+}): string {
+  return `Automation: ${input.automationName}
+Automation ID: ${input.automationId}
+Automation memory: ${input.automationMemoryPath}
+Last run: ${formatCronLastRun(input.lastRunAtIso)}
+
+${input.prompt}`
+}
+
 function replaceTemplateToken(template: string, token: string, value: string): string {
   return (template as ReplaceAllString).replaceAll(token, value)
+}
+
+function formatCronLastRun(lastRunAtIso: string | null): string {
+  if (!lastRunAtIso) return 'never'
+  const lastRunAtMs = Date.parse(lastRunAtIso)
+  if (!Number.isFinite(lastRunAtMs)) return lastRunAtIso
+  return `${new Date(lastRunAtMs).toISOString()} (${lastRunAtMs})`
 }

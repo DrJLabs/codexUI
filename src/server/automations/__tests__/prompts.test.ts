@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildHeartbeatPrompt } from '../prompts'
+import { buildCronPrompt, buildHeartbeatPrompt } from '../prompts'
 
 describe('automation prompt builders', () => {
   it('builds the Desktop-compatible heartbeat prompt envelope', () => {
@@ -46,5 +46,30 @@ Line two
   </instructions>
 </heartbeat>
 `)
+  })
+
+  it('builds the Desktop-compatible cron prompt header without a prior run', () => {
+    expect(buildCronPrompt({
+      automationId: 'repo-maintenance',
+      automationName: 'Repo maintenance',
+      automationMemoryPath: '$CODEX_HOME/automations/repo-maintenance/memory.md',
+      lastRunAtIso: null,
+      prompt: 'Check the repository.',
+    })).toBe(`Automation: Repo maintenance
+Automation ID: repo-maintenance
+Automation memory: $CODEX_HOME/automations/repo-maintenance/memory.md
+Last run: never
+
+Check the repository.`)
+  })
+
+  it('formats cron last run timestamps like Desktop', () => {
+    expect(buildCronPrompt({
+      automationId: 'repo-maintenance',
+      automationName: 'Repo maintenance',
+      automationMemoryPath: '$CODEX_HOME/automations/repo-maintenance/memory.md',
+      lastRunAtIso: '2026-04-30T09:00:00.000Z',
+      prompt: 'Check the repository.',
+    })).toContain('Last run: 2026-04-30T09:00:00.000Z (1777539600000)')
   })
 })

@@ -588,6 +588,7 @@ const advancedDetails = computed(() => [
   { label: 'Feature flags', value: featureFlagSummary.value || 'Unavailable', mono: false },
   { label: 'Native path', value: selectedAutomation.value?.storage.nativePath || 'Created on save', mono: true },
   { label: 'Sidecar path', value: selectedAutomation.value?.storage.sidecarPath || 'Created on save', mono: true },
+  { label: 'Memory path', value: selectedAutomation.value?.storage.memoryPath || 'Created on save', mono: true },
   { label: 'Automation id', value: selectedAutomation.value?.id || 'Created on save', mono: true },
   { label: 'Source', value: selectedAutomation.value?.source || 'Created on save', mono: true },
   { label: 'Kind', value: selectedAutomation.value?.kind || 'Created on save', mono: true },

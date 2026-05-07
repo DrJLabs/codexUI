@@ -217,6 +217,12 @@ Acceptance:
 - Cron runs include the same memory instruction Desktop provides.
 - CodexUI does not create a competing memory file.
 
+Section 5 implementation notes:
+- Desktop Linux build evidence: `/tmp/codex-desktop-asar-extracted/.vite/build/main-DlFGMsC6.js` builds cron turn text as `Automation: ${name}`, `Automation ID: ${id}`, `Automation memory: $CODEX_HOME/automations/${id}/memory.md`, `Last run: ${timestamp-or-never}`, blank line, then the automation prompt.
+- Keep `memory.md` in the native automation directory. CodexUI already creates that file on native writes; this section adds the stable path to storage metadata rather than adding a second memory store.
+- If a native directory name differs from the automation id, use the actual native directory path for both the Advanced display and prompt so CodexUI does not create a competing `$CODEX_HOME/automations/<id>/memory.md`.
+- Use the previous persisted run, not the new in-flight run, for `Last run:`. Leave Desktop's full developer instructions and inbox directive contract to the run-history/inbox section.
+
 ### 6. Scheduler State And Cross-App Race Avoidance
 
 Current CodexUI behavior:
