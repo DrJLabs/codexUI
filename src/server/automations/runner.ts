@@ -8,7 +8,7 @@ import { createRestrictedCodexBridgeAdapter, type RestrictedCodexBridgeAdapter }
 import { resolveCodexTurnStartRunSettings } from '../execution/runProfiles'
 import { ManagedWorktreeService, ManagedWorktreeUnavailableError } from '../workspaces/managedWorktreeService'
 import { AutomationConflictError, AutomationDeferredRunError, AutomationValidationError } from './errors'
-import { classifyAutomationRunFailure, classifyAutomationRunResult } from './resultClassifier'
+import { classifyAutomationRunFailure, classifyAutomationRunResult, stripAutomationInboxDirectives } from './resultClassifier'
 import {
   assertAutomationExecutionPolicy,
   assertAutomationRunProfileAllowed,
@@ -563,9 +563,9 @@ export class AutomationRunner {
       return
     }
     const extracted = extractAssistantText(response, turnId)
-    const resultSummary = extracted.text
+    const resultSummary = stripAutomationInboxDirectives(extracted.text)
     const now = new Date().toISOString()
-    const classification = classifyAutomationRunResult(resultSummary)
+    const classification = classifyAutomationRunResult(extracted.text)
     try {
       const completed = await match.store.updateRun(match.run.id, {
         state: classification.state,

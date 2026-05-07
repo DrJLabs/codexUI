@@ -437,19 +437,27 @@ Acceptance:
 
 Current CodexUI behavior:
 - Creates CodexUI run JSON, event log, read/archive state, and inbox summaries.
+- Completion classification now understands Desktop `::inbox-item{title="..." summary="..."}` directives.
 
 Desktop behavior:
 - Uses running thread state, automation run notifications, and inbox directives from agent output.
+- Cron prompts require exactly one `::inbox-item{...}` directive as the user-visible inbox item.
 
 Plan:
 1. Treat CodexUI run history as a private cache, not canonical automation state.
 2. Do not require run history files for Desktop compatibility.
-3. Parse Desktop-created automation threads and inbox directives where possible.
+3. Parse Desktop inbox directives from completed automation turns where possible.
 4. Keep read/archive UI state local to CodexUI and do not write it into `automation.toml`.
 5. Add a cleanup/migration path for old CodexUI run sidecars if they become misleading.
 
+Implementation notes:
+- `classifyAutomationRunResult` now promotes Desktop `::inbox-item{title="..." summary="..."}` directives to the local run inbox title/summary.
+- Stored `resultSummary` strips the directive line so the local cache does not duplicate Desktop control syntax in user-facing summaries.
+- Read/archive state remains only in CodexUI's private run JSON cache.
+
 Acceptance:
 - Deleting CodexUI run history does not break Desktop-compatible automation definitions.
+- Desktop-style completed runs surface the directive title/summary in CodexUI run history.
 - Desktop-created runs remain visible enough in CodexUI through thread/inbox state or a clear "Open thread" path.
 
 ### 13. Templates

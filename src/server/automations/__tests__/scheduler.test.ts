@@ -1014,6 +1014,57 @@ Run the cron task`)
     expect(cronTurnStartParams).toMatchObject({ cwd: repo, model: 'gpt-5.5', effort: 'low' })
   })
 
+  it('projects Desktop inbox directives into local run history without storing the directive in the summary', async () => {
+    const { codexHomeDir, service, notificationListeners } = await createHarness({
+      threadReadById: {
+        thread_local_1: {
+          thread: {
+            id: 'thread_local_1',
+            turns: [{
+              id: 'turn_1',
+              items: [{
+                type: 'assistantMessage',
+                text: 'The PR comments are addressed.\n::inbox-item{title="PR comments addressed" summary="Ready for re-review; focus on auth edge case"}',
+              }],
+            }],
+          },
+        },
+      },
+    })
+    const repo = join(codexHomeDir, 'cron-inbox-repo')
+    await mkdir(repo, { recursive: true })
+    const automationDir = await writeNative(codexHomeDir, 'cron-inbox-dir', {
+      ...nativeRecord,
+      id: 'cron-inbox-check',
+      kind: 'cron',
+      name: 'Cron inbox check',
+      rrulePrefix: 'RRULE:',
+      targetThreadId: null,
+      executionEnvironment: 'local',
+      runMode: 'local',
+      cwd: repo,
+      cwds: [repo],
+    })
+
+    await service.runNow('cron-inbox-check')
+    await Promise.all(notificationListeners.map(async (listener) => {
+      await listener({
+        method: 'turn/completed',
+        params: { threadId: 'thread_local_1', turnId: 'turn_1' },
+        atIso: '2026-05-07T12:00:00.000Z',
+      })
+    }))
+
+    const [run] = await createAutomationRunStore(automationDir).listRuns()
+    expect(run).toMatchObject({
+      state: 'completed_with_findings',
+      resultSummary: 'The PR comments are addressed.',
+      inboxTitle: 'PR comments addressed',
+      inboxSummary: 'Ready for re-review; focus on auth edge case',
+      readAtIso: null,
+    })
+  })
+
   it('does not start a due run while another CodexUI scheduler owns the lease', async () => {
     const now = new Date('2026-04-30T10:00:00.000Z')
     const { codexHomeDir, service, rpcCalls, notificationListeners } = await createHarness()
