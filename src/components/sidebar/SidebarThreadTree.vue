@@ -583,11 +583,8 @@
         :data-open-direction="getThreadMenuDirection(openThreadMenuThread.id)"
         @click.stop
       >
-        <button class="thread-menu-item" type="button" @click="onManageAutomation(openThreadMenuThread.id)">
-          {{ threadHasAutomation(openThreadMenuThread.id) ? 'Manage automation…' : 'Add automation…' }}
-        </button>
         <button class="thread-menu-item" type="button" @click="openAutomationDialog(openThreadMenuThread.id)">
-          Quick edit automation...
+          {{ threadHasAutomation(openThreadMenuThread.id) ? 'Edit automation…' : 'Add automation…' }}
         </button>
         <button class="thread-menu-item" type="button" @click="onBrowseThreadFiles(openThreadMenuThread.id)">
           Browse files
@@ -766,7 +763,6 @@ const emit = defineEmits<{
   'reorder-project': [payload: { projectName: string; toIndex: number }]
   'export-thread': [threadId: string]
   'fork-thread': [threadId: string]
-  'manage-automation': [threadId: string]
   'start-new-chat': []
   'toggle-filter': []
 }>()
@@ -1411,11 +1407,6 @@ function openAutomationDialog(threadId: string): void {
     status: existing?.status ?? 'ACTIVE',
   }
   automationDialogVisible.value = true
-  closeThreadMenu()
-}
-
-function onManageAutomation(threadId: string): void {
-  emit('manage-automation', threadId)
   closeThreadMenu()
 }
 

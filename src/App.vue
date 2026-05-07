@@ -44,15 +44,37 @@
             </button>
           </div>
 
-          <SidebarPrimaryNav
+          <button
             v-if="!isSidebarCollapsed"
-            class="sidebar-primary-nav-host"
-            :active-route="primaryNavActiveRoute"
-            @start-new-thread="onStartNewThreadFromToolbar"
-            @navigate-automations="onNavigateAutomations"
-            @navigate-skills="onNavigateSkills"
-            @navigate-kanban="onNavigateKanban"
-          />
+            class="sidebar-automations-link"
+            :class="{ 'is-active': isAutomationsRoute }"
+            type="button"
+            @click="onNavigateAutomations"
+          >
+            <span class="sidebar-automations-link-icon" aria-hidden="true">
+              <IconTablerBolt />
+            </span>
+            <span class="sidebar-skills-link-copy">
+              <span class="sidebar-skills-link-title">{{ t('Automations') }}</span>
+              <span class="sidebar-skills-link-subtitle">{{ t('Schedules, runs') }}</span>
+            </span>
+          </button>
+
+          <button
+            v-if="!isSidebarCollapsed"
+            class="sidebar-skills-link"
+            :class="{ 'is-active': isSkillsRoute }"
+            type="button"
+            @click="onNavigateSkills"
+          >
+            <span class="sidebar-skills-link-icon" aria-hidden="true">
+              <IconTablerBolt />
+            </span>
+            <span class="sidebar-skills-link-copy">
+              <span class="sidebar-skills-link-title">{{ t('Skills') }}</span>
+              <span class="sidebar-skills-link-subtitle">{{ t('Plugins, apps, MCPs') }}</span>
+            </span>
+          </button>
 
           <SidebarThreadTree :groups="projectGroups" :project-display-name-by-id="projectDisplayNameById"
             :project-git-repo-by-name="projectGitRepoByName"
@@ -67,7 +89,6 @@
             @browse-project-files="onBrowseProjectFiles"
             @create-project-worktree="onCreateProjectWorktree"
             @rename-thread="onRenameThread"
-            @manage-automation="onManageThreadAutomation"
             @fork-thread="onForkThread"
             @remove-project="onRemoveProject" @reorder-project="onReorderProject"
             @export-thread="onExportThread"
@@ -1015,7 +1036,6 @@
 import { computed, defineAsyncComponent, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import DesktopLayout from './components/layout/DesktopLayout.vue'
-import SidebarPrimaryNav from './components/sidebar/SidebarPrimaryNav.vue'
 import SidebarThreadTree from './components/sidebar/SidebarThreadTree.vue'
 import ContentHeader from './components/content/ContentHeader.vue'
 import ThreadComposer from './components/content/ThreadComposer.vue'
@@ -1485,13 +1505,6 @@ const isHomeRoute = computed(() => route.name === 'home')
 const isSkillsRoute = computed(() => route.name === 'skills')
 const isKanbanRoute = computed(() => route.name === 'kanban')
 const isAutomationsRoute = computed(() => route.name === 'automations')
-const primaryNavActiveRoute = computed<'home' | 'thread' | 'automations' | 'skills' | 'kanban'>(() => {
-  if (isAutomationsRoute.value) return 'automations'
-  if (isSkillsRoute.value) return 'skills'
-  if (isKanbanRoute.value) return 'kanban'
-  if (isHomeRoute.value) return 'home'
-  return 'thread'
-})
 const canShowArtifactDrawerToggle = computed(() => route.name === 'thread' && selectedThreadId.value.trim().length > 0 && !isReviewPaneOpen.value)
 const contentTitle = computed(() => {
   if (isSkillsRoute.value) return t('Skills')
@@ -2088,20 +2101,6 @@ function onNavigateAutomations(): void {
 function onNavigateSkills(): void {
   void router.push({ name: 'skills' })
   if (isMobile.value) setSidebarCollapsed(true)
-}
-
-function onNavigateKanban(): void {
-  void router.push({ name: 'kanban' })
-  if (isMobile.value) setSidebarCollapsed(true)
-}
-
-function onManageThreadAutomation(threadId: string): void {
-  if (!threadId) return
-  void router.push({ name: 'automations', query: { threadId } })
-    .then(() => {
-      if (isMobile.value) setSidebarCollapsed(true)
-    })
-    .catch(() => {})
 }
 
 async function onExportThread(threadId: string): Promise<void> {
@@ -4411,6 +4410,22 @@ async function loadWorktreeBranches(sourceCwd: string): Promise<void> {
 
 .sidebar-skills-link.is-active {
   @apply border-transparent bg-zinc-100 text-zinc-950;
+}
+
+.sidebar-automations-link {
+  @apply mx-2 flex items-center gap-3 rounded-2xl border border-transparent bg-transparent px-3 py-2.5 text-left text-zinc-700 transition hover:bg-sky-50 hover:text-sky-950 cursor-pointer;
+}
+
+.sidebar-automations-link.is-active {
+  @apply border-transparent bg-sky-50 text-sky-950;
+}
+
+.sidebar-automations-link-icon {
+  @apply flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-sky-600 text-white;
+}
+
+.sidebar-automations-link-icon :deep(svg) {
+  @apply h-5 w-5;
 }
 
 .sidebar-skills-link-icon {

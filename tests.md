@@ -65,6 +65,28 @@ Automation review sections use `${WORKTREE_ROOT}` for the current checkout and `
 #### Rollback/Cleanup
 - Remove `src/components/content/HeaderGitBranchDropdown.vue` after active dev clients no longer need stale branch-swap compatibility.
 
+### Feature: Main-style sidebar with Automations entry
+
+#### Prerequisites
+- App is running from this repository.
+- Sidebar is expanded.
+
+#### Steps
+1. Open the app in light theme.
+2. Confirm the sidebar matches the main branch layout, with only `Automations` added above `Skills`.
+3. Confirm `Skills` keeps the main branch emerald icon treatment.
+4. Confirm `Automations` uses a distinct blue icon/active treatment and navigates to `/automations`.
+5. Open the app in dark theme and repeat the same checks.
+
+#### Expected Results
+- No `New thread` or `Kanban` primary nav rows appear in the sidebar.
+- Thread rows and thread context menus match the main branch sidebar behavior.
+- The only visible sidebar addition versus main is the `Automations` button.
+- The `Automations` button is visually distinct from the emerald `Skills` button in light and dark themes.
+
+#### Rollback/Cleanup
+- Revert the sidebar block in `src/App.vue` and remove the Automations-specific sidebar styles if the extra entry is no longer needed.
+
 ### Feature: Thread heartbeat automations
 
 #### Prerequisites
