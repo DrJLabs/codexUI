@@ -7,6 +7,7 @@ import express, { type Express } from 'express'
 import { createCodexBridgeMiddleware } from './codexAppServerBridge.js'
 import { createAuthSession } from './authMiddleware.js'
 import { createAutomationsMiddleware } from './automations/index.js'
+import { resolveAutomationSchedulerPreference } from './automations/schedulerConfig.js'
 import { createDirectoryListingHtml, createTextEditorHtml, decodeBrowsePath, getLocalDirectoryListing, isTextEditableFile, normalizeLocalPath } from './localBrowseUi.js'
 import { WebSocketServer, type WebSocket } from 'ws'
 
@@ -76,9 +77,11 @@ function readWildcardPathParam(value: unknown): string {
 export function createServer(options: ServerOptions = {}): ServerInstance {
   const app = express()
   const bridge = createCodexBridgeMiddleware()
+  const automationScheduler = resolveAutomationSchedulerPreference()
   const automations = createAutomationsMiddleware({
     bridge,
-    enableScheduler: true,
+    enableScheduler: automationScheduler.enabled,
+    schedulerShouldRun: automationScheduler.shouldRun,
     projectRoot: process.cwd(),
   })
   const authSession = options.password ? createAuthSession(options.password) : null

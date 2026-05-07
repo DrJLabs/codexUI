@@ -1,13 +1,19 @@
 import { isActiveAutomationRunState } from './runStore'
 import { AutomationDeferredRunError } from './errors'
 import { evaluateRruleSchedule } from './scheduleCalculator'
+import { createAutomationSchedulerLeaseStore } from './schedulerLease'
 import type { AutomationSchedulerState } from './schedulerStore'
 import { AutomationsService, type AutomationSchedulerEntry, type PersistedAutomationActiveRun } from './service'
+
+const DEFAULT_MAX_RUNS_PER_TICK = 3
 
 export class AutomationScheduler {
   private readonly service: AutomationsService
   private readonly intervalMs: number
   private readonly now: () => Date
+  private readonly shouldRun: () => boolean
+  private readonly leaseTtlMs: number | undefined
+  private readonly maxRunsPerTick: number
   private interval: ReturnType<typeof setInterval> | null = null
   private startupRecoveryPromise: Promise<unknown> | null = null
   private startupRecoveryRequired = false
@@ -18,15 +24,25 @@ export class AutomationScheduler {
     service: AutomationsService
     intervalMs?: number
     now?: () => Date
+    shouldRun?: () => boolean
+    leaseTtlMs?: number
+    maxRunsPerTick?: number
   }) {
     this.service = options.service
     this.intervalMs = options.intervalMs ?? 60_000
     this.now = options.now ?? (() => new Date())
+    this.shouldRun = options.shouldRun ?? (() => true)
+    this.leaseTtlMs = options.leaseTtlMs
+    this.maxRunsPerTick = Number.isFinite(options.maxRunsPerTick) && Number(options.maxRunsPerTick) > 0
+      ? Math.floor(Number(options.maxRunsPerTick))
+      : DEFAULT_MAX_RUNS_PER_TICK
   }
 
   start(): void {
     this.startupRecoveryRequired = true
-    void this.ensureStartupRecovery().catch(() => {})
+    if (this.shouldRun()) {
+      void this.ensureStartupRecovery().catch(() => {})
+    }
     if (this.interval) return
     this.interval = setInterval(() => {
       void this.tick().catch((error) => {
@@ -52,14 +68,17 @@ export class AutomationScheduler {
   }
 
   private async runTick(): Promise<void> {
+    if (!this.shouldRun()) return
     await this.ensureStartupRecovery()
     const nowIso = this.now().toISOString()
     const activeRunIndex = buildActiveRunIndex(await this.service.listPersistedActiveRuns())
     const policy = this.service.getExecutionPolicy()
     const maxGlobalActiveRuns = Number(policy.maxGlobalActiveRuns)
     const maxActiveRunsPerRepo = Number(policy.maxActiveRunsPerRepo)
+    let startedRuns = 0
 
     for (const entry of await this.service.listSchedulerEntries()) {
+      if (startedRuns >= this.maxRunsPerTick) break
       if (entry.definition.status !== 'active') continue
 
       let schedulerState = entry.schedulerState
@@ -81,21 +100,40 @@ export class AutomationScheduler {
       const repoKey = repoLimitKey(entry)
       if (repoKey && (activeRunIndex.repoActiveRuns.get(repoKey) ?? 0) >= maxActiveRunsPerRepo) continue
 
+      const leaseStore = createAutomationSchedulerLeaseStore(entry.automationDirPath, { ttlMs: this.leaseTtlMs })
+      const leaseHandle = await leaseStore.acquire({
+        automationId: entry.definition.id,
+        sourceDirName: entry.sourceDirName,
+        dueAtIso: decision.dueAtIso,
+        nowIso,
+      })
+      if (!leaseHandle) continue
+
+      let current = await this.resolveDueEntry(entry.definition.id, nowIso)
+      if (!current) {
+        await leaseHandle.release()
+        continue
+      }
+
       try {
-        await this.service.runScheduled(entry.definition.id, {
-          dueAtIso: decision.dueAtIso,
-          nextDueAtIso: decision.nextDueAtIso,
+        await this.service.runScheduled(current.entry.definition.id, {
+          dueAtIso: current.decision.dueAtIso,
+          nextDueAtIso: current.decision.nextDueAtIso,
         })
       } catch (error) {
         if (error instanceof AutomationDeferredRunError) continue
         console.warn(`Automation scheduler failed to start ${entry.definition.id}:`, error)
         continue
+      } finally {
+        await leaseHandle.release()
       }
       activeRunIndex.globalActiveRuns += 1
-      activeRunIndex.activeAutomationIds.add(entry.definition.id)
-      if (repoKey) {
-        activeRunIndex.repoActiveRuns.set(repoKey, (activeRunIndex.repoActiveRuns.get(repoKey) ?? 0) + 1)
+      activeRunIndex.activeAutomationIds.add(current.entry.definition.id)
+      const currentRepoKey = repoLimitKey(current.entry)
+      if (currentRepoKey) {
+        activeRunIndex.repoActiveRuns.set(currentRepoKey, (activeRunIndex.repoActiveRuns.get(currentRepoKey) ?? 0) + 1)
       }
+      startedRuns += 1
     }
   }
 
@@ -131,6 +169,37 @@ export class AutomationScheduler {
       schedulerState.lastDueAtIso,
       nowIso,
     )
+  }
+
+  private async resolveDueEntry(
+    automationId: string,
+    nowIso: string,
+  ): Promise<{
+    entry: AutomationSchedulerEntry
+    decision: { dueAtIso: string; nextDueAtIso: string | null }
+  } | null> {
+    const entry = (await this.service.listSchedulerEntries()).find((candidate) => candidate.definition.id === automationId)
+    if (!entry || entry.definition.status !== 'active') return null
+    let schedulerState = entry.schedulerState
+    if (!schedulerState) {
+      schedulerState = await this.service.refreshSchedulerState(entry.definition.id, nowIso)
+    }
+    schedulerState = await this.repairIncompleteReservation(entry, schedulerState, nowIso)
+    if (schedulerState.unsupportedReason || !schedulerState.nextDueAtIso) return null
+    const decision = evaluateRruleSchedule({
+      rrule: entry.definition.schedule.rrule,
+      nowIso,
+      nextDueAtIso: schedulerState.nextDueAtIso,
+      anchorIso: entry.definition.updatedAtIso || entry.definition.createdAtIso,
+    })
+    if (!decision.due || !decision.dueAtIso) return null
+    return {
+      entry,
+      decision: {
+        dueAtIso: decision.dueAtIso,
+        nextDueAtIso: decision.nextDueAtIso,
+      },
+    }
   }
 }
 

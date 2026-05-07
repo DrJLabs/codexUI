@@ -11,6 +11,7 @@ export type AutomationsRequestHandler = RequestHandler & {
 export type CreateAutomationsMiddlewareOptions = CreateAutomationsRouterOptions & {
   enableScheduler?: boolean
   schedulerIntervalMs?: number
+  schedulerShouldRun?: () => boolean
 }
 
 export function createAutomationsMiddleware(options: CreateAutomationsMiddlewareOptions = {}): AutomationsRequestHandler {
@@ -31,6 +32,7 @@ export function createAutomationsMiddleware(options: CreateAutomationsMiddleware
     ? new AutomationScheduler({
         service,
         intervalMs: options.schedulerIntervalMs,
+        shouldRun: options.schedulerShouldRun,
       })
     : null
   scheduler?.start()

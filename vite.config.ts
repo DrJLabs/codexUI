@@ -2,6 +2,7 @@ import { defineConfig } from "vite";
 import vue from "@vitejs/plugin-vue";
 import { createCodexBridgeMiddleware } from "./src/server/codexAppServerBridge";
 import { createAutomationsMiddleware } from "./src/server/automations";
+import { resolveAutomationSchedulerPreference } from "./src/server/automations/schedulerConfig";
 import { createDirectoryListingHtml, createTextEditorHtml, decodeBrowsePath, getLocalDirectoryListing, isTextEditableFile, normalizeLocalPath } from "./src/server/localBrowseUi";
 import tailwindcss from "@tailwindcss/vite";
 import { spawnSync } from "node:child_process";
@@ -163,9 +164,11 @@ export default defineConfig({
       configureServer(server) {
         process.env.CODEXUI_SERVER_PORT = String(server.config.server.port ?? 5173);
         const bridge = createCodexBridgeMiddleware();
+        const automationScheduler = resolveAutomationSchedulerPreference();
         const automations = createAutomationsMiddleware({
           bridge,
-          enableScheduler: true,
+          enableScheduler: automationScheduler.enabled,
+          schedulerShouldRun: automationScheduler.shouldRun,
           projectRoot: process.cwd(),
         });
         const httpServer = server.httpServer;

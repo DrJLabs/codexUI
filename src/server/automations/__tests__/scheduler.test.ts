@@ -9,6 +9,7 @@ import type { CodexBridgeNotification, CodexBridgeRuntime } from '../../codexApp
 import { serializeAutomationToml, type ThreadAutomationRecord } from '../nativeStore'
 import { createAutomationRunPaths, createAutomationRunStore } from '../runStore'
 import { AutomationScheduler } from '../scheduler'
+import { createAutomationSchedulerLeaseStore } from '../schedulerLease'
 import type { AutomationSchedulerState } from '../schedulerStore'
 import { AutomationsService } from '../service'
 
@@ -807,6 +808,92 @@ Run the cron task`)
     expect(rpcCalls.map((call) => call.method)).toEqual(['config/read', 'thread/read', 'thread/resume', 'turn/start'])
   })
 
+  it('does not start a due run while another CodexUI scheduler owns the lease', async () => {
+    const now = new Date('2026-04-30T10:00:00.000Z')
+    const { codexHomeDir, service, rpcCalls, notificationListeners } = await createHarness()
+    const automationDir = await writeNative(codexHomeDir, 'daily-check-dir', nativeRecord)
+    await writeFreshScheduler(service, 'daily-check', automationDir)
+    notifyHeartbeatRendererState(notificationListeners, 'thread-1')
+    await createAutomationSchedulerLeaseStore(automationDir, {
+      ownerId: 'other-codexui-instance',
+      pid: 12345,
+      hostname: 'other-host',
+      ttlMs: 10 * 60_000,
+    }).acquire({
+      automationId: 'daily-check',
+      sourceDirName: 'daily-check-dir',
+      dueAtIso: '2026-04-30T09:00:00.000Z',
+      nowIso: '2026-04-30T09:59:00.000Z',
+    })
+
+    await new AutomationScheduler({ service, now: () => now }).tick()
+
+    expect(await createAutomationRunStore(automationDir).listRuns()).toEqual([])
+    expect(rpcCalls).toEqual([])
+  })
+
+  it('replaces a stale scheduler lease and releases the acquired generation after queuing a run', async () => {
+    const now = new Date('2026-04-30T10:00:00.000Z')
+    const { codexHomeDir, service, rpcCalls, notificationListeners } = await createHarness()
+    const automationDir = await writeNative(codexHomeDir, 'daily-check-dir', nativeRecord)
+    await writeFreshScheduler(service, 'daily-check', automationDir)
+    notifyHeartbeatRendererState(notificationListeners, 'thread-1')
+    await createAutomationSchedulerLeaseStore(automationDir, {
+      ownerId: 'stale-codexui-instance',
+      pid: 12345,
+      hostname: 'other-host',
+      ttlMs: 60_000,
+    }).acquire({
+      automationId: 'daily-check',
+      sourceDirName: 'daily-check-dir',
+      dueAtIso: '2026-04-30T09:00:00.000Z',
+      nowIso: '2026-04-30T08:00:00.000Z',
+    })
+
+    await new AutomationScheduler({ service, now: () => now }).tick()
+
+    const runs = await createAutomationRunStore(automationDir).listRuns()
+    expect(runs).toHaveLength(1)
+    await expect(readFile(join(automationDir, 'scheduler-lock.json'), 'utf8')).resolves.toContain('"ownerId": "stale-codexui-instance"')
+    await expect(readFile(join(automationDir, 'scheduler-lock.1.json'), 'utf8')).resolves.toContain('"releasedAtIso":')
+    expect(rpcCalls.map((call) => call.method)).toEqual(['config/read', 'thread/read', 'thread/resume', 'turn/start'])
+  })
+
+  it('starts at most three due automations per tick like Desktop', async () => {
+    const now = new Date('2026-04-30T10:00:00.000Z')
+    const { codexHomeDir, service } = await createHarness()
+    const repo = join(codexHomeDir, 'repo')
+    await mkdir(repo, { recursive: true })
+    const automationDirs: string[] = []
+    for (let index = 1; index <= 4; index += 1) {
+      const automationId = `cron-check-${index}`
+      const automationDir = await writeNative(codexHomeDir, `${automationId}-dir`, {
+        ...nativeRecord,
+        id: automationId,
+        kind: 'cron',
+        name: `Cron Check ${index}`,
+        rrulePrefix: 'RRULE:',
+        targetThreadId: null,
+        executionEnvironment: 'local',
+        runMode: 'local',
+        cwd: repo,
+        cwds: [repo],
+      })
+      automationDirs.push(automationDir)
+      await writeFreshScheduler(service, automationId, automationDir, {
+        automationId,
+        sourceDirName: `${automationId}-dir`,
+      })
+    }
+
+    await new AutomationScheduler({ service, now: () => now }).tick()
+
+    const runCounts = await Promise.all(automationDirs.map(async (automationDir) => {
+      return (await createAutomationRunStore(automationDir).listRuns()).length
+    }))
+    expect(runCounts.reduce((sum, count) => sum + count, 0)).toBe(3)
+  })
+
   it('skips paused definitions and unsupported monthly or yearly scheduler states', async () => {
     const { codexHomeDir, service, rpcCalls } = await createHarness()
     const pausedDir = await writeNative(codexHomeDir, 'paused-dir', {
@@ -1146,6 +1233,22 @@ Run the cron task`)
 
     expect(service.recoverInterruptedRuns).toHaveBeenCalledTimes(1)
     expect(rpcCalls.map((call) => call.method)).toEqual(['config/read', 'thread/read', 'thread/resume', 'turn/start'])
+  })
+
+  it('does not run startup recovery while scheduler ownership is deferred', async () => {
+    const { service } = await createHarness()
+    vi.spyOn(service, 'recoverInterruptedRuns').mockResolvedValue({ recovered: 0 })
+    const scheduler = new AutomationScheduler({
+      service,
+      intervalMs: 60_000,
+      shouldRun: () => false,
+    })
+
+    scheduler.start()
+    await scheduler.tick()
+    scheduler.stop()
+
+    expect(service.recoverInterruptedRuns).not.toHaveBeenCalled()
   })
 
   it('retries startup recovery after a failure and then schedules due work', async () => {

@@ -255,6 +255,21 @@ Acceptance:
 - Desktop plus CodexUI do not double-run in normal active Desktop scenarios.
 - If lock owner dies, stale lock expires safely.
 
+Section 6 implementation notes:
+- Desktop bundle evidence: the main scheduler uses a 30-second tick (`Wt=3e4`), caps due work at three automations per tick (`Gt=3`), writes/reserves next-run state before starting cron runs with `Zn`, and advances heartbeat cursor state with `Qn` when blocked.
+- No Desktop-compatible on-disk scheduler lock was found in the extracted Linux bundle, so CodexUI uses private cross-process lease generation files at the native automation directory path:
+
+```text
+$CODEX_HOME/automations/<native_dir>/scheduler-lock.json
+$CODEX_HOME/automations/<native_dir>/scheduler-lock.<generation>.json
+```
+
+- The lease is intentionally separate from `automation.toml`: TOML remains the canonical definition, while `scheduler.json` and `scheduler-lock*.json` are CodexUI runtime cache/coordination files only.
+- Lease records include `automationId`, `sourceDirName`, `owner`, `ownerId`, `leaseId`, `generation`, `pid`, `hostname`, `acquiredAtIso`, `expiresAtIso`, `dueAtIso`, and `releasedAtIso`. Acquisition publishes complete temp-file content with an atomic hard link to the next deterministic generation path. Released and stale generations stay as inert history so acquisition never deletes or renames an unqualified shared lock path.
+- CodexUI now re-reads the current automation entry and due state after acquiring the lease, then starts the run only if the automation is still active and due. This prevents stale pre-lock decisions from queuing work after another process has advanced scheduler state.
+- CodexUI scheduler auto mode remains enabled for standalone use, but ticks and startup recovery skip while a Codex Desktop process is detected. `CODEXUI_AUTOMATIONS_SCHEDULER=enabled` forces CodexUI scheduling; `CODEXUI_AUTOMATIONS_SCHEDULER=desktop` disables it.
+- The CodexUI scheduler now follows Desktop's max-three-runs-per-tick behavior.
+
 ### 7. RRULE And Schedule Semantics
 
 Current CodexUI behavior:
@@ -605,8 +620,8 @@ Test cases:
 ## Open Questions
 
 1. Does Desktop persist `nextRunAt`/`lastRunAt` only in internal state, or also in automation TOML/state files on all platforms?
-2. What exact file, if any, does Desktop use as a scheduler lock?
-3. Should CodexUI scheduler disable itself automatically whenever Desktop is running?
+2. Does a future Desktop release add an on-disk scheduler lock that CodexUI should adopt instead of `scheduler-lock.json`?
+3. Should CodexUI surface scheduler auto/desktop/forced ownership in the UI, or keep it as an environment/runtime concern?
 4. Should projectless automation creation be blocked until full generated-directory parity exists?
 5. Should CodexUI expose Desktop's full template catalog immediately or phase it behind a feature flag?
 
