@@ -28,7 +28,7 @@ export type AutomationDraft = {
   notes: string
   runMode: AutomationRunMode
   cwd: string
-  runProfileId: string
+  cwds: string[]
   model: string
   reasoningEffort: string
 }
@@ -102,7 +102,7 @@ function createEmptyDraft(threadId = ''): AutomationDraft {
     notes: '',
     runMode: 'chat',
     cwd: '',
-    runProfileId: '',
+    cwds: [],
     model: '',
     reasoningEffort: '',
   }
@@ -120,7 +120,7 @@ function draftFromDefinition(definition: AutomationDefinition): AutomationDraft 
     notes: definition.notes,
     runMode: definition.runMode ?? 'chat',
     cwd: definition.cwd ?? '',
-    runProfileId: definition.runProfileId ?? '',
+    cwds: definition.cwds,
     model: definition.model ?? '',
     reasoningEffort: definition.reasoningEffort ?? '',
   }
@@ -133,6 +133,13 @@ function normalizeOptionalNullable(value: string): string | null {
 
 function normalizeNotes(value: string): string {
   return value.trim()
+}
+
+function normalizeDraftCwds(draft: AutomationDraft): string[] {
+  const cwd = normalizeOptionalNullable(draft.cwd)
+  if (!cwd) return []
+  if (draft.cwds.length > 0 && draft.cwds[0] === cwd) return draft.cwds
+  return [cwd]
 }
 
 export function useAutomations(options: UseAutomationsOptions = {}) {
@@ -402,6 +409,7 @@ export function useAutomations(options: UseAutomationsOptions = {}) {
 
 function toCreateInput(draft: AutomationDraft): CreateAutomationInput {
   const targetThreadId = draft.runMode === 'chat' ? normalizeOptionalNullable(draft.targetThreadId) : null
+  const cwds = normalizeDraftCwds(draft)
   return {
     kind: targetThreadId ? 'heartbeat' : 'cron',
     name: draft.name.trim(),
@@ -409,9 +417,9 @@ function toCreateInput(draft: AutomationDraft): CreateAutomationInput {
     schedule: { type: 'rrule', rrule: draft.rrule.trim() },
     targetThreadId,
     description: normalizeOptionalNullable(draft.description),
-    cwd: normalizeOptionalNullable(draft.cwd),
+    cwd: cwds[0] ?? null,
+    cwds,
     runMode: draft.runMode,
-    runProfileId: normalizeOptionalNullable(draft.runProfileId),
     model: normalizeOptionalNullable(draft.model),
     reasoningEffort: normalizeOptionalNullable(draft.reasoningEffort),
     notes: normalizeNotes(draft.notes),
@@ -420,15 +428,16 @@ function toCreateInput(draft: AutomationDraft): CreateAutomationInput {
 
 function toPatchInput(draft: AutomationDraft): PatchAutomationInput {
   const targetThreadId = draft.runMode === 'chat' ? normalizeOptionalNullable(draft.targetThreadId) : null
+  const cwds = normalizeDraftCwds(draft)
   return {
     name: draft.name.trim(),
     prompt: draft.prompt.trim(),
     schedule: { type: 'rrule', rrule: draft.rrule.trim() },
     targetThreadId,
     description: normalizeOptionalNullable(draft.description),
-    cwd: normalizeOptionalNullable(draft.cwd),
+    cwd: cwds[0] ?? null,
+    cwds,
     runMode: draft.runMode,
-    runProfileId: normalizeOptionalNullable(draft.runProfileId),
     model: normalizeOptionalNullable(draft.model),
     reasoningEffort: normalizeOptionalNullable(draft.reasoningEffort),
     notes: normalizeNotes(draft.notes),

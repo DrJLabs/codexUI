@@ -19,25 +19,6 @@ it('prefills create draft from a thread shortcut when no matching automation exi
   expect(automations.draft.value.targetThreadId).toBe('thread_123')
 })
 
-it('keeps new draft run profile unset until the user changes it', async () => {
-  const gateway = createGatewayFixture([])
-  vi.mocked(gateway.loadAutomationsState).mockResolvedValue({
-    ...stateFixture([]),
-    executionOptions: {
-      defaultRunProfileId: 'network-coding',
-      currentConfigProfileId: 'network-coding',
-      runProfiles: [],
-    },
-  })
-  const automations = useAutomations({ gateway })
-
-  await automations.loadAll()
-  expect(automations.draft.value.runProfileId).toBe('')
-
-  automations.startCreate('thread_123')
-  expect(automations.draft.value.runProfileId).toBe('')
-})
-
 it('preserves a route thread prefill across the initial async load', async () => {
   const deferred = createDeferredState([automationFixture({ id: 'auto_1', targetThreadId: 'other_thread' })])
   const automations = useAutomations({ gateway: createGatewayFixture([], { deferredState: deferred.promise }) })
@@ -81,7 +62,6 @@ it('normalizes optional blank draft fields before save', async () => {
     description: null,
     cwd: null,
     runMode: 'chat',
-    runProfileId: null,
     model: null,
     reasoningEffort: null,
     notes: '',
@@ -345,9 +325,8 @@ function createGatewayFixture(
         schedule: input.schedule,
         description: input.description ?? null,
         cwd: input.cwd ?? null,
-        cwds: input.cwd ? [input.cwd] : [],
+        cwds: input.cwds ?? (input.cwd ? [input.cwd] : []),
         runMode: input.runMode ?? null,
-        runProfileId: input.runProfileId ?? null,
         model: input.model ?? null,
         reasoningEffort: input.reasoningEffort ?? null,
         notes: input.notes ?? '',
@@ -478,6 +457,7 @@ function automationFixture(overrides: Partial<AutomationDefinition> = {}): Autom
     runProfileId: null,
     model: null,
     reasoningEffort: null,
+    localEnvironmentConfigPath: null,
     autoArchiveNoFindings: false,
     notifyOnFindings: false,
     kanbanProjection: { mode: 'off' },
@@ -485,7 +465,7 @@ function automationFixture(overrides: Partial<AutomationDefinition> = {}): Autom
     storage: {
       nativeDirName: 'auto_1',
       nativePath: '/tmp/automations/auto_1/automation.toml',
-      sidecarPath: '/tmp/automations/auto_1/codexui.json',
+      sidecarPath: '/tmp/automations/auto_1/codexui.local.json',
     },
     createdAtIso: '2026-04-30T00:00:00.000Z',
     updatedAtIso: '2026-04-30T00:00:00.000Z',

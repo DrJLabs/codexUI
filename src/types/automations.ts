@@ -41,6 +41,7 @@ export type AutomationExecution = {
   runProfileId: string | null
   model: string | null
   reasoningEffort: string | null
+  localEnvironmentConfigPath: string | null
 }
 
 export type AutomationStorageInfo = {

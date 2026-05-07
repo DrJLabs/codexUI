@@ -46,7 +46,8 @@ import {
   type AutomationExecutionPolicy,
 } from './policy'
 
-const SIDECAR_FILENAME = 'codexui.json'
+const LOCAL_SIDECAR_FILENAME = 'codexui.local.json'
+const LEGACY_SIDECAR_FILENAME = 'codexui.json'
 
 type AutomationSidecar = AutomationSidecarRead
 type MapDefinitionOptions = {
@@ -220,7 +221,8 @@ export class AutomationsService {
       reasoningEffort: input.reasoningEffort,
       runMode: input.runMode,
       cwd: input.cwd,
-      cwds: input.cwd ? [input.cwd] : [],
+      cwds: input.cwds,
+      localEnvironmentConfigPath: input.localEnvironmentConfigPath,
     }, this.options)
     const entry = await this.findEntry(record.id)
     if (!entry) throw new AutomationNotFoundError(record.id)
@@ -250,11 +252,13 @@ export class AutomationsService {
     }
     const now = Date.now()
     const preserveUnknownExecutionEnvironment = Boolean(entry.record.executionEnvironment && !entry.record.runMode)
-    const existingPrimaryCwd = entry.record.cwd ?? entry.record.cwds[0] ?? null
-    const patchedCwd = hasOwn(patch, 'cwd') ? patch.cwd ?? null : entry.record.cwd
-    const patchedCwds = hasOwn(patch, 'cwd')
-      ? patchedCwd === existingPrimaryCwd ? entry.record.cwds : patchedCwd ? [patchedCwd] : []
-      : entry.record.cwds
+    const patchHasTargetPaths = hasOwn(patch, 'cwds') || hasOwn(patch, 'cwd')
+    const patchedCwds = hasOwn(patch, 'cwds')
+      ? patch.cwds ?? []
+      : hasOwn(patch, 'cwd')
+        ? patch.cwd ? [patch.cwd] : []
+        : entry.record.cwds
+    const patchedCwd = patchHasTargetPaths ? patchedCwds[0] ?? null : entry.record.cwd
     const nextRecord: ThreadAutomationRecord = {
       ...entry.record,
       name: patch.name ?? entry.record.name,
@@ -263,8 +267,15 @@ export class AutomationsService {
       targetThreadId: hasOwn(patch, 'targetThreadId') ? patch.targetThreadId ?? null : entry.record.targetThreadId,
       model: hasOwn(patch, 'model') ? patch.model ?? null : entry.record.model,
       reasoningEffort: hasOwn(patch, 'reasoningEffort') ? patch.reasoningEffort ?? null : entry.record.reasoningEffort,
+      localEnvironmentConfigPath: hasOwn(patch, 'localEnvironmentConfigPath') ? patch.localEnvironmentConfigPath ?? null : entry.record.localEnvironmentConfigPath,
       runMode: preserveUnknownExecutionEnvironment ? entry.record.runMode : hasOwn(patch, 'runMode') ? patch.runMode ?? null : entry.record.runMode,
-      executionEnvironment: preserveUnknownExecutionEnvironment ? entry.record.executionEnvironment : hasOwn(patch, 'runMode') ? patch.runMode ?? null : entry.record.executionEnvironment,
+      executionEnvironment: canonicalAutomationExecutionEnvironment(
+        preserveUnknownExecutionEnvironment
+          ? entry.record.executionEnvironment
+          : hasOwn(patch, 'runMode')
+            ? patch.runMode === 'local' || patch.runMode === 'worktree' ? patch.runMode : null
+            : entry.record.executionEnvironment,
+      ),
       cwd: patchedCwd,
       cwds: patchedCwds,
       updatedAtMs: now,
@@ -272,16 +283,11 @@ export class AutomationsService {
     let nextSidecar = {
       ...sidecarResult.sidecar,
       description: hasOwn(patch, 'description') ? patch.description ?? null : sidecarResult.sidecar.description,
-      cwd: hasOwn(patch, 'cwd') ? patch.cwd ?? null : sidecarResult.sidecar.cwd,
-      runMode: preserveUnknownExecutionEnvironment ? sidecarResult.sidecar.runMode : hasOwn(patch, 'runMode') ? patch.runMode ?? null : sidecarResult.sidecar.runMode,
-      runProfileId: hasOwn(patch, 'runProfileId') ? patch.runProfileId ?? null : sidecarResult.sidecar.runProfileId,
-      model: hasOwn(patch, 'model') ? patch.model ?? null : sidecarResult.sidecar.model,
-      reasoningEffort: hasOwn(patch, 'reasoningEffort') ? patch.reasoningEffort ?? null : sidecarResult.sidecar.reasoningEffort,
       kanbanProjection: hasOwn(patch, 'kanbanProjection') ? patch.kanbanProjection ?? { mode: 'off' } : sidecarResult.sidecar.kanbanProjection,
       notes: hasOwn(patch, 'notes') ? patch.notes ?? '' : sidecarResult.sidecar.notes,
     }
     if (!preserveUnknownExecutionEnvironment) {
-      assertAutomationRunTarget(nextRecord.runMode ?? nextSidecar.runMode, nextRecord.cwd ?? nextSidecar.cwd, nextRecord.targetThreadId)
+      assertAutomationRunTarget(nextRecord.runMode, nextRecord.cwd, nextRecord.targetThreadId)
     }
     await writeNativeHeartbeatAutomationBySourceDir(entry.sourceDirName, nextRecord, this.options)
     await writeSidecar(entry, nextSidecar)
@@ -810,12 +816,13 @@ async function mapDefinition(
       schedule: { type: 'rrule', rrule: entry.record.rrule },
       targetThreadId: entry.record.targetThreadId,
       projectRoot: null,
-      cwd: entry.record.cwd ?? sidecar.cwd,
-      cwds: entry.record.cwds.length > 0 ? entry.record.cwds : sidecar.cwd ? [sidecar.cwd] : [],
-      runMode: entry.record.runMode ?? sidecar.runMode,
-      runProfileId: sidecar.runProfileId,
-      model: entry.record.model ?? sidecar.model,
-      reasoningEffort: entry.record.reasoningEffort ?? sidecar.reasoningEffort,
+      cwd: entry.record.cwd,
+      cwds: entry.record.cwds,
+      runMode: entry.record.runMode,
+      runProfileId: null,
+      model: entry.record.model,
+      reasoningEffort: entry.record.reasoningEffort,
+      localEnvironmentConfigPath: entry.record.localEnvironmentConfigPath,
       autoArchiveNoFindings: false,
       notifyOnFindings: false,
       kanbanProjection: sidecar.kanbanProjection,
@@ -924,6 +931,10 @@ function buildScheduleHash(entry: NativeAutomationEntry, _sidecar: AutomationSid
     .digest('hex')
 }
 
+function canonicalAutomationExecutionEnvironment(value: string | null): string | null {
+  return value === 'chat' ? null : value
+}
+
 function automationRepoLimitKey(definition: AutomationDefinition): string | null {
   const runMode = definition.runMode ?? 'chat'
   if (runMode !== 'local' && runMode !== 'worktree') return null
@@ -960,11 +971,6 @@ function dateIso(value: number | null): string {
 function defaultSidecar(): AutomationSidecar {
   return {
     description: null,
-    cwd: null,
-    runMode: null,
-    runProfileId: null,
-    model: null,
-    reasoningEffort: null,
     kanbanProjection: { mode: 'off' },
     notes: '',
   }
@@ -973,19 +979,15 @@ function defaultSidecar(): AutomationSidecar {
 function sidecarFromCreate(input: AutomationCreateInput): AutomationSidecar {
   return {
     description: input.description,
-    cwd: input.cwd,
-    runMode: input.runMode,
-    runProfileId: input.runProfileId,
-    model: input.model,
-    reasoningEffort: input.reasoningEffort,
     kanbanProjection: input.kanbanProjection,
     notes: input.notes,
   }
 }
 
 async function readSidecar(entry: NativeAutomationEntry): Promise<{ sidecar: AutomationSidecar; diagnostic: AutomationDiagnostic | null }> {
-  const path = sidecarPath(entry)
+  const path = await findReadableSidecarPath(entry)
   let raw: string
+  if (!path) return { sidecar: defaultSidecar(), diagnostic: null }
   try {
     raw = await readFile(path, 'utf8')
   } catch (error) {
@@ -1005,7 +1007,7 @@ async function readSidecar(entry: NativeAutomationEntry): Promise<{ sidecar: Aut
             sourceDirName: entry.sourceDirName,
             path,
             severity: 'warning',
-            message: `Invalid codexui.json sidecar fields: ${parsedSidecar.invalidFields.join(', ')}`,
+            message: `Invalid CodexUI local sidecar fields: ${parsedSidecar.invalidFields.join(', ')}`,
           }
         : null,
     }
@@ -1017,7 +1019,7 @@ async function readSidecar(entry: NativeAutomationEntry): Promise<{ sidecar: Aut
         sourceDirName: entry.sourceDirName,
         path,
         severity: 'warning',
-        message: 'Invalid codexui.json sidecar',
+        message: 'Invalid CodexUI local sidecar',
       },
     }
   }
@@ -1028,17 +1030,42 @@ async function writeSidecar(entry: NativeAutomationEntry, sidecar: AutomationSid
 }
 
 async function deleteSidecar(entry: NativeAutomationEntry): Promise<boolean> {
+  let removed = false
   try {
     await rm(sidecarPath(entry), { force: false })
-    return true
+    removed = true
   } catch (error) {
-    if (isNodeError(error) && error.code === 'ENOENT') return false
-    throw error
+    if (!isNodeError(error) || error.code !== 'ENOENT') throw error
   }
+  try {
+    await rm(join(entry.automationDirPath, LEGACY_SIDECAR_FILENAME), { force: false })
+    removed = true
+  } catch (error) {
+    if (!isNodeError(error) || error.code !== 'ENOENT') throw error
+  }
+  return removed
 }
 
 function sidecarPath(entry: NativeAutomationEntry): string {
-  return join(entry.automationDirPath, SIDECAR_FILENAME)
+  return join(entry.automationDirPath, LOCAL_SIDECAR_FILENAME)
+}
+
+async function findReadableSidecarPath(entry: NativeAutomationEntry): Promise<string | null> {
+  const localPath = sidecarPath(entry)
+  try {
+    await readFile(localPath, 'utf8')
+    return localPath
+  } catch (error) {
+    if (!isNodeError(error) || error.code !== 'ENOENT') throw error
+  }
+  const legacyPath = join(entry.automationDirPath, LEGACY_SIDECAR_FILENAME)
+  try {
+    await readFile(legacyPath, 'utf8')
+    return legacyPath
+  } catch (error) {
+    if (isNodeError(error) && error.code === 'ENOENT') return null
+    throw error
+  }
 }
 
 function hasOwn(input: object, field: string): boolean {

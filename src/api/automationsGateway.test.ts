@@ -188,6 +188,7 @@ function automationFixture(overrides: Partial<AutomationDefinition> = {}): Autom
     runProfileId: null,
     model: null,
     reasoningEffort: null,
+    localEnvironmentConfigPath: null,
     autoArchiveNoFindings: false,
     notifyOnFindings: false,
     kanbanProjection: { mode: 'off' },
@@ -195,7 +196,7 @@ function automationFixture(overrides: Partial<AutomationDefinition> = {}): Autom
     storage: {
       nativeDirName: 'auto_1',
       nativePath: '/tmp/automations/auto_1/automation.toml',
-      sidecarPath: '/tmp/automations/auto_1/codexui.json',
+      sidecarPath: '/tmp/automations/auto_1/codexui.local.json',
     },
     createdAtIso: '2026-04-30T00:00:00.000Z',
     updatedAtIso: '2026-04-30T00:00:00.000Z',

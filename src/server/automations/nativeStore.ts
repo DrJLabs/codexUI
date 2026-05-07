@@ -4,25 +4,34 @@ import { join } from 'node:path'
 import type { AutomationDiagnostic, AutomationRunMode } from '../../types/automations'
 import { resolveCodexHomeDir } from './paths'
 
-export type ThreadAutomationStatus = 'ACTIVE' | 'PAUSED'
+export type DesktopAutomationKind = 'heartbeat' | 'cron'
 
-export type ThreadAutomationRecord = {
+export type DesktopAutomationStatus = 'ACTIVE' | 'PAUSED'
+
+export type ThreadAutomationStatus = DesktopAutomationStatus
+
+export type DesktopAutomationRecord = {
+  version: number
   id: string
-  kind: 'heartbeat' | 'cron'
+  kind: DesktopAutomationKind
   name: string
   prompt: string
   rrule: string
   rrulePrefix: 'RRULE:' | null
-  status: ThreadAutomationStatus
+  status: DesktopAutomationStatus
   targetThreadId: string | null
   model: string | null
   reasoningEffort: string | null
   executionEnvironment: string | null
-  runMode: AutomationRunMode | null
-  cwd: string | null
   cwds: string[]
+  localEnvironmentConfigPath: string | null
   createdAtMs: number | null
   updatedAtMs: number | null
+}
+
+export type ThreadAutomationRecord = DesktopAutomationRecord & {
+  runMode: AutomationRunMode | null
+  cwd: string | null
   nextRunAtMs: number | null
 }
 
@@ -32,7 +41,7 @@ export type NativeAutomationStoreOptions = {
 
 export type NativeAutomationWriteInput = {
   id?: string | null
-  kind: 'heartbeat' | 'cron'
+  kind: DesktopAutomationKind
   threadId: string | null
   name: string
   prompt: string
@@ -40,9 +49,11 @@ export type NativeAutomationWriteInput = {
   status: ThreadAutomationStatus
   model?: string | null
   reasoningEffort?: string | null
+  executionEnvironment?: string | null
   runMode?: AutomationRunMode | null
   cwd?: string | null
   cwds?: string[]
+  localEnvironmentConfigPath?: string | null
 }
 
 type ThreadAutomationStoreEntry = {
@@ -188,7 +199,24 @@ function normalizeAutomationRruleForRead(value: string): { rrule: string; rruleP
 }
 
 function runModeFromExecutionEnvironment(value: string | null): AutomationRunMode | null {
-  if (value === 'chat' || value === 'local' || value === 'worktree') return value
+  if (value === 'local' || value === 'worktree') return value
+  return null
+}
+
+function canonicalExecutionEnvironment(value: string | null | undefined): string | null {
+  if (value === 'chat') return null
+  if (value === 'local' || value === 'worktree') return value
+  return value?.trim() || null
+}
+
+function deriveRunModeForRecord(input: {
+  kind: DesktopAutomationKind
+  executionEnvironment: string | null
+  targetThreadId: string | null
+}): AutomationRunMode | null {
+  const runMode = runModeFromExecutionEnvironment(input.executionEnvironment)
+  if (runMode) return runMode
+  if (input.kind === 'heartbeat' || input.targetThreadId) return 'chat'
   return null
 }
 
@@ -221,8 +249,10 @@ function previousRawHasTopLevelKey(previousRaw: string | undefined, key: string)
 }
 
 function buildAutomationTomlFields(record: ThreadAutomationRecord, previousRaw?: string): Record<string, string> {
+  const previousHasCwd = previousRawHasTopLevelKey(previousRaw, 'cwd')
+  const previousHasCwds = previousRawHasTopLevelKey(previousRaw, 'cwds')
   const fields: Record<string, string> = {
-    version: '1',
+    version: String(record.version || 1),
     id: serializeTomlString(record.id),
     kind: serializeTomlString(record.kind),
     name: serializeTomlString(record.name),
@@ -230,11 +260,16 @@ function buildAutomationTomlFields(record: ThreadAutomationRecord, previousRaw?:
     status: serializeTomlString(record.status),
     rrule: serializeTomlString(`${record.rrulePrefix ?? (record.kind === 'cron' ? 'RRULE:' : '')}${record.rrule}`),
   }
-  if (record.cwd) fields.cwd = serializeTomlString(record.cwd)
+  if (record.cwd && previousHasCwd) fields.cwd = serializeTomlString(record.cwd)
   if (record.model) fields.model = serializeTomlString(record.model)
   if (record.reasoningEffort) fields.reasoning_effort = serializeTomlString(record.reasoningEffort)
   if (record.executionEnvironment) fields.execution_environment = serializeTomlString(record.executionEnvironment)
-  if (record.cwds.length > 0) fields.cwds = serializeTomlStringArray(record.cwds)
+  if (record.cwds.length > 0 && (previousRaw === undefined || previousHasCwds || !previousHasCwd)) {
+    fields.cwds = serializeTomlStringArray(record.cwds)
+  }
+  if (record.localEnvironmentConfigPath) {
+    fields.local_environment_config_path = serializeTomlString(record.localEnvironmentConfigPath)
+  }
   if (record.targetThreadId || previousRawHasTopLevelKey(previousRaw, 'target_thread_id')) {
     fields.target_thread_id = serializeTomlString(record.targetThreadId ?? '')
   }
@@ -410,6 +445,7 @@ export function parseAutomationToml(raw: string): ThreadAutomationRecord | null 
     values[assignment.key] = assignment.value
   }
 
+  const version = Number.parseInt(values.version ?? '1', 10)
   const id = readTomlString(values.id ?? '')
   const kindValue = readTomlString(values.kind ?? 'heartbeat')
   const name = readTomlString(values.name ?? '')
@@ -420,11 +456,11 @@ export function parseAutomationToml(raw: string): ThreadAutomationRecord | null 
   const model = readTomlString(values.model ?? '') || null
   const reasoningEffort = readTomlString(values.reasoning_effort ?? '') || null
   const executionEnvironment = readTomlString(values.execution_environment ?? '') || null
+  const localEnvironmentConfigPath = readTomlString(values.local_environment_config_path ?? '') || null
   const cwdValue = readTomlString(values.cwd ?? '') || null
   const parsedCwds = readTomlStringArray(values.cwds ?? '') ?? []
   const cwd = cwdValue ?? parsedCwds[0] ?? null
   const cwds = parsedCwds.length > 0 ? parsedCwds : (cwdValue ? [cwdValue] : [])
-  const runMode = runModeFromExecutionEnvironment(executionEnvironment)
   const createdAtMs = Number.parseInt(values.created_at ?? '', 10)
   const updatedAtMs = Number.parseInt(values.updated_at ?? '', 10)
 
@@ -432,9 +468,13 @@ export function parseAutomationToml(raw: string): ThreadAutomationRecord | null 
   if (kindValue !== 'heartbeat' && kindValue !== 'cron') return null
   if (statusValue !== 'ACTIVE' && statusValue !== 'PAUSED') return null
 
+  const kind = kindValue
+  const runMode = deriveRunModeForRecord({ kind, executionEnvironment, targetThreadId })
+
   return {
+    version: Number.isFinite(version) ? version : 1,
     id,
-    kind: kindValue,
+    kind,
     name,
     prompt,
     rrule: normalizedRrule.rrule,
@@ -444,6 +484,7 @@ export function parseAutomationToml(raw: string): ThreadAutomationRecord | null 
     model,
     reasoningEffort,
     executionEnvironment,
+    localEnvironmentConfigPath,
     runMode,
     cwd,
     cwds,
@@ -463,6 +504,7 @@ export function serializeAutomationToml(record: ThreadAutomationRecord, previous
     'reasoning_effort',
     'execution_environment',
     'cwds',
+    'local_environment_config_path',
     'target_thread_id',
   ])
 
@@ -722,6 +764,7 @@ export async function writeNativeAutomation(
   }
   const now = Date.now()
   const record: ThreadAutomationRecord = {
+    version: existing?.record.version ?? 1,
     id,
     kind: input.kind,
     name,
@@ -732,8 +775,13 @@ export async function writeNativeAutomation(
     targetThreadId: threadId,
     model: input.model ?? existing?.record.model ?? null,
     reasoningEffort: input.reasoningEffort ?? existing?.record.reasoningEffort ?? null,
-    executionEnvironment: input.runMode ?? existing?.record.executionEnvironment ?? null,
-    runMode: input.runMode ?? existing?.record.runMode ?? null,
+    executionEnvironment: canonicalExecutionEnvironment(input.executionEnvironment ?? input.runMode ?? existing?.record.executionEnvironment),
+    localEnvironmentConfigPath: input.localEnvironmentConfigPath ?? existing?.record.localEnvironmentConfigPath ?? null,
+    runMode: input.runMode ?? deriveRunModeForRecord({
+      kind: input.kind,
+      executionEnvironment: input.executionEnvironment ?? existing?.record.executionEnvironment ?? null,
+      targetThreadId: threadId,
+    }),
     cwd: input.cwd ?? input.cwds?.[0] ?? existing?.record.cwd ?? null,
     cwds: input.cwds ?? (input.cwd ? [input.cwd] : existing?.record.cwds ?? []),
     createdAtMs: existing?.record.createdAtMs ?? now,

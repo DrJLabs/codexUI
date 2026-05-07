@@ -519,12 +519,13 @@ export class AutomationRunner {
       schedule: { type: 'rrule', rrule: entry.record.rrule },
       targetThreadId: entry.record.targetThreadId,
       projectRoot: null,
-      cwd: entry.record.cwd ?? sidecar.cwd,
-      cwds: entry.record.cwds.length > 0 ? entry.record.cwds : sidecar.cwd ? [sidecar.cwd] : [],
-      runMode: entry.record.runMode ?? sidecar.runMode,
-      runProfileId: sidecar.runProfileId,
-      model: entry.record.model ?? sidecar.model,
-      reasoningEffort: entry.record.reasoningEffort ?? sidecar.reasoningEffort,
+      cwd: entry.record.cwd,
+      cwds: entry.record.cwds,
+      runMode: entry.record.runMode,
+      runProfileId: null,
+      model: entry.record.model,
+      reasoningEffort: entry.record.reasoningEffort,
+      localEnvironmentConfigPath: entry.record.localEnvironmentConfigPath,
       autoArchiveNoFindings: false,
       notifyOnFindings: false,
       kanbanProjection: sidecar.kanbanProjection,
@@ -532,7 +533,7 @@ export class AutomationRunner {
       storage: {
         nativeDirName: entry.sourceDirName,
         nativePath: entry.automationTomlPath,
-        sidecarPath: join(entry.automationDirPath, 'codexui.json'),
+        sidecarPath: join(entry.automationDirPath, 'codexui.local.json'),
       },
       createdAtIso,
       updatedAtIso,
@@ -604,10 +605,15 @@ function extractThreadId(params: unknown): string {
 async function readProjectionSidecar(entry: NativeAutomationEntry): Promise<AutomationSidecarRead> {
   let raw: string
   try {
-    raw = await readFile(join(entry.automationDirPath, 'codexui.json'), 'utf8')
+    raw = await readFile(join(entry.automationDirPath, 'codexui.local.json'), 'utf8')
   } catch (error) {
-    if (isMissingFileError(error)) return defaultProjectionSidecar()
-    throw error
+    if (!isMissingFileError(error)) throw error
+    try {
+      raw = await readFile(join(entry.automationDirPath, 'codexui.json'), 'utf8')
+    } catch (legacyError) {
+      if (isMissingFileError(legacyError)) return defaultProjectionSidecar()
+      throw legacyError
+    }
   }
   try {
     const parsed = JSON.parse(raw) as unknown
@@ -620,11 +626,6 @@ async function readProjectionSidecar(entry: NativeAutomationEntry): Promise<Auto
 function defaultProjectionSidecar(): AutomationSidecarRead {
   return {
     description: null,
-    cwd: null,
-    runMode: null,
-    runProfileId: null,
-    model: null,
-    reasoningEffort: null,
     kanbanProjection: { mode: 'off' },
     notes: '',
   }
@@ -645,6 +646,7 @@ function createNativeEntryForRun(
 ): NativeAutomationEntry {
   return {
     record: {
+      version: definition.version,
       id: definition.id,
       kind: definition.kind,
       name: definition.name,
@@ -656,6 +658,7 @@ function createNativeEntryForRun(
       model: definition.model,
       reasoningEffort: definition.reasoningEffort,
       executionEnvironment: definition.runMode,
+      localEnvironmentConfigPath: definition.localEnvironmentConfigPath,
       runMode: definition.runMode,
       cwd: definition.cwd,
       cwds: definition.cwds,

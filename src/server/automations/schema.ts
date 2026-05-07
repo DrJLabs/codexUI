@@ -10,10 +10,11 @@ export type AutomationCreateInput = {
   schedule: { type: 'rrule'; rrule: string }
   targetThreadId: string | null
   cwd: string | null
+  cwds: string[]
   runMode: AutomationRunMode | null
-  runProfileId: string | null
   model: string | null
   reasoningEffort: string | null
+  localEnvironmentConfigPath: string | null
   kanbanProjection: AutomationKanbanProjection
   notes: string
 }
@@ -25,10 +26,11 @@ export type AutomationPatchInput = Partial<{
   schedule: { type: 'rrule'; rrule: string }
   targetThreadId: string | null
   cwd: string | null
+  cwds: string[]
   runMode: AutomationRunMode | null
-  runProfileId: string | null
   model: string | null
   reasoningEffort: string | null
+  localEnvironmentConfigPath: string | null
   kanbanProjection: AutomationKanbanProjection
   notes: string
 }>
@@ -39,11 +41,6 @@ export type AutomationDeleteOptions = {
 
 export type AutomationSidecarRead = {
   description: string | null
-  cwd: string | null
-  runMode: AutomationRunMode | null
-  runProfileId: string | null
-  model: string | null
-  reasoningEffort: string | null
   kanbanProjection: AutomationKanbanProjection
   notes: string
 }
@@ -103,6 +100,24 @@ function readCwd(value: unknown): string | null {
   const cwd = readNullableString(value, 'cwd')
   if (cwd !== null && !isAbsolute(cwd)) throw new AutomationValidationError('cwd must be an absolute path')
   return cwd
+}
+
+function readCwds(value: unknown): string[] {
+  if (value === null || value === undefined) return []
+  if (!Array.isArray(value)) throw new AutomationValidationError('cwds must be an array')
+  const cwds = value.map((item, index) => {
+    if (typeof item !== 'string') throw new AutomationValidationError(`cwds[${index}] must be a string`)
+    const cwd = item.trim()
+    if (!cwd) throw new AutomationValidationError(`cwds[${index}] must be non-empty`)
+    if (!isAbsolute(cwd)) throw new AutomationValidationError(`cwds[${index}] must be an absolute path`)
+    return cwd
+  })
+  return Array.from(new Set(cwds))
+}
+
+function readOptionalCwds(input: Record<string, unknown>): string[] | undefined {
+  if (!hasOwn(input, 'cwds')) return undefined
+  return readCwds(input.cwds)
 }
 
 function readRunMode(value: unknown): AutomationRunMode | null {
@@ -170,11 +185,6 @@ export function parseAutomationSidecarRead(value: unknown): { sidecar: Automatio
   if (!isRecord(value)) throw new AutomationValidationError('sidecar must be an object')
   const sidecar: AutomationSidecarRead = {
     description: null,
-    cwd: null,
-    runMode: null,
-    runProfileId: null,
-    model: null,
-    reasoningEffort: null,
     kanbanProjection: { mode: 'off' },
     notes: '',
   }
@@ -184,31 +194,6 @@ export function parseAutomationSidecarRead(value: unknown): { sidecar: Automatio
     sidecar.description = readNullableString(value.description, 'description')
   } catch {
     invalidFields.push('description')
-  }
-  try {
-    sidecar.cwd = readCwd(value.cwd)
-  } catch {
-    invalidFields.push('cwd')
-  }
-  try {
-    sidecar.runMode = readRunMode(value.runMode)
-  } catch {
-    invalidFields.push('runMode')
-  }
-  try {
-    sidecar.runProfileId = readNullableString(value.runProfileId, 'runProfileId')
-  } catch {
-    invalidFields.push('runProfileId')
-  }
-  try {
-    sidecar.model = readNullableString(value.model, 'model')
-  } catch {
-    invalidFields.push('model')
-  }
-  try {
-    sidecar.reasoningEffort = readNullableString(value.reasoningEffort, 'reasoningEffort')
-  } catch {
-    invalidFields.push('reasoningEffort')
   }
   try {
     sidecar.kanbanProjection = readKanbanProjection(value.kanbanProjection)
@@ -232,9 +217,13 @@ function readOptionalNotes(input: Record<string, unknown>): string | undefined {
 export function parseAutomationCreateInput(value: unknown): AutomationCreateInput {
   if (!isRecord(value)) throw new AutomationValidationError('Automation create payload is required')
   if (value.kind !== 'heartbeat' && value.kind !== 'cron') throw new AutomationValidationError('kind must be heartbeat or cron')
+  if (hasOwn(value, 'runProfileId')) throw new AutomationValidationError('runProfileId is not supported for automation definitions; set model and reasoningEffort instead')
   const runMode = readRunMode(value.runMode)
-  const cwd = readCwd(value.cwd)
-  if ((runMode === 'local' || runMode === 'worktree') && !cwd) {
+  const inputCwd = readCwd(value.cwd)
+  const inputCwds = readOptionalCwds(value)
+  const cwds = inputCwds ?? (inputCwd ? [inputCwd] : [])
+  const cwd = inputCwds !== undefined ? cwds[0] ?? null : inputCwd
+  if ((runMode === 'local' || runMode === 'worktree') && cwds.length === 0) {
     throw new AutomationValidationError('cwd is required for local and worktree automations')
   }
   return {
@@ -245,10 +234,11 @@ export function parseAutomationCreateInput(value: unknown): AutomationCreateInpu
     schedule: readSchedule(value.schedule),
     targetThreadId: readCreateTargetThreadId(value.targetThreadId, runMode),
     cwd,
+    cwds,
     runMode,
-    runProfileId: readNullableString(value.runProfileId, 'runProfileId'),
     model: readNullableString(value.model, 'model'),
     reasoningEffort: readNullableString(value.reasoningEffort, 'reasoningEffort'),
+    localEnvironmentConfigPath: readNullableString(value.localEnvironmentConfigPath, 'localEnvironmentConfigPath'),
     kanbanProjection: readKanbanProjection(value.kanbanProjection),
     notes: readNotes(value.notes),
   }
@@ -261,6 +251,7 @@ function readCreateTargetThreadId(value: unknown, runMode: AutomationRunMode | n
 
 export function parseAutomationPatchInput(value: unknown): AutomationPatchInput {
   if (!isRecord(value)) throw new AutomationValidationError('Automation patch payload is required')
+  if (hasOwn(value, 'runProfileId')) throw new AutomationValidationError('runProfileId is not supported for automation definitions; set model and reasoningEffort instead')
   const patch: AutomationPatchInput = {}
   const name = readOptionalRequiredString(value, 'name')
   if (name !== undefined) patch.name = name
@@ -271,15 +262,23 @@ export function parseAutomationPatchInput(value: unknown): AutomationPatchInput 
   const schedule = readOptionalSchedule(value)
   if (schedule !== undefined) patch.schedule = schedule
   if (hasOwn(value, 'targetThreadId')) patch.targetThreadId = readNullableString(value.targetThreadId, 'targetThreadId')
-  if (hasOwn(value, 'cwd')) patch.cwd = readCwd(value.cwd)
+  if (hasOwn(value, 'cwd')) {
+    patch.cwd = readCwd(value.cwd)
+    patch.cwds = patch.cwd ? [patch.cwd] : []
+  }
+  const cwds = readOptionalCwds(value)
+  if (cwds !== undefined) {
+    patch.cwds = cwds
+    patch.cwd = cwds[0] ?? null
+  }
   if (hasOwn(value, 'runMode')) patch.runMode = readRunMode(value.runMode)
   validateSelfContainedPatchTarget(value, patch)
-  const runProfileId = readOptionalNullableString(value, 'runProfileId')
-  if (runProfileId !== undefined) patch.runProfileId = runProfileId
   const model = readOptionalNullableString(value, 'model')
   if (model !== undefined) patch.model = model
   const reasoningEffort = readOptionalNullableString(value, 'reasoningEffort')
   if (reasoningEffort !== undefined) patch.reasoningEffort = reasoningEffort
+  const localEnvironmentConfigPath = readOptionalNullableString(value, 'localEnvironmentConfigPath')
+  if (localEnvironmentConfigPath !== undefined) patch.localEnvironmentConfigPath = localEnvironmentConfigPath
   const kanbanProjection = readOptionalKanbanProjection(value)
   if (kanbanProjection !== undefined) patch.kanbanProjection = kanbanProjection
   const notes = readOptionalNotes(value)
@@ -289,7 +288,8 @@ export function parseAutomationPatchInput(value: unknown): AutomationPatchInput 
 
 function validateSelfContainedPatchTarget(value: Record<string, unknown>, patch: AutomationPatchInput): void {
   if (!hasOwn(value, 'runMode')) return
-  if ((patch.runMode === 'local' || patch.runMode === 'worktree') && hasOwn(value, 'cwd') && !patch.cwd) {
+  const hasTargetPaths = hasOwn(value, 'cwd') || hasOwn(value, 'cwds')
+  if ((patch.runMode === 'local' || patch.runMode === 'worktree') && hasTargetPaths && (!patch.cwds || patch.cwds.length === 0)) {
     throw new AutomationValidationError('cwd is required for local and worktree automations')
   }
   if ((patch.runMode === null || patch.runMode === 'chat') && hasOwn(value, 'targetThreadId') && !patch.targetThreadId) {

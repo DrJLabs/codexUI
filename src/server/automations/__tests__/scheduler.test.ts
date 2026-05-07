@@ -49,6 +49,7 @@ const runProfileSnapshot: CodexRunProfile = {
 }
 
 const nativeRecord: ThreadAutomationRecord = {
+  version: 1,
   id: 'daily-check',
   kind: 'heartbeat',
   name: 'Daily Check',
@@ -60,7 +61,8 @@ const nativeRecord: ThreadAutomationRecord = {
   model: null,
   reasoningEffort: null,
   executionEnvironment: null,
-  runMode: null,
+  localEnvironmentConfigPath: null,
+  runMode: 'chat',
   cwd: null,
   cwds: [],
   createdAtMs: Date.parse('2026-04-28T09:00:00.000Z'),
@@ -244,6 +246,162 @@ describe('AutomationScheduler', () => {
       cwds: ['/tmp/project'],
       schedule: { type: 'rrule', rrule: 'FREQ=HOURLY;INTERVAL=1' },
     })
+  })
+
+  it('uses canonical TOML fields instead of stale legacy sidecar execution metadata', async () => {
+    const { codexHomeDir, service } = await createHarness()
+    const canonicalRepo = join(codexHomeDir, 'canonical-repo')
+    const secondRepo = join(codexHomeDir, 'second-repo')
+    await writeNative(codexHomeDir, 'canonical-dir', {
+      ...nativeRecord,
+      id: 'canonical-check',
+      kind: 'cron',
+      rrulePrefix: 'RRULE:',
+      targetThreadId: null,
+      model: 'gpt-5.5',
+      reasoningEffort: 'low',
+      executionEnvironment: 'local',
+      runMode: 'local',
+      cwd: canonicalRepo,
+      cwds: [canonicalRepo, secondRepo],
+      localEnvironmentConfigPath: join(canonicalRepo, '.codex', 'local-env.toml'),
+    }, {
+      cwd: '/stale/sidecar/repo',
+      runMode: 'worktree',
+      runProfileId: 'stale-profile',
+      model: 'gpt-5.4',
+      reasoningEffort: 'high',
+    })
+
+    const [definition] = await service.listDefinitions()
+
+    expect(definition).toMatchObject({
+      id: 'canonical-check',
+      cwd: canonicalRepo,
+      cwds: [canonicalRepo, secondRepo],
+      runMode: 'local',
+      runProfileId: null,
+      model: 'gpt-5.5',
+      reasoningEffort: 'low',
+      localEnvironmentConfigPath: join(canonicalRepo, '.codex', 'local-env.toml'),
+      storage: {
+        sidecarPath: join(codexHomeDir, 'automations', 'canonical-dir', 'codexui.local.json'),
+      },
+    })
+  })
+
+  it('creates Desktop-readable TOML plus private local sidecar metadata', async () => {
+    const { codexHomeDir, service } = await createHarness()
+    const repo = join(codexHomeDir, 'repo')
+
+    const created = await service.createDefinition({
+      kind: 'cron',
+      name: 'Local cron',
+      description: 'Private description',
+      prompt: 'Run local maintenance',
+      schedule: { type: 'rrule', rrule: 'FREQ=DAILY;BYHOUR=9;BYMINUTE=0' },
+      targetThreadId: null,
+      cwd: repo,
+      cwds: [repo],
+      runMode: 'local',
+      model: 'gpt-5.5',
+      reasoningEffort: 'low',
+      localEnvironmentConfigPath: null,
+      kanbanProjection: { mode: 'off' },
+      notes: 'Private notes',
+    })
+
+    const automationDir = join(codexHomeDir, 'automations', created.id)
+    const toml = await readFile(join(automationDir, 'automation.toml'), 'utf8')
+    const localSidecar = JSON.parse(await readFile(join(automationDir, 'codexui.local.json'), 'utf8')) as Record<string, unknown>
+
+    expect(toml).toContain('cwds = [')
+    expect(toml).toContain(`"${repo}"`)
+    expect(toml).toContain('model = "gpt-5.5"')
+    expect(toml).toContain('reasoning_effort = "low"')
+    expect(toml).toContain('execution_environment = "local"')
+    expect(toml).not.toContain('runProfileId')
+    expect(toml).not.toContain('description')
+    expect(localSidecar).toEqual({
+      description: 'Private description',
+      kanbanProjection: { mode: 'off' },
+      notes: 'Private notes',
+    })
+    await expect(readFile(join(automationDir, 'codexui.json'), 'utf8')).rejects.toThrow()
+  })
+
+  it('does not serialize chat run mode as a Desktop execution environment', async () => {
+    const { codexHomeDir, service } = await createHarness()
+
+    const created = await service.createDefinition({
+      kind: 'heartbeat',
+      name: 'Thread heartbeat',
+      description: null,
+      prompt: 'Check this thread',
+      schedule: { type: 'rrule', rrule: 'FREQ=DAILY;BYHOUR=9;BYMINUTE=0' },
+      targetThreadId: 'thread-chat',
+      cwd: null,
+      cwds: [],
+      runMode: 'chat',
+      model: null,
+      reasoningEffort: null,
+      localEnvironmentConfigPath: null,
+      kanbanProjection: { mode: 'off' },
+      notes: '',
+    })
+
+    const automationDir = join(codexHomeDir, 'automations', created.id)
+    await expect(readFile(join(automationDir, 'automation.toml'), 'utf8')).resolves.not.toContain('execution_environment = "chat"')
+  })
+
+  it('removes Desktop execution environment when a target is patched back to chat', async () => {
+    const { codexHomeDir, service } = await createHarness()
+    const repo = join(codexHomeDir, 'repo')
+    const created = await service.createDefinition({
+      kind: 'cron',
+      name: 'Local cron',
+      description: null,
+      prompt: 'Run local maintenance',
+      schedule: { type: 'rrule', rrule: 'FREQ=DAILY;BYHOUR=9;BYMINUTE=0' },
+      targetThreadId: null,
+      cwd: repo,
+      cwds: [repo],
+      runMode: 'local',
+      model: null,
+      reasoningEffort: null,
+      localEnvironmentConfigPath: null,
+      kanbanProjection: { mode: 'off' },
+      notes: '',
+    })
+
+    await service.patchDefinition(created.id, {
+      targetThreadId: 'thread-chat',
+      cwd: null,
+      cwds: [],
+      runMode: 'chat',
+    })
+
+    const automationDir = join(codexHomeDir, 'automations', created.id)
+    const toml = await readFile(join(automationDir, 'automation.toml'), 'utf8')
+    expect(toml).not.toContain('execution_environment = "chat"')
+    expect(toml).not.toContain('execution_environment = "local"')
+  })
+
+  it('cleans legacy chat execution environment during unrelated patches', async () => {
+    const { codexHomeDir, service } = await createHarness()
+    const automationDir = await writeNative(codexHomeDir, 'legacy-chat-dir', {
+      ...nativeRecord,
+      id: 'legacy-chat',
+      executionEnvironment: 'chat',
+      runMode: 'chat',
+      targetThreadId: 'thread-chat',
+    })
+
+    await service.patchDefinition('legacy-chat', { name: 'Renamed legacy chat' })
+
+    const toml = await readFile(join(automationDir, 'automation.toml'), 'utf8')
+    expect(toml).toContain('name = "Renamed legacy chat"')
+    expect(toml).not.toContain('execution_environment = "chat"')
   })
 
   it('excludes Desktop cron automations with unsupported execution environments from scheduler candidates', async () => {
@@ -578,14 +736,26 @@ describe('AutomationScheduler', () => {
       ...nativeRecord,
       id: 'first-check',
       name: 'First Check',
-      targetThreadId: 'thread-first',
-    }, { runMode: 'local', cwd: repo })
+      kind: 'cron',
+      rrulePrefix: 'RRULE:',
+      targetThreadId: null,
+      executionEnvironment: 'local',
+      runMode: 'local',
+      cwd: repo,
+      cwds: [repo],
+    })
     const secondDir = await writeNative(codexHomeDir, 'second-dir', {
       ...nativeRecord,
       id: 'second-check',
       name: 'Second Check',
-      targetThreadId: 'thread-second',
-    }, { runMode: 'local', cwd: repo })
+      kind: 'cron',
+      rrulePrefix: 'RRULE:',
+      targetThreadId: null,
+      executionEnvironment: 'local',
+      runMode: 'local',
+      cwd: repo,
+      cwds: [repo],
+    })
     await writeFreshScheduler(service, 'first-check', firstDir, { automationId: 'first-check', sourceDirName: 'first-dir' })
     await writeFreshScheduler(service, 'second-check', secondDir, { automationId: 'second-check', sourceDirName: 'second-dir' })
 

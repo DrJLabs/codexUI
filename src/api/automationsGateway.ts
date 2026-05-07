@@ -8,10 +8,11 @@ export type CreateAutomationInput = {
   targetThreadId: string | null
   description?: string | null
   cwd?: string | null
+  cwds?: string[]
   runMode?: AutomationRunMode | null
-  runProfileId?: string | null
   model?: string | null
   reasoningEffort?: string | null
+  localEnvironmentConfigPath?: string | null
   notes?: string
 }
 

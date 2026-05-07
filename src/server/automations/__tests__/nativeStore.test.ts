@@ -33,6 +33,7 @@ async function createCodexHome() {
 }
 
 const pausedRecord: ThreadAutomationRecord = {
+  version: 1,
   id: 'daily-check',
   kind: 'heartbeat',
   name: 'Daily Check',
@@ -44,7 +45,8 @@ const pausedRecord: ThreadAutomationRecord = {
   model: null,
   reasoningEffort: null,
   executionEnvironment: null,
-  runMode: null,
+  localEnvironmentConfigPath: null,
+  runMode: 'chat',
   cwd: null,
   cwds: [],
   createdAtMs: 1710000000000,
@@ -58,6 +60,7 @@ describe('native automation store TOML compatibility', () => {
 
     expect(parseAutomationToml(raw)).toMatchObject({
       id: 'hourly-fixture',
+      version: 1,
       kind: 'cron',
       name: 'hourly fixture',
       status: 'ACTIVE',
@@ -66,6 +69,7 @@ describe('native automation store TOML compatibility', () => {
       model: 'gpt-5.5',
       reasoningEffort: 'low',
       executionEnvironment: 'worktree',
+      localEnvironmentConfigPath: null,
       runMode: 'worktree',
       cwd: '/mnt/c/Users/projects/apollo',
       cwds: ['/mnt/c/Users/projects/apollo'],
@@ -146,21 +150,42 @@ describe('native automation store TOML compatibility', () => {
     })
   })
 
-  it('preserves Desktop cron fields and omits empty target_thread_id on no-op writeback', async () => {
+  it('no-op serializes a Desktop cron fixture without adding CodexUI-derived fields', async () => {
     const previousRaw = await readFile('fixtures/desktop-automations/hourly-fixture/automation.toml', 'utf8')
     const record = parseAutomationToml(previousRaw)
     expect(record).not.toBeNull()
 
     const nextRaw = serializeAutomationToml(record!, previousRaw)
 
-    expect(nextRaw).toContain('kind = "cron"')
-    expect(nextRaw).toContain('rrule = "RRULE:FREQ=HOURLY;INTERVAL=1;BYMINUTE=0;BYDAY=SU,MO,TU,WE,TH,FR,SA"')
-    expect(nextRaw).toContain('model = "gpt-5.5"')
-    expect(nextRaw).toContain('reasoning_effort = "low"')
-    expect(nextRaw).toContain('execution_environment = "worktree"')
-    expect(nextRaw).toContain('cwd = "/mnt/c/Users/projects/apollo"')
-    expect(nextRaw).toContain('cwds = ["/mnt/c/Users/projects/apollo"]')
+    expect(nextRaw).toBe(previousRaw)
+    expect(nextRaw).not.toContain('cwd = ')
     expect(nextRaw).not.toContain('target_thread_id = ""')
+  })
+
+  it('round trips Desktop local environment config paths without sidecar metadata', () => {
+    const raw = [
+      'version = 1',
+      'id = "local-env"',
+      'kind = "cron"',
+      'name = "Local env"',
+      'prompt = "Run"',
+      'status = "ACTIVE"',
+      'rrule = "RRULE:FREQ=DAILY"',
+      'execution_environment = "worktree"',
+      'cwds = ["/repo/one"]',
+      'local_environment_config_path = "/repo/one/.codex/local-env.toml"',
+      'created_at = 1777654085276',
+      'updated_at = 1777654085276',
+      '',
+    ].join('\n')
+
+    const record = parseAutomationToml(raw)
+    expect(record).toMatchObject({
+      localEnvironmentConfigPath: '/repo/one/.codex/local-env.toml',
+      executionEnvironment: 'worktree',
+      cwds: ['/repo/one'],
+    })
+    expect(serializeAutomationToml(record!, raw)).toBe(raw)
   })
 
   it('updates or removes top-level cwd during TOML writeback', () => {
@@ -470,6 +495,7 @@ describe('native automation store filesystem behavior', () => {
 
     await expect(stat(join(automationRoot, written.id, 'memory.md'))).resolves.toBeTruthy()
     await expect(readFile(join(automationRoot, written.id, 'automation.toml'), 'utf8')).resolves.toContain('status = "PAUSED"')
+    await expect(readFile(join(automationRoot, written.id, 'automation.toml'), 'utf8')).resolves.not.toContain('execution_environment = "chat"')
 
     const listed = await listThreadHeartbeatAutomations(storeOptions)
     expect(Object.keys(listed)).toEqual(['thread-abc'])
@@ -534,6 +560,8 @@ describe('native automation store filesystem behavior', () => {
     expect(second.id).toMatch(/^same-name-[a-f0-9]{8}$/u)
     await expect(readFile(join(automationRoot, first.id, 'automation.toml'), 'utf8')).resolves.toContain('prompt = "First"')
     await expect(readFile(join(automationRoot, second.id, 'automation.toml'), 'utf8')).resolves.toContain('prompt = "Second"')
+    await expect(readFile(join(automationRoot, first.id, 'automation.toml'), 'utf8')).resolves.toContain('cwds = ["/repo/one"]')
+    await expect(readFile(join(automationRoot, first.id, 'automation.toml'), 'utf8')).resolves.not.toContain('cwd = ')
   })
 
   it('preserves unknown top-level TOML fields when updating an existing thread heartbeat automation', async () => {

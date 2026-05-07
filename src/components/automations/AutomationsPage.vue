@@ -399,22 +399,6 @@
                 </label>
               </div>
 
-              <div class="automations-execution-settings" aria-label="Automation execution settings">
-                <label class="automations-field">
-                  <span>Run profile</span>
-                  <select v-model="draft.runProfileId">
-                    <option
-                      v-for="profile in runProfileOptions"
-                      :key="profile.value"
-                      :value="profile.value"
-                    >
-                      {{ profile.label }}
-                    </option>
-                  </select>
-                  <small class="automations-field-help">{{ selectedRunProfileHelp }}</small>
-                </label>
-              </div>
-
               <dl class="automations-storage">
                 <div v-for="detail in advancedDetails" :key="detail.label">
                   <dt>{{ detail.label }}</dt>
@@ -457,8 +441,6 @@ import {
 } from '../../utils/automationDisplay'
 
 type ScheduleFrequency = 'daily' | 'weekly' | 'custom'
-
-const DEFAULT_RUN_PROFILE_ID = 'workspace-coding'
 
 const route = useRoute()
 const {
@@ -601,48 +583,6 @@ const modelSelectOptions = computed(() => ensureOption(baseModelOptions, draft.v
 const reasoningEffortSelectOptions = computed(() =>
   ensureOption(baseReasoningEffortOptions, draft.value.reasoningEffort, 'Current reasoning effort'),
 )
-const runProfileOptions = computed(() => {
-  const defaultProfile = state.value.executionOptions.runProfiles.find((profile) => profile.id === state.value.executionOptions.defaultRunProfileId)
-    ?? state.value.executionOptions.runProfiles.find((profile) => profile.id === DEFAULT_RUN_PROFILE_ID)
-    ?? state.value.executionOptions.runProfiles[0]
-    ?? null
-  const options = state.value.executionOptions.runProfiles.map((profile) => ({
-    value: profile.id,
-    label: profile.source === 'config'
-      ? `${profile.name} (${profile.id})`
-      : profile.name,
-  }))
-  options.unshift({
-    value: '',
-    label: defaultProfile ? `Default (${defaultProfile.name})` : 'Default',
-  })
-  const requested = draft.value.runProfileId.trim()
-  if (requested && !options.some((option) => option.value === requested)) {
-    options.unshift({ value: requested, label: `Current profile: ${requested} (unavailable)` })
-  }
-  return options
-})
-const selectedRunProfile = computed(() => {
-  const requested = draft.value.runProfileId.trim()
-  if (requested) {
-    return state.value.executionOptions.runProfiles.find((profile) => profile.id === requested) ?? null
-  }
-  return state.value.executionOptions.runProfiles.find((profile) => profile.id === state.value.executionOptions.defaultRunProfileId)
-    ?? state.value.executionOptions.runProfiles.find((profile) => profile.id === DEFAULT_RUN_PROFILE_ID)
-    ?? state.value.executionOptions.runProfiles[0]
-    ?? null
-})
-const selectedRunProfileHelp = computed(() => {
-  const profile = selectedRunProfile.value
-  if (draft.value.runProfileId.trim() && !profile) {
-    return `Configured profile "${draft.value.runProfileId.trim()}" is not available in current Codex config.`
-  }
-  if (!profile) return 'No run profiles are available.'
-  const model = draft.value.model.trim() || profile.model.trim() || 'default model'
-  const reasoning = draft.value.reasoningEffort.trim() || profile.reasoningEffort || 'default reasoning'
-  const network = profile.networkAccess ? 'network on' : 'network off'
-  return `${profile.sandboxMode}, ${profile.approvalPolicy}, ${network}, ${model}, ${reasoning}`
-})
 const advancedDetails = computed(() => [
   { label: 'Native storage root', value: state.value.storageRoot || 'Unavailable', mono: true },
   { label: 'Feature flags', value: featureFlagSummary.value || 'Unavailable', mono: false },
@@ -651,7 +591,6 @@ const advancedDetails = computed(() => [
   { label: 'Automation id', value: selectedAutomation.value?.id || 'Created on save', mono: true },
   { label: 'Source', value: selectedAutomation.value?.source || 'Created on save', mono: true },
   { label: 'Kind', value: selectedAutomation.value?.kind || 'Created on save', mono: true },
-  { label: 'Run profile id', value: draft.value.runProfileId || selectedAutomation.value?.runProfileId || 'Default', mono: true },
   { label: 'Model', value: draft.value.model || selectedAutomation.value?.model || 'Default', mono: true },
   { label: 'Reasoning effort', value: draft.value.reasoningEffort || selectedAutomation.value?.reasoningEffort || 'Default', mono: true },
 ])
