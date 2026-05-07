@@ -329,6 +329,13 @@ Acceptance:
 - Empty `cwds` shows an actionable validation error.
 - Saving from CodexUI preserves Desktop's `cwds` array.
 
+Section 8 implementation notes:
+- Desktop bundle evidence: cron execution reads `automation.cwds`, logs/skips when the list is empty, and uses a serial reducer (`dn`) so each folder starts in sequence.
+- CodexUI scheduled cron runs now treat `cwds` as the canonical target list for local/worktree automations. Each configured cwd gets its own run record and thread/turn start, with `run.cwd` set to the target cwd. The canonical TOML remains unchanged aside from the existing `cwds` field.
+- Empty local/worktree cron `cwds` now writes an unsupported scheduler state with the Desktop-aligned message `Scheduled run skipped: no folders configured`, suppresses run starts, and surfaces a warning diagnostic in the automation state.
+- The editor project control accepts multiple newline-separated project folders and saves them through the existing `cwds` array while keeping `cwd` as the first folder for compatibility with existing CodexUI code paths.
+- Scheduler hashes now include `cwd`/`cwds`, so adding or removing target folders refreshes scheduler state.
+
 ### 9. Projectless Automation
 
 Current CodexUI behavior:

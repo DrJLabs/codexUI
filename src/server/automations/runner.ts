@@ -96,6 +96,7 @@ export class AutomationRunner {
     definition: AutomationDefinition
     automationDirPath: string
     sourceDirName: string
+    cwd?: string | null
     dueAtIso: string
     nextDueAtIso: string | null
   } & AutomationRunProfileInput): Promise<AutomationRun> {
@@ -128,13 +129,18 @@ export class AutomationRunner {
     definition: AutomationDefinition
     automationDirPath: string
     sourceDirName?: string
+    cwd?: string | null
     trigger: AutomationRun['trigger']
     dueAtIso: string | null
     nextDueAtIso: string | null
   } & AutomationRunProfileInput): Promise<AutomationRun> {
     assertAutomationExecutionPolicy(this.policy)
-    const definition = input.definition
-    const runMode = definition.runMode ?? 'chat'
+    const baseDefinition = input.definition
+    const runMode = baseDefinition.runMode ?? 'chat'
+    const targetCwd = resolveTargetCwd(baseDefinition, runMode, input.cwd)
+    const definition = targetCwd !== baseDefinition.cwd
+      ? { ...baseDefinition, cwd: targetCwd }
+      : baseDefinition
     this.validateRunTarget(definition, runMode)
     const runProfileSnapshot = resolveAutomationRunProfile(definition, input)
     assertAutomationRunProfileAllowed(runProfileSnapshot, this.policy)
@@ -144,7 +150,11 @@ export class AutomationRunner {
 
     const store = createAutomationRunStore(input.automationDirPath)
     await this.failOrphanedActiveRuns(store, definition)
-    const activeRun = (await store.listActiveRuns())[0]
+    const activeRun = (await store.listActiveRuns()).find((candidate) => conflictsWithNewRun(candidate, {
+      trigger: input.trigger,
+      runMode,
+      cwd: targetCwd,
+    }))
     if (activeRun) {
       const activeTrigger = activeRun.trigger === 'schedule' ? 'scheduled' : 'manual'
       throw new AutomationConflictError(`Automation ${definition.id} already has an active ${activeTrigger} run`)
@@ -169,7 +179,7 @@ export class AutomationRunner {
       runProfileId: runProfileSnapshot.id,
       runProfileSnapshot,
       targetThreadId: definition.targetThreadId,
-      cwd: runMode === 'local' || runMode === 'worktree' ? definition.cwd : null,
+      cwd: runMode === 'local' || runMode === 'worktree' ? targetCwd : null,
       worktreePath: null,
       branchName: null,
       threadId: null,
@@ -1006,6 +1016,26 @@ function isMissingFileError(error: unknown): boolean {
 
 function resolveRunCwd(definition: AutomationDefinition, run: AutomationRun): string | undefined {
   if (run.runMode === 'worktree') return run.worktreePath ?? undefined
-  if (run.runMode === 'local') return definition.cwd ?? undefined
+  if (run.runMode === 'local') return run.cwd ?? definition.cwd ?? undefined
   return undefined
+}
+
+function resolveTargetCwd(
+  definition: AutomationDefinition,
+  runMode: AutomationRunMode,
+  cwdOverride: string | null | undefined,
+): string | null {
+  if (runMode !== 'local' && runMode !== 'worktree') return null
+  return cwdOverride?.trim() || definition.cwd
+}
+
+function conflictsWithNewRun(
+  activeRun: AutomationRun,
+  nextRun: { trigger: AutomationRun['trigger']; runMode: AutomationRunMode; cwd: string | null },
+): boolean {
+  if (nextRun.trigger !== 'schedule') return true
+  if (activeRun.trigger !== 'schedule') return true
+  if (nextRun.runMode !== 'local' && nextRun.runMode !== 'worktree') return true
+  if (!nextRun.cwd || !activeRun.cwd) return true
+  return activeRun.cwd === nextRun.cwd
 }

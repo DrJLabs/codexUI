@@ -142,10 +142,10 @@ function normalizeNotes(value: string): string {
 }
 
 function normalizeDraftCwds(draft: AutomationDraft): string[] {
+  const draftCwds = Array.from(new Set(draft.cwds.map((value) => value.trim()).filter(Boolean)))
+  if (draftCwds.length > 0) return draftCwds
   const cwd = normalizeOptionalNullable(draft.cwd)
-  if (!cwd) return []
-  if (draft.cwds.length > 0 && draft.cwds[0] === cwd) return draft.cwds
-  return [cwd]
+  return cwd ? [cwd] : []
 }
 
 export function useAutomations(options: UseAutomationsOptions = {}) {

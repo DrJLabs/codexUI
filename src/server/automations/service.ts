@@ -150,7 +150,7 @@ export class AutomationsService {
 
   async listState(): Promise<AutomationsState> {
     const { definitions, diagnostics, storageRoot } = await this.listDefinitionsWithDiagnostics()
-    const executionOptions = await this.readExecutionOptions(definitions.map((definition) => definition.cwd))
+    const executionOptions = await this.readExecutionOptions(definitions.flatMap(definitionTargetCwds))
     return {
       storageRoot,
       featureFlags: {
@@ -535,35 +535,49 @@ export class AutomationsService {
       const definition = (await mapDefinition(entry, sidecarResult.sidecar, { includeRecentRuns: false })).definition
       assertAutomationNotDeleted(definition)
       await this.ensureInterruptedRunRecoveryBeforeCapacity(definition.id)
-      await this.assertRunStartCapacity(definition)
-      const executionOptions = input.runProfiles
-        ? null
-        : await this.readExecutionOptions([definition.cwd], { preferCwdDefault: true })
-      const runProfiles = input.runProfiles ?? executionOptions?.runProfiles
       assertAutomationExecutionPolicy(this.policy)
-      assertAutomationRunnerTarget(definition)
-      assertAutomationRunProfileAllowed(resolveAutomationRunProfile(definition, {
-        ...input,
-        defaultRunProfileId: executionOptions?.defaultRunProfileId,
-        runProfiles,
-      }), this.policy)
+      const targetCwds = scheduledRunCwds(definition)
+      if (targetCwds.length === 0) {
+        throw new AutomationDeferredRunError('Scheduled run skipped: no folders configured', { deferMode: 'unsupported_target' })
+      }
+      let firstRun: AutomationRun | null = null
       try {
-        return await this.runner.runScheduled({
-          definition,
-          automationDirPath: entry.automationDirPath,
-          sourceDirName: entry.sourceDirName,
-          dueAtIso: input.dueAtIso,
-          nextDueAtIso: input.nextDueAtIso,
-          runProfiles,
-          defaultRunProfileId: executionOptions?.defaultRunProfileId,
-          runProfileId: input.runProfileId,
-        })
+        for (const targetCwd of targetCwds) {
+          const targetDefinition = definitionWithTargetCwd(definition, targetCwd)
+          await this.assertRunStartCapacity(targetDefinition)
+          assertAutomationRunnerTarget(targetDefinition)
+          const executionOptions = input.runProfiles
+            ? null
+            : await this.readExecutionOptions(targetCwd ? [targetCwd] : [targetDefinition.cwd], { preferCwdDefault: true })
+          const runProfiles = input.runProfiles ?? executionOptions?.runProfiles
+          assertAutomationRunProfileAllowed(resolveAutomationRunProfile(targetDefinition, {
+            ...input,
+            defaultRunProfileId: executionOptions?.defaultRunProfileId,
+            runProfiles,
+          }), this.policy)
+          const run = await this.runner.runScheduled({
+            definition,
+            automationDirPath: entry.automationDirPath,
+            sourceDirName: entry.sourceDirName,
+            cwd: targetCwd,
+            dueAtIso: input.dueAtIso,
+            nextDueAtIso: input.nextDueAtIso,
+            runProfiles,
+            defaultRunProfileId: executionOptions?.defaultRunProfileId,
+            runProfileId: input.runProfileId,
+          })
+          firstRun ??= run
+        }
+        if (!firstRun) throw new AutomationDeferredRunError('Scheduled run skipped: no folders configured', { deferMode: 'unsupported_target' })
+        return firstRun
       } catch (error) {
         if (error instanceof AutomationDeferredRunError) {
           await this.deferScheduledRun(entry, {
             dueAtIso: input.dueAtIso,
             nextDueAtIso: input.nextDueAtIso,
-            unsupportedReason: error.deferMode === 'requires_renderer_state' ? error.message : null,
+            unsupportedReason: error.deferMode === 'requires_renderer_state' || error.deferMode === 'unsupported_target'
+              ? error.message
+              : null,
           })
         }
         throw error
@@ -785,6 +799,20 @@ async function writeUnsupportedExecutionEnvironmentSchedulerState(
   sidecar: AutomationSidecar,
   nowIso = new Date().toISOString(),
 ): Promise<AutomationSchedulerState> {
+  return await writeUnsupportedSchedulerState(
+    entry,
+    sidecar,
+    `Unsupported automation execution_environment: ${entry.record.executionEnvironment}`,
+    nowIso,
+  )
+}
+
+async function writeUnsupportedSchedulerState(
+  entry: NativeAutomationEntry,
+  sidecar: AutomationSidecar,
+  unsupportedReason: string,
+  nowIso = new Date().toISOString(),
+): Promise<AutomationSchedulerState> {
   const store = createAutomationSchedulerStore(entry.automationDirPath)
   const current = await store.readOrDefault({
     automationId: entry.record.id,
@@ -797,7 +825,7 @@ async function writeUnsupportedExecutionEnvironmentSchedulerState(
     scheduleHash: buildScheduleHash(entry, sidecar),
     nextDueAtIso: null,
     lastEvaluatedAtIso: nowIso,
-    unsupportedReason: `Unsupported automation execution_environment: ${entry.record.executionEnvironment}`,
+    unsupportedReason,
     updatedAtIso: nowIso,
   })
 }
@@ -862,8 +890,18 @@ async function mapDefinition(
         message: `Unsupported automation execution_environment: ${entry.record.executionEnvironment}`,
       }
     : null
+  const unsupportedTargetReason = unsupportedSchedulerTargetReason(entry.record)
+  const targetDiagnostic: AutomationDiagnostic | null = unsupportedTargetReason
+    ? {
+        automationId: entry.record.id,
+        sourceDirName: entry.sourceDirName,
+        path: entry.automationTomlPath,
+        severity: 'warning',
+        message: unsupportedTargetReason,
+      }
+    : null
   return {
-    diagnostic: nextRun.diagnostic ?? executionEnvironmentDiagnostic,
+    diagnostic: nextRun.diagnostic ?? executionEnvironmentDiagnostic ?? targetDiagnostic,
     definition: {
       id: entry.record.id,
       kind: entry.record.kind,
@@ -911,6 +949,10 @@ async function refreshSchedulerState(
 ): Promise<AutomationSchedulerState> {
   if (entry.record.executionEnvironment && !entry.record.runMode) {
     return await writeUnsupportedExecutionEnvironmentSchedulerState(entry, sidecar, nowIso)
+  }
+  const unsupportedTargetReason = unsupportedSchedulerTargetReason(entry.record)
+  if (unsupportedTargetReason) {
+    return await writeUnsupportedSchedulerState(entry, sidecar, unsupportedTargetReason, nowIso)
   }
   const decision = evaluateRruleSchedule({
     rrule: entry.record.rrule,
@@ -964,6 +1006,7 @@ function computeTransientNextRunAtIso(
   createdAtIso: string,
   updatedAtIso: string,
 ): string | null {
+  if (unsupportedSchedulerTargetReason(entry.record)) return null
   try {
     const decision = evaluateRruleSchedule({
       rrule: entry.record.rrule,
@@ -978,7 +1021,7 @@ function computeTransientNextRunAtIso(
 }
 
 function isSchedulerAffectingPatch(patch: AutomationPatchInput): boolean {
-  return hasOwn(patch, 'schedule')
+  return hasOwn(patch, 'schedule') || hasOwn(patch, 'cwd') || hasOwn(patch, 'cwds') || hasOwn(patch, 'runMode')
 }
 
 function buildScheduleHash(entry: NativeAutomationEntry, _sidecar: AutomationSidecar): string {
@@ -987,6 +1030,8 @@ function buildScheduleHash(entry: NativeAutomationEntry, _sidecar: AutomationSid
       id: entry.record.id,
       sourceDirName: entry.sourceDirName,
       rrule: entry.record.rrule,
+      cwd: entry.record.cwd,
+      cwds: entry.record.cwds,
       executionEnvironment: entry.record.executionEnvironment,
       runMode: entry.record.runMode,
     }))
@@ -1001,6 +1046,31 @@ function automationRepoLimitKey(definition: AutomationDefinition): string | null
   const runMode = definition.runMode ?? 'chat'
   if (runMode !== 'local' && runMode !== 'worktree') return null
   return definition.cwd
+}
+
+function definitionTargetCwds(definition: AutomationDefinition): Array<string | null> {
+  const runMode = definition.runMode ?? 'chat'
+  if (runMode !== 'local' && runMode !== 'worktree') return [definition.cwd]
+  return definition.cwds.length > 0 ? definition.cwds : [definition.cwd]
+}
+
+function scheduledRunCwds(definition: AutomationDefinition): Array<string | null> {
+  const runMode = definition.runMode ?? 'chat'
+  if (definition.kind !== 'cron' || (runMode !== 'local' && runMode !== 'worktree')) return [null]
+  return definition.cwds.map((cwd) => cwd.trim()).filter(Boolean)
+}
+
+function definitionWithTargetCwd(definition: AutomationDefinition, cwd: string | null): AutomationDefinition {
+  if (cwd === definition.cwd) return definition
+  return { ...definition, cwd }
+}
+
+function unsupportedSchedulerTargetReason(record: ThreadAutomationRecord): string | null {
+  const runMode = record.runMode ?? 'chat'
+  if (record.kind === 'cron' && (runMode === 'local' || runMode === 'worktree') && record.cwds.length === 0) {
+    return 'Scheduled run skipped: no folders configured'
+  }
+  return null
 }
 
 function automationStatusForView(status: ThreadAutomationRecord['status']): AutomationDefinition['status'] {

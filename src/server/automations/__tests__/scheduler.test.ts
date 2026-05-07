@@ -473,6 +473,81 @@ Run the cron task`)
     })
   })
 
+  it('starts one scheduled cron run for each configured Desktop cwd', async () => {
+    const { codexHomeDir, service, rpcCalls } = await createHarness()
+    const repoOne = join(codexHomeDir, 'repo-one')
+    const repoTwo = join(codexHomeDir, 'repo-two')
+    await mkdir(repoOne, { recursive: true })
+    await mkdir(repoTwo, { recursive: true })
+    const automationDir = await writeNative(codexHomeDir, 'multi-cwd-dir', {
+      ...nativeRecord,
+      id: 'multi-cwd',
+      kind: 'cron',
+      name: 'Multi cwd',
+      prompt: 'Run the cron task',
+      rrulePrefix: 'RRULE:',
+      targetThreadId: null,
+      executionEnvironment: 'local',
+      runMode: 'local',
+      cwd: repoOne,
+      cwds: [repoOne, repoTwo],
+    })
+
+    await service.runScheduled('multi-cwd', {
+      dueAtIso: '2026-04-30T09:00:00.000Z',
+      nextDueAtIso: '2026-04-30T10:00:00.000Z',
+    })
+
+    const runs = await createAutomationRunStore(automationDir).listRuns()
+    expect(runs).toHaveLength(2)
+    expect(runs.map((run) => run.cwd).sort()).toEqual([repoOne, repoTwo])
+    expect(rpcCalls.filter((call) => call.method === 'thread/start').map((call) => (call.params as { cwd?: string }).cwd)).toEqual([
+      repoOne,
+      repoTwo,
+    ])
+    expect(rpcCalls.filter((call) => call.method === 'turn/start').map((call) => (call.params as { cwd?: string }).cwd)).toEqual([
+      repoOne,
+      repoTwo,
+    ])
+  })
+
+  it('marks scheduled cron automations without cwds unsupported instead of starting runs', async () => {
+    const { codexHomeDir, service, rpcCalls } = await createHarness()
+    const automationDir = await writeNative(codexHomeDir, 'empty-cwds-dir', {
+      ...nativeRecord,
+      id: 'empty-cwds',
+      kind: 'cron',
+      name: 'Empty cwds',
+      prompt: 'Run the cron task',
+      rrulePrefix: 'RRULE:',
+      targetThreadId: null,
+      executionEnvironment: 'local',
+      runMode: 'local',
+      cwd: null,
+      cwds: [],
+    })
+
+    const schedulerState = await service.refreshSchedulerState('empty-cwds', '2026-04-30T08:00:00.000Z')
+    const state = await service.listState()
+
+    expect(schedulerState).toMatchObject({
+      nextDueAtIso: null,
+      unsupportedReason: 'Scheduled run skipped: no folders configured',
+    })
+    expect(state.diagnostics).toEqual([
+      expect.objectContaining({
+        automationId: 'empty-cwds',
+        message: 'Scheduled run skipped: no folders configured',
+      }),
+    ])
+    await expect(service.runScheduled('empty-cwds', {
+      dueAtIso: '2026-04-30T09:00:00.000Z',
+      nextDueAtIso: '2026-04-30T10:00:00.000Z',
+    })).rejects.toThrow('Scheduled run skipped: no folders configured')
+    expect(await createAutomationRunStore(automationDir).listRuns()).toEqual([])
+    expect(rpcCalls.filter((call) => call.method === 'thread/start' || call.method === 'turn/start')).toEqual([])
+  })
+
   it('revalidates stale renderer busy state before scheduled heartbeat starts', async () => {
     const now = new Date('2026-04-30T10:00:00.000Z')
     const { codexHomeDir, service, rpcCalls, notificationListeners } = await createHarness({

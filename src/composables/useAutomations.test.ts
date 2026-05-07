@@ -106,6 +106,26 @@ it('serializes run mode and cwd draft fields before save', async () => {
   }))
 })
 
+it('serializes multiple project folders before save', async () => {
+  const gateway = createGatewayFixture([])
+  const automations = useAutomations({ gateway })
+  automations.startCreate()
+  automations.draft.value.name = 'Multi project cron'
+  automations.draft.value.prompt = 'Check each project'
+  automations.draft.value.runMode = 'local'
+  automations.draft.value.cwd = '/tmp/project-a'
+  automations.draft.value.cwds = ['/tmp/project-a', '/tmp/project-b', '/tmp/project-a']
+
+  await automations.saveDraft()
+
+  expect(gateway.createAutomation).toHaveBeenCalledWith(expect.objectContaining({
+    kind: 'cron',
+    targetThreadId: null,
+    cwd: '/tmp/project-a',
+    cwds: ['/tmp/project-a', '/tmp/project-b'],
+  }))
+})
+
 it('does not serialize hidden thread targets for non-chat creates', async () => {
   const gateway = createGatewayFixture([])
   const automations = useAutomations({ gateway })

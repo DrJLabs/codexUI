@@ -219,10 +219,10 @@
             </label>
 
             <label class="automations-compact-row automations-compact-control" :data-required="requiresCwd">
-              <span>Project <em v-if="requiresCwd">required</em></span>
-              <input
-                v-model="draft.cwd"
-                type="text"
+              <span>Project folders <em v-if="requiresCwd">required</em></span>
+              <textarea
+                v-model="projectFoldersText"
+                rows="2"
                 :placeholder="selectedAutomationProjectLabel"
                 :required="requiresCwd"
               />
@@ -606,6 +606,19 @@ const usesScheduleTime = computed(() =>
   scheduleFrequency.value === 'weekly',
 )
 const showRawRrule = computed(() => scheduleFrequency.value === 'custom' || currentRruleClassification.value.frequency === 'custom')
+const projectFoldersText = computed({
+  get: () => (draft.value.cwds.length > 0 ? draft.value.cwds : draft.value.cwd ? [draft.value.cwd] : []).join('\n'),
+  set: (value: string) => {
+    const cwds = Array.from(new Set(
+      value
+        .split(/\r?\n/u)
+        .map((line) => line.trim())
+        .filter(Boolean),
+    ))
+    draft.value.cwds = cwds
+    draft.value.cwd = cwds[0] ?? ''
+  },
+})
 const modelSelectOptions = computed(() => ensureOption(baseModelOptions, draft.value.model, 'Current model'))
 const reasoningEffortSelectOptions = computed(() =>
   ensureOption(baseReasoningEffortOptions, draft.value.reasoningEffort, 'Current reasoning effort'),
@@ -1107,6 +1120,7 @@ function shouldShowReadAction(run: AutomationRun): boolean {
 .automations-field textarea,
 .automations-field select,
 .automations-compact-control input,
+.automations-compact-control textarea,
 .automations-compact-control select {
   width: 100%;
   min-width: 0;
@@ -1212,12 +1226,18 @@ function shouldShowReadAction(run: AutomationRun): boolean {
 }
 
 .automations-compact-control input,
+.automations-compact-control textarea,
 .automations-compact-control select {
   justify-self: end;
   max-width: 220px;
   font-size: 13px;
   font-weight: 700;
   text-align: right;
+}
+
+.automations-compact-control textarea {
+  resize: vertical;
+  text-align: left;
 }
 
 .automations-inline-controls {
@@ -1581,6 +1601,7 @@ function shouldShowReadAction(run: AutomationRun): boolean {
 :global(:root.dark) .automations-field textarea,
 :global(:root.dark) .automations-field select,
 :global(:root.dark) .automations-compact-control input,
+:global(:root.dark) .automations-compact-control textarea,
 :global(:root.dark) .automations-compact-control select,
 :global(:root.dark) .automations-page button {
   border-color: rgba(71, 85, 105, 0.82);
@@ -1677,6 +1698,7 @@ function shouldShowReadAction(run: AutomationRun): boolean {
   .automations-field textarea,
   .automations-field select,
   .automations-compact-control input,
+  .automations-compact-control textarea,
   .automations-compact-control select {
     font-size: 16px;
     line-height: 1.4;
@@ -1701,6 +1723,7 @@ function shouldShowReadAction(run: AutomationRun): boolean {
   }
 
   .automations-compact-control input,
+  .automations-compact-control textarea,
   .automations-compact-control select {
     max-width: 100%;
   }
