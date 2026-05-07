@@ -1,0 +1,13 @@
+version = 1
+id = "hourly-fixture"
+kind = "cron"
+name = "hourly fixture"
+prompt = "Create a file in this repo that says \"hello\". If the \"hello\" file is already created, add a new line that says \"hello\" with a timestamp in the file."
+status = "ACTIVE"
+rrule = "RRULE:FREQ=HOURLY;INTERVAL=1;BYMINUTE=0;BYDAY=SU,MO,TU,WE,TH,FR,SA"
+model = "gpt-5.5"
+reasoning_effort = "low"
+execution_environment = "worktree"
+cwds = ["/mnt/c/Users/projects/apollo"]
+created_at = 1777654085276
+updated_at = 1777654085276
