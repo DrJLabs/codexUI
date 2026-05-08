@@ -28,62 +28,62 @@ export function createAutomationsRouter(options: CreateAutomationsRouterOptions 
   })
 
   router.get('/csrf', (req, res) => {
-    assertTrustedAccessRequest(req)
+    readAutomationsAccess(req)
     res.status(200).json({ data: { csrfToken: csrf.readToken(), headerName: AUTOMATIONS_CSRF_HEADER } })
   })
 
   router.get('/state', asyncHandler(async (req, res) => {
-    assertTrustedAccessRequest(req)
+    readAutomationsAccess(req)
     res.status(200).json({ data: await service.listState() })
   }))
 
   router.get('/templates', (req, res) => {
-    assertTrustedAccessRequest(req)
+    readAutomationsAccess(req)
     res.status(200).json({ data: service.listTemplates() })
   })
 
   router.get('/', asyncHandler(async (req, res) => {
-    assertTrustedAccessRequest(req)
+    readAutomationsAccess(req)
     res.status(200).json({ data: await service.listDefinitions() })
   }))
 
   router.post('/', asyncHandler(async (req, res) => {
-    assertTrustedAccessMutation(req, csrf)
+    assertAutomationsMutation(req, csrf)
     res.status(201).json({ data: await service.createDefinition(parseAutomationCreateInput(req.body)) })
   }))
 
   router.post('/heartbeat-thread-state', asyncHandler(async (req, res) => {
-    assertTrustedAccessMutation(req, csrf)
+    assertAutomationsMutation(req, csrf)
     await service.recordHeartbeatThreadState(parseHeartbeatThreadStateInput(req.body))
     res.status(200).json({ data: { ok: true } })
   }))
 
   router.get('/:automationId', asyncHandler(async (req, res) => {
-    assertTrustedAccessRequest(req)
+    readAutomationsAccess(req)
     const { automationId } = parseAutomationRouteParams(req.params)
     res.status(200).json({ data: await service.getDefinition(automationId) })
   }))
 
   router.get('/:automationId/runs', asyncHandler(async (req, res) => {
-    assertTrustedAccessRequest(req)
+    readAutomationsAccess(req)
     const { automationId } = parseAutomationRouteParams(req.params)
     res.status(200).json({ data: await service.listRuns(automationId) })
   }))
 
   router.post('/:automationId/runs/:runId/read', asyncHandler(async (req, res) => {
-    assertTrustedAccessMutation(req, csrf)
+    assertAutomationsMutation(req, csrf)
     const { automationId } = parseAutomationRouteParams(req.params)
     res.status(200).json({ data: await service.markRunRead(automationId, readRouteString(req.params.runId, 'runId')) })
   }))
 
   router.post('/:automationId/runs/:runId/archive', asyncHandler(async (req, res) => {
-    assertTrustedAccessMutation(req, csrf)
+    assertAutomationsMutation(req, csrf)
     const { automationId } = parseAutomationRouteParams(req.params)
     res.status(200).json({ data: await service.archiveRun(automationId, readRouteString(req.params.runId, 'runId')) })
   }))
 
   router.post('/:automationId/runs/:runId/unarchive', asyncHandler(async (req, res) => {
-    assertTrustedAccessMutation(req, csrf)
+    assertAutomationsMutation(req, csrf)
     const { automationId } = parseAutomationRouteParams(req.params)
     res.status(200).json({ data: await service.unarchiveRun(automationId, readRouteString(req.params.runId, 'runId')) })
   }))
@@ -95,25 +95,25 @@ export function createAutomationsRouter(options: CreateAutomationsRouterOptions 
   }))
 
   router.patch('/:automationId', asyncHandler(async (req, res) => {
-    assertTrustedAccessMutation(req, csrf)
+    assertAutomationsMutation(req, csrf)
     const { automationId } = parseAutomationRouteParams(req.params)
     res.status(200).json({ data: await service.patchDefinition(automationId, parseAutomationPatchInput(req.body)) })
   }))
 
   router.post('/:automationId/pause', asyncHandler(async (req, res) => {
-    assertTrustedAccessMutation(req, csrf)
+    assertAutomationsMutation(req, csrf)
     const { automationId } = parseAutomationRouteParams(req.params)
     res.status(200).json({ data: await service.pauseDefinition(automationId) })
   }))
 
   router.post('/:automationId/resume', asyncHandler(async (req, res) => {
-    assertTrustedAccessMutation(req, csrf)
+    assertAutomationsMutation(req, csrf)
     const { automationId } = parseAutomationRouteParams(req.params)
     res.status(200).json({ data: await service.resumeDefinition(automationId) })
   }))
 
   router.delete('/:automationId', asyncHandler(async (req, res) => {
-    assertTrustedAccessMutation(req, csrf)
+    assertAutomationsMutation(req, csrf)
     const { automationId } = parseAutomationRouteParams(req.params)
     res.status(200).json({ data: await service.deleteDefinition(automationId, parseAutomationDeleteOptions(req.query, req.body)) })
   }))
@@ -151,16 +151,12 @@ function isRouteError(error: unknown): error is Error & { statusCode: number; co
   return isStatusError(error)
 }
 
-function assertTrustedAccessRequest(req: Request): AutomationsRemoteAccess {
-  const access = classifyAutomationsRemoteAccess(req)
-  if (!access.trusted) {
-    throw createRouteError(403, 'Automations API requires trusted local or Tailscale access')
-  }
-  return access
+function readAutomationsAccess(req: Request): AutomationsRemoteAccess {
+  return classifyAutomationsRemoteAccess(req)
 }
 
-function assertTrustedAccessMutation(req: Request, csrf: AutomationsCsrfProtection): AutomationsRemoteAccess {
-  const access = assertTrustedAccessRequest(req)
+function assertAutomationsMutation(req: Request, csrf: AutomationsCsrfProtection): AutomationsRemoteAccess {
+  const access = readAutomationsAccess(req)
   if (!csrf.verifyRequest(req)) {
     throw createRouteError(403, 'Invalid Automations CSRF token', 'AUTOMATIONS_CSRF_INVALID')
   }

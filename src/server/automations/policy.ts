@@ -11,8 +11,6 @@ export type AutomationExecutionPolicy = {
   executionMode: 'disabled' | 'local_only' | 'trusted_remote' | 'open_remote'
   requireLoopbackForExecution: boolean
   disableExecutionWhenRemote: boolean
-  allowTailscaleAccess: boolean
-  requireTrustedAccessForExecution: boolean
   allowDangerFullAccess: boolean
   allowApprovalNever: boolean
   networkAccess: boolean
@@ -25,8 +23,6 @@ export const DEFAULT_AUTOMATION_EXECUTION_POLICY: AutomationExecutionPolicy = {
   executionMode: 'trusted_remote',
   requireLoopbackForExecution: false,
   disableExecutionWhenRemote: false,
-  allowTailscaleAccess: true,
-  requireTrustedAccessForExecution: true,
   allowDangerFullAccess: false,
   allowApprovalNever: false,
   networkAccess: false,
@@ -57,12 +53,6 @@ export function assertAutomationExecutionAccess(access: AutomationsRemoteAccess,
   }
   if (policy.disableExecutionWhenRemote && !access.loopback) {
     throw createAutomationPolicyError(403, 'Automation execution is disabled for remote access')
-  }
-  if (policy.allowTailscaleAccess === false && access.tailscale) {
-    throw createAutomationPolicyError(403, 'Automation execution does not allow Tailscale access')
-  }
-  if (policy.requireTrustedAccessForExecution !== false && !access.trusted) {
-    throw createAutomationPolicyError(403, 'Automation execution requires trusted local or Tailscale access')
   }
   if (policy.executionMode === 'local_only' && !access.loopback) {
     throw createAutomationPolicyError(403, 'Automation execution mode allows local access only')

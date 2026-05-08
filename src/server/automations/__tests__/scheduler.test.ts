@@ -19,8 +19,6 @@ const enabledPolicy = {
   enabled: true,
   executionMode: 'trusted_remote',
   executionEnabled: true,
-  requireTrustedAccessForExecution: true,
-  allowTailscaleAccess: true,
   requireLoopbackForExecution: false,
   disableExecutionWhenRemote: false,
   sandboxMode: 'workspace-write',

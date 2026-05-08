@@ -11,9 +11,8 @@ function requestWithRemoteAddress(remoteAddress: string, headers: Record<string,
 
 describe('automation remote access classification', () => {
   it('trusts loopback socket peers', () => {
-    expect(classifyAutomationsRemoteAccess(requestWithRemoteAddress('127.0.0.1'))).toMatchObject({
+    expect(classifyAutomationsRemoteAccess(requestWithRemoteAddress('127.0.0.1'))).toEqual({
       loopback: true,
-      trusted: true,
     })
   })
 
@@ -22,16 +21,12 @@ describe('automation remote access classification', () => {
       'x-forwarded-for': '127.0.0.1',
     }))).toEqual({
       loopback: false,
-      tailscale: false,
-      trusted: true,
     })
   })
 
-  it('does not infer trust or Tailscale status from hardcoded IP ranges', () => {
+  it('does not infer access policy from hardcoded IP ranges', () => {
     expect(classifyAutomationsRemoteAccess(requestWithRemoteAddress('100.64.0.1'))).toEqual({
       loopback: false,
-      tailscale: false,
-      trusted: true,
     })
   })
 })
