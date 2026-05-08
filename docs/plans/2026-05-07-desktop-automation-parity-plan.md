@@ -275,6 +275,7 @@ $CODEX_HOME/automations/<native_dir>/scheduler-lock.<generation>.json
 - The CodexUI scheduler now follows Desktop's max-three-runs-per-tick behavior.
 - Review pass fix: scheduler lock cleanup still bounds lease reads to recent generations, but stale file deletion only runs after a threshold to reduce per-tick I/O churn across many automations.
 - Review pass fix: active-run index lock owners include host identity, and CodexUI only uses `process.kill(pid, 0)` for same-host owners. Cross-host or legacy owners fall back to lock-age expiry so network-mounted stores do not mistake a remote pid for a dead local process.
+- Review pass fix: global and per-repo active-run capacity checks count existing runs from the same automation. Multi-folder scheduled cron runs therefore cannot start more concurrent folder runs than the configured capacity allows.
 
 ### 7. RRULE And Schedule Semantics
 

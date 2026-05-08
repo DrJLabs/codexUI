@@ -350,13 +350,12 @@ export class AutomationsService {
   private async assertRunStartCapacity(definition: AutomationDefinition): Promise<void> {
     const activeRuns = await this.listPersistedActiveRuns()
     const maxGlobalActiveRuns = Number(this.policy.maxGlobalActiveRuns)
-    const otherActiveRuns = activeRuns.filter((activeRun) => activeRun.automationId !== definition.id)
-    if (otherActiveRuns.length >= maxGlobalActiveRuns) {
+    if (activeRuns.length >= maxGlobalActiveRuns) {
       throw createServiceError(409, 'Automation global active run limit reached')
     }
     const repoKey = automationRepoLimitKey(definition)
     if (!repoKey) return
-    const activeRepoRuns = otherActiveRuns.filter((activeRun) => {
+    const activeRepoRuns = activeRuns.filter((activeRun) => {
       const runMode = activeRun.run.runMode
       return (runMode === 'local' || runMode === 'worktree') && activeRun.run.cwd === repoKey
     }).length

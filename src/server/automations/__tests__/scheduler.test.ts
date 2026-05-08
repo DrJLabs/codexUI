@@ -1321,6 +1321,39 @@ Run the cron task`)
     ])
   })
 
+  it('counts earlier folders from the same scheduled automation against global capacity', async () => {
+    const policy = { ...enabledPolicy, maxGlobalActiveRuns: 1 } as unknown as AutomationExecutionPolicy
+    const repoA = join(tmpdir(), 'codexui-cron-capacity-a')
+    const repoB = join(tmpdir(), 'codexui-cron-capacity-b')
+    const { codexHomeDir, service, rpcCalls } = await createHarness({ policy })
+    await mkdir(repoA, { recursive: true })
+    await mkdir(repoB, { recursive: true })
+    const automationDir = await writeNative(codexHomeDir, 'capacity-cron-dir', {
+      ...nativeRecord,
+      id: 'capacity-cron',
+      kind: 'cron',
+      name: 'Capacity cron',
+      rrulePrefix: 'RRULE:',
+      targetThreadId: null,
+      executionEnvironment: 'local',
+      runMode: 'local',
+      cwd: repoA,
+      cwds: [repoA, repoB],
+      model: 'gpt-5.5',
+      reasoningEffort: 'low',
+    })
+
+    const run = await service.runScheduled('capacity-cron', {
+      dueAtIso: '2026-05-07T12:00:00.000Z',
+      nextDueAtIso: '2026-05-07T13:00:00.000Z',
+    })
+
+    const runs = await createAutomationRunStore(automationDir).listRuns()
+    expect(run.cwd).toBe(repoA)
+    expect(runs).toHaveLength(1)
+    expect(rpcCalls.filter((call) => call.method === 'turn/start').map((call) => (call.params as { cwd?: string }).cwd)).toEqual([repoA])
+  })
+
   it('projects Desktop inbox directives into local run history without storing the directive in the summary', async () => {
     const { codexHomeDir, service, notificationListeners } = await createHarness({
       threadReadById: {
