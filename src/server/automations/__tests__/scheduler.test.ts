@@ -1,6 +1,8 @@
+import { execFile } from 'node:child_process'
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { promisify } from 'node:util'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { AutomationRun } from '../../../types/automations'
 import type { CodexRunProfile } from '../../../types/execution'
@@ -14,6 +16,12 @@ import type { AutomationSchedulerState } from '../schedulerStore'
 import { AutomationsService } from '../service'
 
 const codexHomeDirs: string[] = []
+const execFileAsync = promisify(execFile)
+
+async function runGit(cwd: string, args: string[]): Promise<string> {
+  const { stdout } = await execFileAsync('git', args, { cwd })
+  return stdout
+}
 
 const enabledPolicy = {
   enabled: true,
@@ -567,6 +575,7 @@ Run the cron task`)
         cwd: expectedCwd,
         developerInstructions: expect.stringContaining('### Projectless Chat'),
       })
+      expect(threadStartParams?.developerInstructions).toContain('Response MUST end with a remark-directive block.')
       expect(threadStartParams?.developerInstructions).toContain(`put them in ${expectedCwd}`)
       expect(turnStartParams?.cwd).toBe(expectedCwd)
       expect(rpcCalls.filter((call) => call.method === 'config/read').map((call) => call.params)).toEqual([
@@ -614,6 +623,47 @@ Run the cron task`)
     })
     expect(threadStartParams?.cwd).toBe(plainDirectory)
     expect(turnStartParams?.cwd).toBe(plainDirectory)
+  })
+
+  it('runs worktree automations from the matching source subdirectory', async () => {
+    const { codexHomeDir, service, rpcCalls } = await createHarness()
+    const repo = join(codexHomeDir, 'subdir-repo')
+    const sourceCwd = join(repo, 'packages', 'app')
+    await mkdir(sourceCwd, { recursive: true })
+    await runGit(repo, ['init', '-b', 'main'])
+    await runGit(repo, ['config', 'user.name', 'CodexUI Test'])
+    await runGit(repo, ['config', 'user.email', 'codexui@example.test'])
+    await writeFile(join(sourceCwd, 'package.json'), '{"name":"app"}\n', 'utf8')
+    await runGit(repo, ['add', 'packages/app/package.json'])
+    await runGit(repo, ['commit', '-m', 'add app package'])
+    const automationDir = await writeNative(codexHomeDir, 'subdir-worktree-dir', {
+      ...nativeRecord,
+      id: 'subdir-worktree-cron',
+      kind: 'cron',
+      name: 'Subdir worktree cron',
+      rrulePrefix: 'RRULE:',
+      targetThreadId: null,
+      executionEnvironment: 'worktree',
+      runMode: 'worktree',
+      cwd: sourceCwd,
+      cwds: [sourceCwd],
+    })
+
+    await service.runScheduled('subdir-worktree-cron', {
+      dueAtIso: '2026-05-07T12:00:00.000Z',
+      nextDueAtIso: '2026-05-07T13:00:00.000Z',
+    })
+
+    const runs = await createAutomationRunStore(automationDir).listRuns()
+    const threadStartParams = rpcCalls.find((call) => call.method === 'thread/start')?.params as { cwd?: string } | undefined
+    const turnStartParams = rpcCalls.find((call) => call.method === 'turn/start')?.params as { cwd?: string } | undefined
+
+    expect(runs).toHaveLength(1)
+    expect(runs[0]?.runMode).toBe('worktree')
+    expect(runs[0]?.worktreePath).toContain('/packages/app')
+    expect(threadStartParams?.cwd).toBe(runs[0]?.worktreePath)
+    expect(turnStartParams?.cwd).toBe(runs[0]?.worktreePath)
+    await expect(readFile(join(runs[0]?.worktreePath ?? '', 'package.json'), 'utf8')).resolves.toBe('{"name":"app"}\n')
   })
 
   it('marks scheduled cron automations without cwds unsupported instead of starting runs', async () => {

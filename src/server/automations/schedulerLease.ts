@@ -182,7 +182,9 @@ async function listLockSlots(automationDirPath: string): Promise<LockSlot[]> {
   lockFiles.sort((a, b) => a.generation - b.generation)
   if (lockFiles.length > LOCK_CLEANUP_FILE_THRESHOLD) {
     const staleFiles = lockFiles.slice(0, lockFiles.length - MAX_LOCK_SLOTS_TO_READ)
-    await Promise.all(staleFiles.map((slot) => rm(slot.path, { force: true }).catch(() => {})))
+    for (const slot of staleFiles) {
+      await rm(slot.path, { force: true }).catch(() => {})
+    }
   }
   const slots = await Promise.all(lockFiles.slice(-MAX_LOCK_SLOTS_TO_READ).map((slot) => readLockSlot(slot.path, slot.generation)))
   slots.sort((a, b) => a.generation - b.generation)

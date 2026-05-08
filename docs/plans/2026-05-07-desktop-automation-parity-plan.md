@@ -374,6 +374,7 @@ Section 9 implementation notes:
 - Desktop bundle evidence: projectless automation stores `cwd = "~"`/`cwds = ["~"]`, generates a fresh folder under `<home>/Documents/Codex/<YYYY-MM-DD>/<prompt-slug>`, and injects a `### Projectless Chat` developer-instruction block pointing file writes at that generated folder.
 - CodexUI now accepts `~` in create/patch API payloads and native TOML parsing without treating it as an invalid relative path. The canonical TOML sentinel is preserved; generated runtime directories are never written back into `automation.toml`.
 - At run start, CodexUI creates the generated output directory with Desktop-style prompt slugs, date folders, and numeric suffixes. Projectless worktree automations are executed as local runs against the generated directory, matching Desktop's behavior of ignoring worktree execution for `cwd = "~"`.
+- Cron thread starts now receive Desktop-style automation developer instructions for memory usage and the required single `::inbox-item{...}` directive; projectless runs append the Desktop projectless guidance to that same developer-instruction block.
 - Config reads intentionally skip per-cwd `config/read` calls for `~`; only global/default config is loaded before the generated folder exists.
 - UI/display helpers label projectless targets as `Projectless automation` with `Documents/Codex generated folder`, so Desktop-created projectless automations are visible and understandable in CodexUI.
 

@@ -6,7 +6,7 @@ export const EXECUTION_AUDIT_SCHEMA = 'codexui.execution.audit.v1'
 
 export type ExecutionAuditSource = 'kanban' | 'automation' | 'action'
 
-const SECRET_FIELD_PATTERN = /(?:authorization|cookie|password|secret|token|api[_-]?key)/iu
+const SECRET_FIELD_PATTERN = /(?:authorization|bearer|cookie|credential|jwt|password|private[_-]?key|refresh[_-]?token|secret|sensitive|session|token|api[_-]?key|access[_-]?key)/iu
 
 export type ExecutionAuditEventInput = {
   eventType: string

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildCronPrompt, buildHeartbeatPrompt } from '../prompts'
+import { buildCronDeveloperInstructions, buildCronPrompt, buildHeartbeatPrompt } from '../prompts'
 
 describe('automation prompt builders', () => {
   it('builds the Desktop-compatible heartbeat prompt envelope', () => {
@@ -71,5 +71,12 @@ Check the repository.`)
       lastRunAtIso: '2026-04-30T09:00:00.000Z',
       prompt: 'Check the repository.',
     })).toContain('Last run: 2026-04-30T09:00:00.000Z (1777539600000)')
+  })
+
+  it('builds Desktop-compatible cron developer instructions with optional projectless guidance', () => {
+    const instructions = buildCronDeveloperInstructions('### Projectless Chat\n- Use /tmp/output')
+    expect(instructions).toContain('Response MUST end with a remark-directive block.')
+    expect(instructions).toContain('Output exactly ONE inbox-item directive.')
+    expect(instructions).toContain('### Projectless Chat\n- Use /tmp/output')
   })
 })

@@ -1,7 +1,7 @@
 import { execFile } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises'
-import { basename, join, resolve } from 'node:path'
+import { basename, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { promisify } from 'node:util'
 import {
   MANAGED_WORKTREE_LOCK_FILENAME,
@@ -34,6 +34,7 @@ export type ManagedWorktree = {
   branchName: string
   baseRef: string
   worktreePath: string
+  worktreeWorkspaceRoot: string
   lockPath: string
   localEnvironmentConfigPath: string | null
   localEnvironmentSetup: ManagedWorktreeLocalEnvironmentSetupResult | null
@@ -83,6 +84,7 @@ export class ManagedWorktreeService {
     const repoName = basename(gitRoot)
     const worktreeParent = join(worktreeRoot, sanitizePathSegment(input.runId))
     const worktreePath = join(worktreeParent, repoName)
+    const worktreeWorkspaceRoot = resolveWorktreeWorkspaceRoot(gitRoot, this.projectRoot, worktreePath)
     const lockPath = join(worktreeParent, MANAGED_WORKTREE_LOCK_FILENAME)
 
     await mkdir(worktreeParent, { recursive: true })
@@ -92,11 +94,12 @@ export class ManagedWorktreeService {
     const now = new Date().toISOString()
     let localEnvironment: Awaited<ReturnType<typeof applyManagedWorktreeLocalEnvironment>> | null = null
     try {
+      await mkdir(worktreeWorkspaceRoot, { recursive: true })
       localEnvironment = await applyManagedWorktreeLocalEnvironment({
         sourceWorkspaceRoot: this.projectRoot,
         sourceGitRoot: gitRoot,
         worktreeGitRoot: worktreePath,
-        worktreeWorkspaceRoot: worktreePath,
+        worktreeWorkspaceRoot,
         localEnvironmentConfigPath: input.localEnvironmentConfigPath,
       })
       await writeFile(lockPath, `${JSON.stringify({
@@ -127,6 +130,7 @@ export class ManagedWorktreeService {
       branchName,
       baseRef,
       worktreePath,
+      worktreeWorkspaceRoot,
       lockPath,
       localEnvironmentConfigPath: localEnvironment?.localEnvironmentConfigPath ?? null,
       localEnvironmentSetup: localEnvironment?.setupResult ?? null,
@@ -235,6 +239,15 @@ function sanitizePathSegment(value: string, options: { preserveUnderscore?: bool
 
 function ownerLockSegment(owner: ManagedWorktreeOwner): string {
   return `owner-${owner.source}-${createHash('sha256').update(`${owner.source}:${owner.id}`).digest('hex').slice(0, 16)}`
+}
+
+function resolveWorktreeWorkspaceRoot(gitRoot: string, projectRoot: string, worktreePath: string): string {
+  const relativeWorkspace = relative(gitRoot, projectRoot)
+  if (!relativeWorkspace || relativeWorkspace === '.') return worktreePath
+  if (relativeWorkspace === '..' || relativeWorkspace.startsWith(`..${sep}`) || isAbsolute(relativeWorkspace)) {
+    return worktreePath
+  }
+  return join(worktreePath, relativeWorkspace)
 }
 
 async function acquireOwnerWorktreeLock(lockPath: string, owner: ManagedWorktreeOwner): Promise<void> {

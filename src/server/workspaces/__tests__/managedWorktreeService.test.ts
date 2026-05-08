@@ -77,6 +77,26 @@ describe('ManagedWorktreeService', () => {
     await expect(readFile(join(worktree.worktreePath, 'feature.txt'), 'utf8')).resolves.toBe('feature branch content')
   })
 
+  it('maps a source subdirectory to the matching worktree workspace root', async () => {
+    const { dataDir, projectRoot } = await createGitRepo()
+    await mkdir(join(projectRoot, 'packages', 'app'), { recursive: true })
+    await writeFile(join(projectRoot, 'packages', 'app', 'package.json'), '{"name":"app"}\n', 'utf8')
+    await runGit(projectRoot, ['add', 'packages/app/package.json'])
+    await runGit(projectRoot, ['commit', '-m', 'add app package'])
+    const sourceWorkspaceRoot = join(projectRoot, 'packages', 'app')
+    const service = new ManagedWorktreeService({ dataDir, projectRoot: sourceWorkspaceRoot })
+
+    const worktree = await service.createManagedWorktree({
+      owner: { source: 'automation', id: 'subdir-check' },
+      taskId: 'subdir-check',
+      runId: 'automation-run-subdir',
+      name: 'Subdir Check',
+    })
+
+    expect(worktree.worktreeWorkspaceRoot).toBe(join(worktree.worktreePath, 'packages', 'app'))
+    await expect(readFile(join(worktree.worktreeWorkspaceRoot, 'package.json'), 'utf8')).resolves.toBe('{"name":"app"}\n')
+  })
+
   it('stores and applies Desktop local environment setup for managed worktrees', async () => {
     const { dataDir, projectRoot } = await createGitRepo()
     const localEnvironmentConfigPath = join(projectRoot, '.codex', 'local-env.toml')

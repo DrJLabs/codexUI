@@ -16,7 +16,7 @@ import {
   type AutomationExecutionPolicy,
   type AutomationRunProfileInput,
 } from './policy'
-import { buildCronPrompt, buildHeartbeatPrompt } from './prompts'
+import { buildCronDeveloperInstructions, buildCronPrompt, buildHeartbeatPrompt } from './prompts'
 import {
   buildProjectlessAutomationInstructions,
   createProjectlessAutomationWorkspace,
@@ -436,13 +436,17 @@ export class AutomationRunner {
       },
     })
     try {
-      return await service.createManagedWorktree({
+      const worktree = await service.createManagedWorktree({
         owner: { source: 'automation', id: definition.id },
         taskId: definition.id,
         runId: run.id,
         name: definition.name,
         localEnvironmentConfigPath: definition.localEnvironmentConfigPath,
       })
+      return {
+        ...worktree,
+        worktreePath: worktree.worktreeWorkspaceRoot,
+      }
     } catch (error) {
       if (error instanceof ManagedWorktreeUnavailableError) return null
       throw error
@@ -504,8 +508,10 @@ export class AutomationRunner {
       approvalPolicy: runSettings.approvalPolicy,
       sandbox: sandboxModeForThreadStart(runSettings.sandboxPolicy),
       config: threadConfig,
-      developerInstructions: projectlessWorkspace
-        ? buildProjectlessAutomationInstructions(projectlessWorkspace.outputDirectory)
+      developerInstructions: definition.kind === 'cron'
+        ? buildCronDeveloperInstructions(projectlessWorkspace
+            ? buildProjectlessAutomationInstructions(projectlessWorkspace.outputDirectory)
+            : null)
         : null,
       personality: null,
       ephemeral: null,
@@ -623,6 +629,8 @@ export class AutomationRunner {
         await match.store.appendLog(failed, `Run failed during completion: ${message}`)
         const definition = await this.createProjectionDefinition(match.entry, failed)
         await this.projectTerminalRun({ definition, store: match.store, run: failed })
+      } catch (secondaryError) {
+        console.warn('Automation run failure persistence failed:', secondaryError)
       } finally {
         this.ownedActiveRunIds.delete(match.run.id)
         this.activeRunsByTurn.delete(activeRunTurnKey(threadId, turnId))

@@ -142,15 +142,23 @@ describe('ExecutionAuditLog', () => {
       },
       env: {
         apiKey: 'sk-default-secret',
+        sessionCookie: 'sid-secret',
+        customCredential: 'credential-secret',
       },
     })
     const content = await readFile(filePath, 'utf8')
     const persisted = JSON.parse(content.trim())
 
     expect(record.codex).toEqual({ threadId: 'thread_1', authorization: '[REDACTED]' })
-    expect(record.env).toEqual({ apiKey: '[REDACTED]' })
+    expect(record.env).toEqual({
+      apiKey: '[REDACTED]',
+      customCredential: '[REDACTED]',
+      sessionCookie: '[REDACTED]',
+    })
     expect(content).not.toContain('default-secret-token')
     expect(content).not.toContain('sk-default-secret')
+    expect(content).not.toContain('sid-secret')
+    expect(content).not.toContain('credential-secret')
     expect(persisted.eventHash).toBe(hashRecordWithoutEventHash(persisted))
   })
 
