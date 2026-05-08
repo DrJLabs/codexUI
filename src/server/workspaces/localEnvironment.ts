@@ -304,11 +304,12 @@ async function runSetupScript(input: {
   const startedAt = Date.now()
   const tempDir = join(tmpdir(), `codexui-local-env-${randomUUID()}`)
   const capturedEnvPath = join(tempDir, 'captured-env.json')
-  const scriptPath = join(tempDir, `setup.${process.platform === 'win32' ? 'cmd' : 'sh'}`)
+  const wrapperPath = join(tempDir, `setup-wrapper.${process.platform === 'win32' ? 'cmd' : 'sh'}`)
+  const setupScriptPath = join(tempDir, `setup-user.${process.platform === 'win32' ? 'cmd' : 'sh'}`)
   await mkdir(tempDir, { recursive: true })
   try {
-    const wrapper = buildSetupWrapper(input.script, capturedEnvPath)
-    await writeFile(scriptPath, wrapper, 'utf8')
+    await writeFile(setupScriptPath, normalizeSetupScript(input.script), 'utf8')
+    await writeFile(wrapperPath, buildSetupWrapper(setupScriptPath, capturedEnvPath), 'utf8')
     const env = {
       ...process.env,
       COLORTERM: 'truecolor',
@@ -318,7 +319,7 @@ async function runSetupScript(input: {
       [WORKTREE_PATH_ENV]: input.worktreeWorkspaceRoot,
     }
     const shell = process.platform === 'win32' ? (process.env.ComSpec || 'cmd.exe') : (process.env.SHELL || 'sh')
-    const args = process.platform === 'win32' ? ['/d', '/s', '/c', scriptPath] : ['-lc', `sh ${shellQuote(scriptPath)}`]
+    const args = process.platform === 'win32' ? ['/d', '/s', '/c', wrapperPath] : ['-lc', `sh ${shellQuote(wrapperPath)}`]
     const { stdout, stderr } = await execFileAsync(shell, args, {
       cwd: input.cwd,
       env,
@@ -349,11 +350,15 @@ function shellQuote(value: string): string {
   return `'${value.replace(/'/gu, "'\\''")}'`
 }
 
-function buildSetupWrapper(script: string, capturedEnvPath: string): string {
+function normalizeSetupScript(script: string): string {
+  return process.platform === 'win32' ? script.replace(/\n/gu, '\r\n') : script.replace(/\r\n/gu, '\n')
+}
+
+function buildSetupWrapper(setupScriptPath: string, capturedEnvPath: string): string {
   if (process.platform === 'win32') {
-    return `${script}\r\nif %ERRORLEVEL% EQU 0 node -e "require('fs').writeFileSync(process.argv[1], JSON.stringify(process.env))" "${capturedEnvPath}"\r\nexit /b %ERRORLEVEL%\r\n`
+    return `call "${setupScriptPath}"\r\nset CODEX_SETUP_EXIT_CODE=%ERRORLEVEL%\r\nif %CODEX_SETUP_EXIT_CODE% EQU 0 node -e "require('fs').writeFileSync(process.argv[1], JSON.stringify(process.env))" "${capturedEnvPath}"\r\nexit /b %CODEX_SETUP_EXIT_CODE%\r\n`
   }
-  return `${script.replace(/\r\n/gu, '\n')}\nsetup_exit_code=$?\nif [ "$setup_exit_code" -eq 0 ]; then\n  node -e 'require("fs").writeFileSync(process.argv[1], JSON.stringify(process.env))' '${capturedEnvPath.replace(/'/gu, "'\\''")}'\nfi\nexit "$setup_exit_code"\n`
+  return `. ${shellQuote(setupScriptPath)}\nsetup_exit_code=$?\nif [ "$setup_exit_code" -eq 0 ]; then\n  node -e 'require("fs").writeFileSync(process.argv[1], JSON.stringify(process.env))' ${shellQuote(capturedEnvPath)}\nfi\nexit "$setup_exit_code"\n`
 }
 
 async function readCapturedEnvironment(path: string): Promise<Record<string, string>> {

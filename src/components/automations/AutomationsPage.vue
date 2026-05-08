@@ -180,7 +180,7 @@
             </div>
           </section>
 
-          <section v-if="draft.mode === 'create'" class="automations-compact-section" aria-label="Automation basics">
+          <section class="automations-compact-section" aria-label="Automation basics">
             <h3>Basics</h3>
             <label class="automations-field">
               <span>Name</span>
@@ -289,16 +289,6 @@
                 </option>
               </select>
             </label>
-
-            <label class="automations-compact-row automations-compact-control">
-              <span>Profile defaults</span>
-              <select :value="selectedRunProfileId" @change="applyRunProfileDefaultsFromEvent">
-                <option value="">Do not copy profile defaults</option>
-                <option v-for="profile in availableRunProfiles" :key="profile.id" :value="profile.id">
-                  {{ profile.name }}
-                </option>
-              </select>
-            </label>
           </section>
 
           <details v-if="draft.mode === 'edit'" class="automations-runs" aria-label="Previous automation runs">
@@ -399,32 +389,35 @@
           </details>
 
           <details class="automations-advanced">
-            <summary>Advanced</summary>
+            <summary>Advanced details</summary>
             <div class="automations-advanced-content">
               <div class="automations-field-grid">
-                <label v-if="draft.mode === 'edit'" class="automations-field">
-                  <span>Name</span>
-                  <input v-model="draft.name" type="text" required />
-                </label>
-
                 <label v-if="draft.runMode === 'chat'" class="automations-field">
-                  <span>Manual thread ID</span>
+                  <span>Raw thread ID</span>
                   <input v-model="draft.targetThreadId" type="text" required />
                   <small class="automations-field-help">
-                    Advanced override for an eligible local or pinned thread that is not visible in the picker.
+                    Use only when the target chat is not visible in the picker.
                   </small>
                 </label>
 
-                <label v-if="draft.mode === 'edit'" class="automations-field automations-field-wide">
-                  <span>Prompt</span>
-                  <textarea v-model="draft.prompt" rows="8" required />
-                </label>
-
                 <label v-if="showRawRrule" class="automations-field automations-field-wide">
-                  <span>Custom schedule rule</span>
+                  <span>Raw schedule rule</span>
                   <input v-model="draft.rrule" type="text" required />
                   <small class="automations-field-help">
                     RRULE format, for example FREQ=DAILY;BYHOUR=9;BYMINUTE=0.
+                  </small>
+                </label>
+
+                <label class="automations-field automations-field-wide">
+                  <span>Profile defaults</span>
+                  <select :value="selectedRunProfileId" @change="applyRunProfileDefaultsFromEvent">
+                    <option value="">Do not copy profile defaults</option>
+                    <option v-for="profile in availableRunProfiles" :key="profile.id" :value="profile.id">
+                      {{ profile.name }}
+                    </option>
+                  </select>
+                  <small class="automations-field-help">
+                    Copies model, reasoning, sandbox, approval, and network defaults from config profiles.
                   </small>
                 </label>
 
@@ -703,13 +696,6 @@ const advancedDetails = computed(() => [
   { label: 'Automation id', value: selectedAutomation.value?.id || 'Created on save', mono: true },
   { label: 'Source', value: selectedAutomation.value?.source || 'Created on save', mono: true },
   { label: 'Kind', value: selectedAutomation.value?.kind || 'Created on save', mono: true },
-  { label: 'Model', value: draft.value.model || selectedAutomation.value?.model || 'Default', mono: true },
-  { label: 'Reasoning effort', value: draft.value.reasoningEffort || selectedAutomation.value?.reasoningEffort || 'Default', mono: true },
-  {
-    label: 'Local environment config',
-    value: draft.value.localEnvironmentConfigPath || selectedAutomation.value?.localEnvironmentConfigPath || 'None',
-    mono: true,
-  },
 ])
 
 watch(

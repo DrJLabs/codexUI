@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { link, mkdir, readdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
+import { link, mkdir, open, readdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import { hostname } from 'node:os'
 import { join } from 'node:path'
 
@@ -93,24 +93,49 @@ export function createAutomationSchedulerLeaseStore(
           releasedAtIso: null,
         }
         const tempPath = `${lockPath}.${ownerId.replace(/[^A-Za-z0-9_.-]/g, '_')}.${lease.leaseId}.tmp`
-        await writeFile(tempPath, `${JSON.stringify(lease, null, 2)}\n`, 'utf8')
-        try {
-          await link(tempPath, lockPath)
-          await rm(tempPath, { force: true })
+        const serializedLease = `${JSON.stringify(lease, null, 2)}\n`
+        const acquired = await createLeaseFile(tempPath, lockPath, serializedLease)
+        if (acquired) {
           return {
             lease,
             release: async () => {
               await releaseLease(lockPath, lease)
             },
           }
-        } catch (error) {
-          await rm(tempPath, { force: true })
-          if (!isNodeError(error) || error.code !== 'EEXIST') throw error
         }
       }
 
       return null
     },
+  }
+}
+
+async function createLeaseFile(tempPath: string, lockPath: string, content: string): Promise<boolean> {
+  await writeFile(tempPath, content, 'utf8')
+  try {
+    await link(tempPath, lockPath)
+    return true
+  } catch (error) {
+    if (isNodeError(error) && error.code === 'EEXIST') return false
+    if (!isHardLinkUnsupportedError(error)) throw error
+    return await createLeaseFileWithExclusiveOpen(lockPath, content)
+  } finally {
+    await rm(tempPath, { force: true })
+  }
+}
+
+async function createLeaseFileWithExclusiveOpen(lockPath: string, content: string): Promise<boolean> {
+  let handle: Awaited<ReturnType<typeof open>> | null = null
+  try {
+    handle = await open(lockPath, 'wx')
+    await handle.writeFile(content, 'utf8')
+    return true
+  } catch (error) {
+    if (isNodeError(error) && error.code === 'EEXIST') return false
+    if (handle) await rm(lockPath, { force: true }).catch(() => {})
+    throw error
+  } finally {
+    await handle?.close().catch(() => {})
   }
 }
 
@@ -235,4 +260,14 @@ function readNullableIso(value: unknown, field: string): string | null {
 
 function isNodeError(error: unknown): error is NodeJS.ErrnoException {
   return error instanceof Error && 'code' in error
+}
+
+function isHardLinkUnsupportedError(error: unknown): error is NodeJS.ErrnoException {
+  return isNodeError(error) && (
+    error.code === 'EACCES' ||
+    error.code === 'EPERM' ||
+    error.code === 'EOPNOTSUPP' ||
+    error.code === 'ENOSYS' ||
+    error.code === 'EXDEV'
+  )
 }

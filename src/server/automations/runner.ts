@@ -42,6 +42,7 @@ export type AutomationRunnerOptions = NativeAutomationStoreOptions & {
 }
 
 const AUTOMATION_BRIDGE_METHODS = ['thread/start', 'thread/resume', 'thread/read', 'turn/start'] as const
+const MAX_COMPLETION_LOCK_DEPTH = 25
 let automationRunSequence = 0
 
 type IndexedActiveRun = {
@@ -63,6 +64,7 @@ export class AutomationRunner {
   private readonly projectionAdapter: AutomationProjectionAdapter | null
   private readonly locks = new Map<string, Promise<unknown>>()
   private readonly completionLocks = new Map<string, Promise<void>>()
+  private readonly completionLockDepths = new Map<string, number>()
   private readonly ownedActiveRunIds = new Set<string>()
   private readonly activeRunsByTurn = new Map<string, IndexedActiveRun>()
   private readonly heartbeatRendererStatesByThread = new Map<string, HeartbeatRendererState>()
@@ -83,6 +85,8 @@ export class AutomationRunner {
     this.unsubscribeNotifications()
     this.activeRunsByTurn.clear()
     this.heartbeatRendererStatesByThread.clear()
+    this.completionLocks.clear()
+    this.completionLockDepths.clear()
   }
 
   async runNow(input: {
@@ -520,6 +524,12 @@ export class AutomationRunner {
     const turnId = extractTurnId(notification.params)
     if (!threadId || !turnId) return
     const lockKey = `${threadId}:${turnId}`
+    const depth = (this.completionLockDepths.get(lockKey) ?? 0) + 1
+    if (depth > MAX_COMPLETION_LOCK_DEPTH) {
+      console.warn(`Automation turn completion notification queue exceeded ${MAX_COMPLETION_LOCK_DEPTH} for ${lockKey}; dropping duplicate notification`)
+      return
+    }
+    this.completionLockDepths.set(lockKey, depth)
     const previous = this.completionLocks.get(lockKey) ?? Promise.resolve()
     const next = previous.then(async () => {
       await this.completeMatchingRun(threadId, turnId)
@@ -527,8 +537,14 @@ export class AutomationRunner {
       console.warn('Automation turn completion notification failed:', error)
     })
     this.completionLocks.set(lockKey, next)
-    await next
-    if (this.completionLocks.get(lockKey) === next) this.completionLocks.delete(lockKey)
+    try {
+      await next
+    } finally {
+      const remainingDepth = (this.completionLockDepths.get(lockKey) ?? 1) - 1
+      if (remainingDepth > 0) this.completionLockDepths.set(lockKey, remainingDepth)
+      else this.completionLockDepths.delete(lockKey)
+      if (this.completionLocks.get(lockKey) === next) this.completionLocks.delete(lockKey)
+    }
   }
 
   private async completeMatchingRun(threadId: string, turnId: string): Promise<void> {
