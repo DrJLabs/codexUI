@@ -504,6 +504,37 @@ Run the cron task`)
     })
   })
 
+  it('runs manual multi-folder local cron automations once per configured folder', async () => {
+    const { codexHomeDir, service, rpcCalls } = await createHarness()
+    const repoA = join(codexHomeDir, 'manual-repo-a')
+    const repoB = join(codexHomeDir, 'manual-repo-b')
+    await mkdir(repoA, { recursive: true })
+    await mkdir(repoB, { recursive: true })
+    const automationDir = await writeNative(codexHomeDir, 'manual-multi-dir', {
+      ...nativeRecord,
+      id: 'manual-multi-cron',
+      kind: 'cron',
+      name: 'Manual Multi Cron',
+      prompt: 'Run the cron task',
+      rrulePrefix: 'RRULE:',
+      targetThreadId: null,
+      executionEnvironment: 'local',
+      runMode: 'local',
+      cwd: repoA,
+      cwds: [repoA, repoB],
+    })
+
+    await service.runNow('manual-multi-cron')
+
+    const runs = await createAutomationRunStore(automationDir).listRuns()
+    const turnStartCwds = rpcCalls
+      .filter((call) => call.method === 'turn/start')
+      .map((call) => (call.params as { cwd?: string }).cwd)
+      .sort()
+    expect(runs.map((run) => run.cwd).sort()).toEqual([repoA, repoB].sort())
+    expect(turnStartCwds).toEqual([repoA, repoB].sort())
+  })
+
   it('recovers stale same-automation manual cron runs before checking manual capacity', async () => {
     const policy = { ...enabledPolicy, maxGlobalActiveRuns: 1, maxActiveRunsPerRepo: 1 } as unknown as AutomationExecutionPolicy
     const { codexHomeDir, service, rpcCalls } = await createHarness({ policy, availableModels: ['gpt-5.5'] })

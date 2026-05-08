@@ -1199,8 +1199,8 @@ function conflictsWithNewRun(
   activeRun: AutomationRun,
   nextRun: { trigger: AutomationRun['trigger']; runMode: AutomationRunMode; cwd: string | null },
 ): boolean {
-  if (nextRun.trigger !== 'schedule') return true
-  if (activeRun.trigger !== 'schedule') return true
+  if (nextRun.trigger !== 'schedule' && nextRun.trigger !== 'manual') return true
+  if (activeRun.trigger !== nextRun.trigger) return true
   if (nextRun.runMode !== 'local' && nextRun.runMode !== 'worktree') return true
   if (!nextRun.cwd || !activeRun.cwd) return true
   return activeRun.cwd === nextRun.cwd

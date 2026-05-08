@@ -538,25 +538,43 @@ export class AutomationsService {
       const definition = (await mapDefinition(entry, sidecarResult.sidecar, { includeRecentRuns: false })).definition
       assertAutomationNotDeleted(definition)
       await this.ensureInterruptedRunRecoveryBeforeCapacity()
-      await this.assertRunStartCapacity(definition)
       assertAutomationExecutionPolicy(this.policy)
-      assertAutomationRunnerTarget(definition)
-      const executionOptions = options.runProfiles
-        ? null
-        : await this.readExecutionOptions(definitionTargetConfigCwds(definition), { preferCwdDefault: true })
-      const runProfiles = options.runProfiles ?? executionOptions?.runProfiles
-      assertAutomationRunProfileAllowed(resolveAutomationRunProfile(definition, {
-        ...options,
-        defaultRunProfileId: executionOptions?.defaultRunProfileId,
-        runProfiles,
-      }), this.policy)
-      return await this.runner.runNow({
-        definition,
-        automationDirPath: entry.automationDirPath,
-        runProfiles,
-        defaultRunProfileId: executionOptions?.defaultRunProfileId,
-        runProfileId: options.runProfileId,
-      })
+      const targetCwds = manualRunCwds(definition)
+      let firstRun: AutomationRun | null = null
+      let firstError: unknown = null
+      for (const targetCwd of targetCwds) {
+        try {
+          const targetDefinition = definitionWithTargetCwd(definition, targetCwd)
+          await this.assertRunStartCapacity(targetDefinition)
+          assertAutomationRunnerTarget(targetDefinition)
+          const executionOptions = options.runProfiles
+            ? null
+            : await this.readExecutionOptions(targetConfigCwds(targetCwd, targetDefinition), { preferCwdDefault: true })
+          const runProfiles = options.runProfiles ?? executionOptions?.runProfiles
+          assertAutomationRunProfileAllowed(resolveAutomationRunProfile(targetDefinition, {
+            ...options,
+            defaultRunProfileId: executionOptions?.defaultRunProfileId,
+            runProfiles,
+          }), this.policy)
+          const run = await this.runner.runNow({
+            definition: targetDefinition,
+            automationDirPath: entry.automationDirPath,
+            runProfiles,
+            defaultRunProfileId: executionOptions?.defaultRunProfileId,
+            runProfileId: options.runProfileId,
+          })
+          if (run.state === 'failed') {
+            firstError ??= new Error(run.errorMessage ?? `Manual run failed for ${targetCwd ?? definition.id}`)
+            continue
+          }
+          firstRun ??= run
+        } catch (error) {
+          firstError ??= error
+        }
+      }
+      if (firstRun) return firstRun
+      if (firstError) throw firstError
+      throw new AutomationDeferredRunError('Manual run skipped: no folders configured', { deferMode: 'unsupported_target' })
     })
   }
 
@@ -1148,6 +1166,13 @@ function scheduledRunCwds(definition: AutomationDefinition): Array<string | null
   const runMode = definition.runMode ?? 'chat'
   if (definition.kind !== 'cron' || (runMode !== 'local' && runMode !== 'worktree')) return [null]
   return definition.cwds.map((cwd) => cwd.trim()).filter(Boolean)
+}
+
+function manualRunCwds(definition: AutomationDefinition): Array<string | null> {
+  const runMode = definition.runMode ?? 'chat'
+  if (definition.kind !== 'cron' || (runMode !== 'local' && runMode !== 'worktree')) return [null]
+  const cwds = definition.cwds.map((cwd) => cwd.trim()).filter(Boolean)
+  return cwds.length > 0 ? cwds : [definition.cwd]
 }
 
 function definitionWithTargetCwd(definition: AutomationDefinition, cwd: string | null): AutomationDefinition {
