@@ -144,8 +144,10 @@ function parseTomlRecord(raw: string): Record<string, unknown> | null {
   }
 }
 
-function readTomlStringValue(parsedValue: unknown): string {
-  if (typeof parsedValue === 'string') return normalizeParsedTomlString(parsedValue)
+function readTomlStringValue(parsedValue: unknown, options?: { preserveFinalNewline?: boolean }): string {
+  if (typeof parsedValue === 'string') {
+    return options?.preserveFinalNewline ? parsedValue : normalizeParsedTomlString(parsedValue)
+  }
   if (typeof parsedValue === 'number' || typeof parsedValue === 'boolean') return String(parsedValue)
   return ''
 }
@@ -165,6 +167,10 @@ function readTomlStringArrayValue(parsedValue: unknown): string[] {
     return parsedValue.map((entry) => normalizeParsedTomlString(entry))
   }
   return []
+}
+
+function hasOwn(input: object, field: string): boolean {
+  return Object.prototype.hasOwnProperty.call(input, field)
 }
 
 function normalizeAutomationRruleForRead(value: string): { rrule: string; rrulePrefix: 'RRULE:' | null } {
@@ -396,7 +402,7 @@ export function parseAutomationToml(raw: string): ThreadAutomationRecord | null 
   const id = readTomlStringValue(parsed.id)
   const kindValue = readTomlStringValue(parsed.kind) || 'heartbeat'
   const name = readTomlStringValue(parsed.name)
-  const prompt = readTomlStringValue(parsed.prompt)
+  const prompt = readTomlStringValue(parsed.prompt, { preserveFinalNewline: true })
   const normalizedRrule = normalizeAutomationRruleForRead(readTomlStringValue(parsed.rrule))
   const statusValue = readTomlStringValue(parsed.status) || 'ACTIVE'
   const targetThreadId = readTomlStringValue(parsed.target_thread_id) || null
@@ -687,6 +693,15 @@ async function readThreadHeartbeatAutomationEntry(
   return all[threadId] ?? null
 }
 
+async function readNativeAutomationEntryById(
+  automationId: string,
+  options?: NativeAutomationStoreOptions,
+): Promise<ThreadAutomationStoreEntry | null> {
+  const entries = await listNativeAutomationEntries(options)
+  const match = entries.records.find((entry) => entry.record.id === automationId)
+  return match ? { record: match.record, sourceDirName: match.sourceDirName } : null
+}
+
 export async function writeThreadHeartbeatAutomation(
   input: {
     threadId: string | null
@@ -714,15 +729,20 @@ export async function writeNativeAutomation(
   const threadId = input.threadId?.trim() || null
   const explicitId = input.id?.trim() || null
   const name = input.name.trim()
-  const prompt = input.prompt.trim()
+  const prompt = input.prompt
   const rrule = input.rrule.trim()
-  if (!name || !prompt || !rrule) {
+  if (!name || !prompt.trim() || !rrule) {
     throw new Error('name, prompt, and rrule are required')
   }
 
   const automationRoot = getCodexAutomationsDir(options)
   await mkdir(automationRoot, { recursive: true })
-  const existing = threadId ? await readThreadHeartbeatAutomationEntry(threadId, options) : null
+  const safeExplicitId = explicitId && isSafeAutomationBasename(explicitId) ? explicitId : null
+  const existing = threadId
+    ? await readThreadHeartbeatAutomationEntry(threadId, options)
+    : safeExplicitId
+      ? await readNativeAutomationEntryById(safeExplicitId, options)
+      : null
   const generatedIdBase = explicitId && isSafeAutomationBasename(explicitId)
     ? explicitId
     : threadId
@@ -744,6 +764,33 @@ export async function writeNativeAutomation(
       previousRaw = undefined
     }
   }
+  const hasModel = hasOwn(input, 'model')
+  const hasReasoningEffort = hasOwn(input, 'reasoningEffort')
+  const hasExecutionEnvironment = hasOwn(input, 'executionEnvironment')
+  const hasLocalEnvironmentConfigPath = hasOwn(input, 'localEnvironmentConfigPath')
+  const hasRunMode = hasOwn(input, 'runMode')
+  const hasCwd = hasOwn(input, 'cwd')
+  const hasCwds = hasOwn(input, 'cwds')
+  const executionEnvironment = canonicalExecutionEnvironment(
+    hasExecutionEnvironment
+      ? input.executionEnvironment ?? input.runMode ?? null
+      : input.runMode ?? existing?.record.executionEnvironment,
+  )
+  const runMode = hasRunMode
+    ? input.runMode ?? null
+    : deriveRunModeForRecord({
+      kind: input.kind,
+      executionEnvironment,
+      targetThreadId: threadId,
+    })
+  const cwd = hasCwd || hasCwds
+    ? input.cwd ?? input.cwds?.[0] ?? null
+    : existing?.record.cwd ?? null
+  const cwds = hasCwds
+    ? input.cwds ?? []
+    : hasCwd
+      ? input.cwd ? [input.cwd] : []
+      : existing?.record.cwds ?? []
   const now = Date.now()
   const record: ThreadAutomationRecord = {
     version: existing?.record.version ?? 1,
@@ -755,17 +802,13 @@ export async function writeNativeAutomation(
     rrulePrefix: input.rrulePrefix ?? existing?.record.rrulePrefix ?? (input.kind === 'cron' ? 'RRULE:' : null),
     status: input.status,
     targetThreadId: threadId,
-    model: input.model ?? existing?.record.model ?? null,
-    reasoningEffort: input.reasoningEffort ?? existing?.record.reasoningEffort ?? null,
-    executionEnvironment: canonicalExecutionEnvironment(input.executionEnvironment ?? input.runMode ?? existing?.record.executionEnvironment),
-    localEnvironmentConfigPath: input.localEnvironmentConfigPath ?? existing?.record.localEnvironmentConfigPath ?? null,
-    runMode: input.runMode ?? deriveRunModeForRecord({
-      kind: input.kind,
-      executionEnvironment: input.executionEnvironment ?? existing?.record.executionEnvironment ?? null,
-      targetThreadId: threadId,
-    }),
-    cwd: input.cwd ?? input.cwds?.[0] ?? existing?.record.cwd ?? null,
-    cwds: input.cwds ?? (input.cwd ? [input.cwd] : existing?.record.cwds ?? []),
+    model: hasModel ? input.model ?? null : existing?.record.model ?? null,
+    reasoningEffort: hasReasoningEffort ? input.reasoningEffort ?? null : existing?.record.reasoningEffort ?? null,
+    executionEnvironment,
+    localEnvironmentConfigPath: hasLocalEnvironmentConfigPath ? input.localEnvironmentConfigPath ?? null : existing?.record.localEnvironmentConfigPath ?? null,
+    runMode,
+    cwd,
+    cwds,
     createdAtMs: existing?.record.createdAtMs ?? now,
     updatedAtMs: now,
     nextRunAtMs: null,

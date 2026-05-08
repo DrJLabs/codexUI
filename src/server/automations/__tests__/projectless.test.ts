@@ -113,4 +113,23 @@ describe('projectless automation workspace helpers', () => {
       rawRrule: 'RRULE:FREQ=MONTHLY;BYMONTHDAY=1;COUNT=3',
     })
   })
+
+  it('rejects thread targets on local and worktree creates', () => {
+    expect(() => parseAutomationCreateInput({
+      kind: 'cron',
+      name: 'Local cron',
+      description: null,
+      prompt: 'Run in repo',
+      schedule: { type: 'rrule', rrule: 'RRULE:FREQ=DAILY' },
+      targetThreadId: 'thread-should-not-bind',
+      cwd: '/repo',
+      cwds: ['/repo'],
+      runMode: 'local',
+      model: null,
+      reasoningEffort: null,
+      localEnvironmentConfigPath: null,
+      kanbanProjection: { mode: 'off' },
+      notes: '',
+    })).toThrow(/targetThreadId must be null for local and worktree automations/)
+  })
 })

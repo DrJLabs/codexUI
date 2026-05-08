@@ -462,7 +462,7 @@ describe('native automation store TOML compatibility', () => {
     expect(parseAutomationToml(raw)).toEqual({
       ...pausedRecord,
       name: 'Daily Check',
-      prompt: 'Check the thread\nstatus = "ACTIVE"',
+      prompt: 'Check the thread\nstatus = "ACTIVE"\n',
     })
   })
 
@@ -518,7 +518,7 @@ describe('native automation store TOML compatibility', () => {
 
     expect(parseAutomationToml(raw)).toEqual({
       ...pausedRecord,
-      prompt: 'Say """ literally\nand continue',
+      prompt: 'Say """ literally\nand continue\n',
     })
   })
 
@@ -542,7 +542,30 @@ describe('native automation store TOML compatibility', () => {
 
     expect(parseAutomationToml(raw)).toEqual({
       ...pausedRecord,
-      prompt: 'Say """ literally # not a comment\nand continue',
+      prompt: 'Say """ literally # not a comment\nand continue\n',
+    })
+  })
+
+  it('preserves intentional trailing newline in parsed multiline prompts', () => {
+    const raw = [
+      'version = 1',
+      'id = "daily-check"',
+      'kind = "heartbeat"',
+      'name = "Daily Check"',
+      'prompt = """',
+      'Check the thread',
+      '',
+      '"""',
+      'status = "PAUSED"',
+      'rrule = "FREQ=DAILY;INTERVAL=1"',
+      'target_thread_id = "thread-123"',
+      'created_at = 1710000000000',
+      'updated_at = 1710000005000',
+      '',
+    ].join('\n')
+
+    expect(parseAutomationToml(raw)).toMatchObject({
+      prompt: 'Check the thread\n\n',
     })
   })
 
@@ -592,7 +615,7 @@ describe('native automation store filesystem behavior', () => {
       id: 'daily-check-thread-abc',
       kind: 'heartbeat',
       name: 'Daily Check',
-      prompt: 'Say hello',
+      prompt: ' Say hello ',
       rrule: 'FREQ=DAILY',
       status: 'PAUSED',
       targetThreadId: 'thread-abc',
@@ -637,6 +660,24 @@ describe('native automation store filesystem behavior', () => {
     await expect(readThreadHeartbeatAutomation('thread-beta', { codexHomeDir })).resolves.toMatchObject({ prompt: 'Beta' })
   })
 
+  it('preserves prompt content when writing native automations', async () => {
+    const codexHomeDir = await createCodexHome()
+    const prompt = '  First line\n\n'
+
+    const written = await writeNativeAutomation({
+      kind: 'cron',
+      threadId: null,
+      name: 'Prompt whitespace',
+      prompt,
+      rrule: 'FREQ=DAILY',
+      status: 'ACTIVE',
+    }, { codexHomeDir })
+
+    expect(written.prompt).toBe(prompt)
+    await expect(readFile(join(codexHomeDir, 'automations', written.id, 'automation.toml'), 'utf8'))
+      .resolves.toContain('prompt = """  First line\n\n"""')
+  })
+
   it('keeps the first detached cron name as the folder and suffixes duplicate names', async () => {
     const codexHomeDir = await createCodexHome()
     const automationRoot = join(codexHomeDir, 'automations')
@@ -668,6 +709,86 @@ describe('native automation store filesystem behavior', () => {
     await expect(readFile(join(automationRoot, second.id, 'automation.toml'), 'utf8')).resolves.toContain('prompt = "Second"')
     await expect(readFile(join(automationRoot, first.id, 'automation.toml'), 'utf8')).resolves.toContain('cwds = ["/repo/one"]')
     await expect(readFile(join(automationRoot, first.id, 'automation.toml'), 'utf8')).resolves.not.toContain('cwd = ')
+  })
+
+  it('updates explicit-id cron automations in place instead of allocating a sibling directory', async () => {
+    const codexHomeDir = await createCodexHome()
+    const automationRoot = join(codexHomeDir, 'automations')
+    await writeNativeAutomation({
+      id: 'nightly-cron',
+      kind: 'cron',
+      threadId: null,
+      name: 'Nightly cron',
+      prompt: 'First prompt',
+      rrule: 'FREQ=DAILY',
+      status: 'ACTIVE',
+      runMode: 'worktree',
+      cwd: '/repo/one',
+    }, { codexHomeDir })
+
+    const updated = await writeNativeAutomation({
+      id: 'nightly-cron',
+      kind: 'cron',
+      threadId: null,
+      name: 'Nightly cron',
+      prompt: 'Updated prompt',
+      rrule: 'FREQ=HOURLY',
+      status: 'ACTIVE',
+      runMode: 'worktree',
+      cwd: '/repo/two',
+    }, { codexHomeDir })
+
+    expect(updated.id).toBe('nightly-cron')
+    await expect(readFile(join(automationRoot, 'nightly-cron', 'automation.toml'), 'utf8')).resolves.toContain('prompt = "Updated prompt"')
+    await expect(stat(join(automationRoot, 'nightly-cron-'))).rejects.toThrow()
+    expect((await listNativeAutomationEntries({ codexHomeDir })).records.map((entry) => entry.sourceDirName)).toEqual(['nightly-cron'])
+  })
+
+  it('clears nullable native fields when explicit null or empty values are provided', async () => {
+    const codexHomeDir = await createCodexHome()
+    await writeNativeAutomation({
+      id: 'clearable-cron',
+      kind: 'cron',
+      threadId: null,
+      name: 'Clearable cron',
+      prompt: 'First prompt',
+      rrule: 'FREQ=DAILY',
+      status: 'ACTIVE',
+      model: 'gpt-5.5',
+      reasoningEffort: 'low',
+      executionEnvironment: 'worktree',
+      runMode: 'worktree',
+      cwd: '/repo/one',
+      cwds: ['/repo/one'],
+      localEnvironmentConfigPath: '/repo/one/.codex/local-env.toml',
+    }, { codexHomeDir })
+
+    const updated = await writeNativeAutomation({
+      id: 'clearable-cron',
+      kind: 'cron',
+      threadId: null,
+      name: 'Clearable cron',
+      prompt: 'Updated prompt',
+      rrule: 'FREQ=HOURLY',
+      status: 'ACTIVE',
+      model: null,
+      reasoningEffort: null,
+      executionEnvironment: null,
+      runMode: null,
+      cwd: null,
+      cwds: [],
+      localEnvironmentConfigPath: null,
+    }, { codexHomeDir })
+
+    expect(updated).toMatchObject({
+      model: null,
+      reasoningEffort: null,
+      executionEnvironment: null,
+      localEnvironmentConfigPath: null,
+      runMode: null,
+      cwd: null,
+      cwds: [],
+    })
   })
 
   it('preserves unknown top-level TOML fields when updating an existing thread heartbeat automation', async () => {

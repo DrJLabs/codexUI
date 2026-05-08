@@ -257,7 +257,11 @@ export function parseAutomationCreateInput(value: unknown): AutomationCreateInpu
 }
 
 function readCreateTargetThreadId(value: unknown, runMode: AutomationRunMode | null): string | null {
-  if (runMode === 'local' || runMode === 'worktree') return readNullableString(value, 'targetThreadId')
+  if (runMode === 'local' || runMode === 'worktree') {
+    const targetThreadId = readNullableString(value, 'targetThreadId')
+    if (targetThreadId) throw new AutomationValidationError('targetThreadId must be null for local and worktree automations')
+    return null
+  }
   return readTrimmedString(value, 'targetThreadId')
 }
 
