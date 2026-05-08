@@ -343,7 +343,7 @@ Section 8 implementation notes:
 - Empty local/worktree cron `cwds` now writes an unsupported scheduler state with the Desktop-aligned message `Scheduled run skipped: no folders configured`, suppresses run starts, and surfaces a warning diagnostic in the automation state.
 - The editor project control accepts multiple newline-separated project folders and saves them through the existing `cwds` array while keeping `cwd` as the first folder for compatibility with existing CodexUI code paths.
 - Scheduler hashes now include `cwd`/`cwds`, so adding or removing target folders refreshes scheduler state.
-- Review pass fix: scheduler capacity checks now reserve global and per-repo capacity for every folder in a multi-`cwds` cron before starting the automation, including secondary folders. Run history limits are applied after timestamp sorting, and run artifact helpers validate run IDs before deriving paths.
+- Review pass fix: scheduler capacity checks now reserve global and per-repo capacity for every folder in a multi-`cwds` cron before starting the automation, including secondary folders. The Desktop-style per-tick cap remains automation-based, so one multi-folder cron still counts as one due automation for tick selection. Run history limits are applied after timestamp sorting, and run artifact helpers validate run IDs before deriving paths.
 
 ### Review Hardening Notes
 

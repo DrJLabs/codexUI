@@ -1753,6 +1753,37 @@ Run the cron task`)
     expect(rpcCalls).toEqual([])
   })
 
+  it('counts one multi-folder cron as one scheduled automation for the per-tick cap', async () => {
+    const policy = { ...enabledPolicy, maxGlobalActiveRuns: 10, maxActiveRunsPerRepo: 2 } as unknown as AutomationExecutionPolicy
+    const { codexHomeDir, service } = await createHarness({ policy })
+    const firstRepo = join(codexHomeDir, 'repo-one')
+    const secondRepo = join(codexHomeDir, 'repo-two')
+    await mkdir(firstRepo, { recursive: true })
+    await mkdir(secondRepo, { recursive: true })
+    const dueDir = await writeNative(codexHomeDir, 'multi-dir', {
+      ...nativeRecord,
+      id: 'multi-check',
+      name: 'Multi Check',
+      kind: 'cron',
+      rrulePrefix: 'RRULE:',
+      targetThreadId: null,
+      executionEnvironment: 'local',
+      runMode: 'local',
+      cwd: firstRepo,
+      cwds: [firstRepo, secondRepo],
+    })
+    await writeFreshScheduler(service, 'multi-check', dueDir, { automationId: 'multi-check', sourceDirName: 'multi-dir' })
+
+    await new AutomationScheduler({
+      service,
+      now: () => new Date('2026-04-30T10:00:00.000Z'),
+      maxRunsPerTick: 1,
+    }).tick()
+
+    const runs = await createAutomationRunStore(dueDir).listRuns()
+    expect(runs.map((run) => run.cwd).sort()).toEqual([firstRepo, secondRepo].sort())
+  })
+
   it('conservatively enforces per-repo active run limits across due local automations', async () => {
     const policy = { ...enabledPolicy, maxGlobalActiveRuns: 10, maxActiveRunsPerRepo: 1 } as unknown as AutomationExecutionPolicy
     const { codexHomeDir, service, rpcCalls } = await createHarness({ policy })

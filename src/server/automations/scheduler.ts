@@ -99,7 +99,6 @@ export class AutomationScheduler {
       if (activeRunIndex.activeAutomationIds.has(entry.definition.id)) continue
       const targetCwds = scheduledTargetCwds(entry.definition)
       if (targetCwds.length === 0) continue
-      if (startedRuns + targetCwds.length > this.maxRunsPerTick) continue
       if (activeRunIndex.globalActiveRuns + targetCwds.length > maxGlobalActiveRuns) continue
       if (!hasRepoCapacity(activeRunIndex.repoActiveRuns, targetCwds, maxActiveRunsPerRepo)) continue
 
@@ -135,7 +134,7 @@ export class AutomationScheduler {
       for (const currentRepoKey of scheduledTargetCwds(current.entry.definition).filter((cwd): cwd is string => Boolean(cwd))) {
         activeRunIndex.repoActiveRuns.set(currentRepoKey, (activeRunIndex.repoActiveRuns.get(currentRepoKey) ?? 0) + 1)
       }
-      startedRuns += targetCwds.length
+      startedRuns += 1
     }
   }
 
