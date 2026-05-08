@@ -84,7 +84,7 @@ Acceptance:
 
 Section 1 implementation notes:
 - Rename the sidecar file to `codexui.local.json` and treat existing `codexui.json` as a legacy read-only migration source.
-- The sidecar must not supply canonical execution fields (`cwd`, `cwds`, `runMode`, `model`, `reasoningEffort`) when TOML already has Desktop fields.
+- The sidecar must not supply canonical execution fields (`cwd`, `cwds`, `runMode`, `model`, `reasoning_effort`) when TOML already has Desktop fields.
 - Introduce `cwds` to the create/patch contract now so service writes do not collapse Desktop multi-CWD automations.
 - Keep any remaining Kanban/read-history behavior private and optional; do not expand it in this slice.
 - Add exact no-op serialization tests for Desktop fixture TOML and local-environment fields.

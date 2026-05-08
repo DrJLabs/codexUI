@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
 import { isAbsolute, join } from 'node:path'
 import type { AutomationDefinition, AutomationRun, AutomationRunMode } from '../../types/automations'
-import type { CodexRunProfile } from '../../types/execution'
+import type { CodexRunProfile, CodexTurnStartRunSettings } from '../../types/execution'
 import type { CodexBridgeNotification, CodexBridgeRuntime } from '../codexAppServerBridge'
 import { createRestrictedCodexBridgeAdapter, type RestrictedCodexBridgeAdapter } from '../execution/codexBridgeAdapter'
 import { resolveCodexTurnStartRunSettings } from '../execution/runProfiles'
@@ -41,7 +41,7 @@ export type AutomationRunnerOptions = NativeAutomationStoreOptions & {
   projectlessHomeDir?: string
 }
 
-const AUTOMATION_BRIDGE_METHODS = ['thread/start', 'thread/resume', 'thread/read', 'turn/start'] as const
+const AUTOMATION_BRIDGE_METHODS = ['thread/start', 'thread/resume', 'thread/read', 'turn/start', 'model/list', 'config/read'] as const
 const MAX_COMPLETION_LOCK_DEPTH = 25
 let automationRunSequence = 0
 
@@ -161,8 +161,9 @@ export class AutomationRunner {
       ? { ...baseDefinition, cwd: targetCwd, runMode }
       : baseDefinition
     this.validateRunTarget(definition, runMode)
-    const runProfileSnapshot = resolveAutomationRunProfile(definition, input)
+    let runProfileSnapshot = resolveAutomationRunProfile(definition, input)
     assertAutomationRunProfileAllowed(runProfileSnapshot, this.policy)
+    runProfileSnapshot = await this.resolveAvailableCronRunProfile(definition, runProfileSnapshot)
     if (definition.kind === 'heartbeat') {
       await this.assertHeartbeatEligible(definition)
     }
@@ -448,6 +449,40 @@ export class AutomationRunner {
     }
   }
 
+  private async resolveAvailableCronRunProfile(
+    definition: AutomationDefinition,
+    profile: CodexRunProfile,
+  ): Promise<CodexRunProfile> {
+    const requestedModel = profile.model.trim()
+    if (definition.kind !== 'cron' || !requestedModel) return profile
+    try {
+      const payload = await this.bridge.rpc<Record<string, unknown>>('model/list', {
+        includeHidden: true,
+        cursor: null,
+        limit: 100,
+      })
+      const availableModels = extractAvailableModelIds(payload)
+      if (availableModels.length === 0 || availableModels.includes(requestedModel)) return profile
+      return { ...profile, model: availableModels[0] ?? profile.model }
+    } catch {
+      return profile
+    }
+  }
+
+  private async readThreadStartConfig(cwd: string | undefined): Promise<Record<string, unknown> | null> {
+    if (!cwd) return null
+    try {
+      const payload = await this.bridge.rpc<unknown>('config/read', {
+        includeLayers: true,
+        cwd,
+      })
+      const root = asRecord(payload)
+      return asRecord(root?.config) ?? root
+    } catch {
+      return null
+    }
+  }
+
   private async startThread(
     definition: AutomationDefinition,
     run: AutomationRun,
@@ -459,13 +494,25 @@ export class AutomationRunner {
       return extractThreadId(resumed) || definition.targetThreadId || ''
     }
     const cwd = resolveRunCwd(definition, run)
+    const runSettings = resolveCodexTurnStartRunSettings(profile, cwd)
+    const threadConfig = definition.kind === 'cron' ? await this.readThreadStartConfig(cwd) : null
     const started = await this.bridge.rpc<Record<string, unknown>>('thread/start', {
       cwd,
       title: definition.name,
-      ...(definition.kind === 'cron' && profile.model.trim() ? { model: profile.model.trim() } : {}),
-      ...(projectlessWorkspace
-        ? { developerInstructions: buildProjectlessAutomationInstructions(projectlessWorkspace.outputDirectory) }
-        : {}),
+      model: definition.kind === 'cron' ? profile.model.trim() || null : null,
+      modelProvider: null,
+      approvalPolicy: runSettings.approvalPolicy,
+      sandbox: sandboxModeForThreadStart(runSettings.sandboxPolicy),
+      config: threadConfig,
+      developerInstructions: projectlessWorkspace
+        ? buildProjectlessAutomationInstructions(projectlessWorkspace.outputDirectory)
+        : null,
+      personality: null,
+      ephemeral: null,
+      dynamicTools: null,
+      mockExperimentalField: null,
+      experimentalRawEvents: false,
+      persistExtendedHistory: true,
     })
     const threadId = extractStartedThreadId(started)
     if (!threadId) throw new Error('thread/start did not return thread id')
@@ -508,6 +555,10 @@ export class AutomationRunner {
       ...(cwd ? { cwd } : {}),
       input: [{ type: 'text', text: promptText }],
       ...turnRunSettings,
+      summary: 'auto',
+      personality: null,
+      outputSchema: null,
+      collaborationMode: null,
     })
     const turnId = extractTurnId(started)
     if (!turnId) throw new Error('turn/start did not return turn id')
@@ -1098,6 +1149,24 @@ function withDesktopDefaultModelAndEffort<T extends { model?: string; effort?: s
 ): Omit<T, 'model' | 'effort'> & { model: null; effort: null } {
   const { model: _model, effort: _effort, ...rest } = settings
   return { ...rest, model: null, effort: null }
+}
+
+function sandboxModeForThreadStart(sandboxPolicy: CodexTurnStartRunSettings['sandboxPolicy']): 'read-only' | 'workspace-write' | 'danger-full-access' {
+  if (sandboxPolicy.type === 'dangerFullAccess') return 'danger-full-access'
+  if (sandboxPolicy.type === 'readOnly') return 'read-only'
+  return 'workspace-write'
+}
+
+function extractAvailableModelIds(payload: unknown): string[] {
+  const record = asRecord(payload)
+  const data = readArray(record?.data)
+  const ids: string[] = []
+  for (const row of data) {
+    const model = asRecord(row)
+    const candidate = readString(model?.id) || readString(model?.model)
+    if (candidate && !ids.includes(candidate)) ids.push(candidate)
+  }
+  return ids
 }
 
 function resolveTargetCwd(

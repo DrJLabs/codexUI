@@ -82,6 +82,7 @@ async function createHarness(options: {
   turnStartDelayMs?: number
   threadReadById?: Record<string, unknown>
   projectlessHomeDir?: string
+  availableModels?: string[]
 } = {}) {
   const codexHomeDir = await mkdtemp(join(tmpdir(), 'codexui-automation-scheduler-'))
   codexHomeDirs.push(codexHomeDir)
@@ -109,6 +110,12 @@ async function createHarness(options: {
         const configured = options.threadReadById?.[threadId]
         if (configured instanceof Error) throw configured
         return (configured ?? { thread: { id: threadId, turns: [] } }) as T
+      }
+      if (method === 'model/list') {
+        return {
+          data: (options.availableModels ?? ['gpt-5.5']).map((id) => ({ id })),
+          nextCursor: null,
+        } as T
       }
       return {} as T
     },
@@ -431,7 +438,7 @@ describe('AutomationScheduler', () => {
   })
 
   it('prefixes cron turn input with Desktop automation memory metadata', async () => {
-    const { codexHomeDir, service, rpcCalls } = await createHarness()
+    const { codexHomeDir, service, rpcCalls } = await createHarness({ availableModels: ['gpt-5.5'] })
     const repo = join(codexHomeDir, 'repo')
     await mkdir(repo, { recursive: true })
     const automationDir = await writeNative(codexHomeDir, 'cron-check-dir', {
@@ -561,6 +568,7 @@ Run the cron task`)
       expect(turnStartParams?.cwd).toBe(expectedCwd)
       expect(rpcCalls.filter((call) => call.method === 'config/read').map((call) => call.params)).toEqual([
         { includeLayers: true },
+        { includeLayers: true, cwd: expectedCwd },
       ])
       await expect(readFile(join(automationDir, 'automation.toml'), 'utf8')).resolves.toContain('cwds = ["~"]')
     } finally {
@@ -1160,8 +1168,65 @@ Run the cron task`)
     const cronTurnStartParams = rpcCalls.find((call) => call.method === 'turn/start')?.params as Record<string, unknown> | undefined
 
     expect(runs).toHaveLength(1)
-    expect(threadStartParams).toMatchObject({ cwd: repo, model: 'gpt-5.5' })
-    expect(cronTurnStartParams).toMatchObject({ cwd: repo, model: 'gpt-5.5', effort: 'low' })
+    expect(threadStartParams).toMatchObject({
+      cwd: repo,
+      model: 'gpt-5.5',
+      modelProvider: null,
+      approvalPolicy: 'on-request',
+      sandbox: 'workspace-write',
+      config: {},
+      personality: null,
+      ephemeral: null,
+      dynamicTools: null,
+      mockExperimentalField: null,
+      experimentalRawEvents: false,
+      persistExtendedHistory: true,
+    })
+    expect(cronTurnStartParams).toMatchObject({
+      cwd: repo,
+      model: 'gpt-5.5',
+      effort: 'low',
+      summary: 'auto',
+      personality: null,
+      outputSchema: null,
+      collaborationMode: null,
+    })
+  })
+
+  it('falls back to the first available Desktop model when a stored cron model is unavailable', async () => {
+    const { codexHomeDir, service, rpcCalls } = await createHarness({ availableModels: ['gpt-5.4'] })
+    const repo = join(codexHomeDir, 'cron-model-fallback-repo')
+    await mkdir(repo, { recursive: true })
+    await writeNative(codexHomeDir, 'cron-model-fallback-dir', {
+      ...nativeRecord,
+      id: 'cron-model-fallback',
+      kind: 'cron',
+      name: 'Cron model fallback',
+      rrulePrefix: 'RRULE:',
+      targetThreadId: null,
+      executionEnvironment: 'local',
+      runMode: 'local',
+      cwd: repo,
+      cwds: [repo],
+      model: 'missing-model',
+      reasoningEffort: 'low',
+    })
+
+    await service.runScheduled('cron-model-fallback', {
+      dueAtIso: '2026-05-07T12:00:00.000Z',
+      nextDueAtIso: '2026-05-07T13:00:00.000Z',
+    })
+
+    const threadStartParams = rpcCalls.find((call) => call.method === 'thread/start')?.params as Record<string, unknown> | undefined
+    const cronTurnStartParams = rpcCalls.find((call) => call.method === 'turn/start')?.params as Record<string, unknown> | undefined
+
+    expect(rpcCalls.find((call) => call.method === 'model/list')?.params).toEqual({
+      includeHidden: true,
+      cursor: null,
+      limit: 100,
+    })
+    expect(threadStartParams).toMatchObject({ model: 'gpt-5.4' })
+    expect(cronTurnStartParams).toMatchObject({ model: 'gpt-5.4', effort: 'low' })
   })
 
   it('projects Desktop inbox directives into local run history without storing the directive in the summary', async () => {
@@ -1572,9 +1637,10 @@ Run the cron task`)
     const secondRuns = await createAutomationRunStore(secondDir).listRuns()
     const startedCount = firstRuns.length + secondRuns.length
     expect(startedCount).toBe(1)
-    expect(rpcCalls.map((call) => call.method)).toEqual(['config/read', 'config/read', 'thread/start', 'turn/start'])
+    expect(rpcCalls.map((call) => call.method)).toEqual(['config/read', 'config/read', 'config/read', 'thread/start', 'turn/start'])
     expect(rpcCalls.filter((call) => call.method === 'config/read').map((call) => call.params)).toEqual([
       { includeLayers: true },
+      { includeLayers: true, cwd: repo },
       { includeLayers: true, cwd: repo },
     ])
   })

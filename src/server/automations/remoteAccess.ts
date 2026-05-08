@@ -8,10 +8,7 @@ export type AutomationsRemoteAccess = {
 
 export function classifyAutomationsRemoteAccess(req: Request): AutomationsRemoteAccess {
   const remoteAddress = req.socket.remoteAddress ?? ''
-  const forwardedFor = typeof req.headers['x-forwarded-for'] === 'string'
-    ? req.headers['x-forwarded-for'].split(',')[0]?.trim() ?? ''
-    : ''
-  const host = forwardedFor || remoteAddress
+  const host = remoteAddress
   const loopback = host === '127.0.0.1' ||
     host === '::1' ||
     host === '::ffff:127.0.0.1' ||
