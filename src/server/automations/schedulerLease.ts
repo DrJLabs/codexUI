@@ -73,6 +73,7 @@ export function createAutomationSchedulerLeaseStore(
     }): Promise<AutomationSchedulerLeaseHandle | null> {
       const nowMs = Date.parse(input.nowIso)
       if (!Number.isFinite(nowMs)) throw new Error('Invalid scheduler lease nowIso')
+      if (!Number.isFinite(Date.parse(input.dueAtIso))) throw new Error('Invalid scheduler lease dueAtIso')
       await mkdir(automationDirPath, { recursive: true })
 
       for (let attempt = 0; attempt < 5; attempt += 1) {

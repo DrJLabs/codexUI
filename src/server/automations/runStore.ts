@@ -238,7 +238,10 @@ async function writeActiveRunIndexLockOwner(lockPath: string): Promise<void> {
 
 async function reclaimStaleActiveRunIndexLock(lockPath: string): Promise<boolean> {
   const owner = await readActiveRunIndexLockOwner(lockPath)
-  if (owner?.hostname === ACTIVE_RUN_INDEX_LOCK_HOSTNAME && !isProcessAlive(owner.pid)) {
+  if (
+    owner?.hostname === ACTIVE_RUN_INDEX_LOCK_HOSTNAME &&
+    (!isProcessAlive(owner.pid) || Date.now() - owner.startedAtMs >= ACTIVE_RUN_INDEX_STALE_LOCK_MS)
+  ) {
     await rm(lockPath, { recursive: true, force: true })
     return true
   }

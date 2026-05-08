@@ -57,9 +57,6 @@ export function assertAutomationExecutionAccess(access: AutomationsRemoteAccess,
   if (policy.executionMode === 'local_only' && !access.loopback) {
     throw createAutomationPolicyError(403, 'Automation execution mode allows local access only')
   }
-  if (policy.executionMode === 'open_remote') {
-    throw createAutomationPolicyError(403, 'Open remote automation execution requires authenticated remote access')
-  }
 }
 
 export function resolveAutomationRunProfile(

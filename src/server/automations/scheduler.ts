@@ -116,6 +116,15 @@ export class AutomationScheduler {
         await leaseHandle.release()
         continue
       }
+      const currentTargetCwds = scheduledTargetCwds(current.entry.definition)
+      if (
+        currentTargetCwds.length === 0 ||
+        activeRunIndex.globalActiveRuns + currentTargetCwds.length > maxGlobalActiveRuns ||
+        !hasRepoCapacity(activeRunIndex.repoActiveRuns, currentTargetCwds, maxActiveRunsPerRepo)
+      ) {
+        await leaseHandle.release()
+        continue
+      }
 
       try {
         await this.service.runScheduled(current.entry.definition.id, {
@@ -129,9 +138,9 @@ export class AutomationScheduler {
       } finally {
         await leaseHandle.release()
       }
-      activeRunIndex.globalActiveRuns += targetCwds.length
+      activeRunIndex.globalActiveRuns += currentTargetCwds.length
       activeRunIndex.activeAutomationIds.add(current.entry.definition.id)
-      for (const currentRepoKey of scheduledTargetCwds(current.entry.definition).filter((cwd): cwd is string => Boolean(cwd))) {
+      for (const currentRepoKey of currentTargetCwds.filter((cwd): cwd is string => Boolean(cwd))) {
         activeRunIndex.repoActiveRuns.set(currentRepoKey, (activeRunIndex.repoActiveRuns.get(currentRepoKey) ?? 0) + 1)
       }
       startedRuns += 1

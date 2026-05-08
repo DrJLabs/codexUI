@@ -233,6 +233,24 @@ describe('createAutomationRunStore', () => {
     await expect(readFile(join(automationDir, '.active-runs.json'), 'utf8')).resolves.toContain('automation_run_after_stale_lock')
   })
 
+  it('reclaims a stale same-host active-run lock even when the pid is alive', async () => {
+    const automationDir = await mkdtemp(join(tmpdir(), 'codexui-automation-run-store-'))
+    tempDirs.push(automationDir)
+    const lockDir = join(automationDir, '.active-runs.json.lock')
+    await mkdir(lockDir, { recursive: true })
+    await writeFile(join(lockDir, 'owner.json'), `${JSON.stringify({
+      pid: process.pid,
+      hostname: hostname(),
+      startedAtMs: Date.now() - 60_000,
+    })}\n`, 'utf8')
+    const store = createAutomationRunStore(automationDir)
+
+    const run = await store.createRun(automationRunFixture({ id: 'automation_run_after_old_live_pid_lock', state: 'running' }))
+
+    expect(run.id).toBe('automation_run_after_old_live_pid_lock')
+    await expect(readFile(join(automationDir, '.active-runs.json'), 'utf8')).resolves.toContain('automation_run_after_old_live_pid_lock')
+  })
+
   it('uses lock age instead of process liveness for active-run locks from other hosts', async () => {
     const automationDir = await mkdtemp(join(tmpdir(), 'codexui-automation-run-store-'))
     tempDirs.push(automationDir)

@@ -515,7 +515,7 @@ export class AutomationsService {
       const sidecarResult = await readSidecar(entry)
       const definition = (await mapDefinition(entry, sidecarResult.sidecar, { includeRecentRuns: false })).definition
       assertAutomationNotDeleted(definition)
-      await this.ensureInterruptedRunRecoveryBeforeCapacity(definition.id)
+      await this.ensureInterruptedRunRecoveryBeforeCapacity()
       await this.assertRunStartCapacity(definition)
       assertAutomationExecutionPolicy(this.policy)
       assertAutomationRunnerTarget(definition)
@@ -571,7 +571,7 @@ export class AutomationsService {
       const sidecarResult = await readSidecar(entry)
       const definition = (await mapDefinition(entry, sidecarResult.sidecar, { includeRecentRuns: false })).definition
       assertAutomationNotDeleted(definition)
-      await this.ensureInterruptedRunRecoveryBeforeCapacity(definition.id)
+      await this.ensureInterruptedRunRecoveryBeforeCapacity()
       assertAutomationExecutionPolicy(this.policy)
       const targetCwds = scheduledRunCwds(definition)
       if (targetCwds.length === 0) {
@@ -687,16 +687,13 @@ export class AutomationsService {
     if (recoveryPromise) await recoveryPromise
   }
 
-  private async ensureInterruptedRunRecoveryBeforeCapacity(automationId: string): Promise<void> {
+  private async ensureInterruptedRunRecoveryBeforeCapacity(): Promise<void> {
     if (this.hasRecoveredInterruptedRuns) {
       await this.waitForRecovery()
       return
     }
     const activeRuns = await this.listPersistedActiveRuns()
-    const needsRecovery = activeRuns.some((activeRun) => (
-      activeRun.automationId !== automationId ||
-      activeRun.run.trigger === 'schedule'
-    ))
+    const needsRecovery = activeRuns.some((activeRun) => !this.runner?.ownsActiveRun(activeRun.run.id))
     if (!needsRecovery) {
       await this.waitForRecovery()
       return

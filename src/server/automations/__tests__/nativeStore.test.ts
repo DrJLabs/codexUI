@@ -101,6 +101,32 @@ describe('native automation store TOML compatibility', () => {
     })
   })
 
+  it('uses the TOML parser as the source of truth for string escapes and arrays', () => {
+    const raw = [
+      'version = 1',
+      'id = "parser-owned"',
+      'kind = "cron"',
+      'name = "Parser owned"',
+      'prompt = "Run"',
+      'status = "ACTIVE"',
+      'rrule = "RRULE:FREQ=DAILY"',
+      'execution_environment = "worktree"',
+      'cwds = ["/repo/one", 42]',
+      'created_at = 1777654085276',
+      'updated_at = 1777654085276',
+      '',
+    ].join('\n')
+
+    expect(parseAutomationToml(raw)).toMatchObject({
+      cwd: null,
+      cwds: [],
+    })
+    expect(parseAutomationToml(raw.replace('Parser owned', 'Parser\\eowned'))).toMatchObject({
+      name: 'Parser\u001bowned',
+    })
+    expect(parseAutomationToml(raw.replace('Parser owned', 'Parser\\qowned'))).toBeNull()
+  })
+
   it('ignores nested table fields while parsing Desktop top-level automation fields', () => {
     const raw = [
       'version = 1',

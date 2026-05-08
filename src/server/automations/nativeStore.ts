@@ -88,85 +88,8 @@ export function getNativeAutomationsRoot(options?: NativeAutomationStoreOptions)
   return getCodexAutomationsDir(options)
 }
 
-function readTomlString(value: string): string {
-  const trimmed = value.trim()
-  const multilineDelimiter = trimmed.startsWith('"""') ? '"""' : trimmed.startsWith("'''") ? "'''" : null
-  if (multilineDelimiter && trimmed.endsWith(multilineDelimiter) && trimmed.length >= multilineDelimiter.length * 2) {
-    let content = trimmed.slice(multilineDelimiter.length, -multilineDelimiter.length)
-    if (content.startsWith('\n')) content = content.slice(1)
-    if (content.endsWith('\n')) content = content.slice(0, -1)
-    return multilineDelimiter === '"""' ? unescapeTomlBasicString(content) : content
-  }
-  if ((trimmed.startsWith('"') && trimmed.endsWith('"')) || (trimmed.startsWith('\'') && trimmed.endsWith('\''))) {
-    try {
-      return JSON.parse(trimmed)
-    } catch {
-      const content = trimmed.slice(1, -1)
-      return trimmed.startsWith('"') ? unescapeTomlBasicString(content) : content
-    }
-  }
-  return trimmed
-}
-
-function unescapeTomlBasicString(value: string): string {
-  return value.replace(/\\(?:u([0-9a-fA-F]{4})|U([0-9a-fA-F]{8})|([btnfr"\\]))/gu, (match, shortHex: string | undefined, longHex: string | undefined, escaped: string | undefined) => {
-    if (shortHex || longHex) {
-      const codePoint = Number.parseInt(shortHex ?? longHex ?? '', 16)
-      return Number.isFinite(codePoint) ? String.fromCodePoint(codePoint) : match
-    }
-    switch (escaped) {
-      case 'b': return '\b'
-      case 't': return '\t'
-      case 'n': return '\n'
-      case 'f': return '\f'
-      case 'r': return '\r'
-      case '"': return '"'
-      case '\\': return '\\'
-      default: return match
-    }
-  })
-}
-
 function serializeTomlString(value: string): string {
   return JSON.stringify(value)
-}
-
-function readTomlStringArray(value: string): string[] | null {
-  const trimmed = value.trim()
-  if (!trimmed.startsWith('[') || !trimmed.endsWith(']')) return null
-  const body = trimmed.slice(1, -1).trim()
-  if (!body) return []
-  const values: string[] = []
-  let index = 0
-  while (index < body.length) {
-    index = skipTomlArrayIgnored(body, index, true)
-    if (index >= body.length) break
-    const end = findTomlArrayStringEndIndex(body, index)
-    if (end < 0) return null
-    values.push(readTomlString(body.slice(index, end + 1)))
-    index = end + 1
-    index = skipTomlArrayIgnored(body, index, false)
-    if (index < body.length && body[index] !== ',') return null
-  }
-  return values
-}
-
-function skipTomlArrayIgnored(value: string, index: number, allowComma: boolean): number {
-  let next = index
-  while (next < value.length) {
-    const char = value[next]
-    if (/\s/u.test(char) || (allowComma && char === ',')) {
-      next += 1
-      continue
-    }
-    if (char === '#') {
-      const lineEnd = value.indexOf('\n', next + 1)
-      next = lineEnd >= 0 ? lineEnd + 1 : value.length
-      continue
-    }
-    break
-  }
-  return next
 }
 
 function findTomlArrayStringEndIndex(value: string, startIndex: number): number {
@@ -214,7 +137,7 @@ function parseTomlRecord(raw: string): Record<string, unknown> | null {
 function readTomlStringValue(parsedValue: unknown, rawValue: string | undefined): string {
   if (typeof parsedValue === 'string') return normalizeParsedTomlString(parsedValue, rawValue)
   if (typeof parsedValue === 'number' || typeof parsedValue === 'boolean') return String(parsedValue)
-  return readTomlString(rawValue ?? '')
+  return ''
 }
 
 function normalizeParsedTomlString(value: string, rawValue: string | undefined): string {
@@ -239,7 +162,7 @@ function readTomlStringArrayValue(parsedValue: unknown, rawValue: string | undef
       ? entry.replace(/\n$/u, '')
       : entry)
   }
-  return readTomlStringArray(rawValue ?? '') ?? []
+  return []
 }
 
 function normalizeAutomationRruleForRead(value: string): { rrule: string; rrulePrefix: 'RRULE:' | null } {
@@ -466,7 +389,8 @@ function isEscapedBasicStringQuote(line: string, quoteIndex: number): boolean {
 
 export function parseAutomationToml(raw: string): ThreadAutomationRecord | null {
   const parsed = parseTomlRecord(raw)
-  const values: Record<string, string> = {}
+  if (!parsed) return null
+  const rawValues: Record<string, string> = {}
   let multilineStringKey: string | null = null
   let multilineStringDelimiter: '"""' | "'''" | null = null
   let multilineStringLines: string[] = []
@@ -478,7 +402,7 @@ export function parseAutomationToml(raw: string): ThreadAutomationRecord | null 
       multilineArrayLines.push(line)
       const arrayValue = multilineArrayLines.join('\n')
       if (findTomlArrayCloseIndex(arrayValue) >= 0) {
-        values[multilineArrayKey] = arrayValue
+        rawValues[multilineArrayKey] = arrayValue
         multilineArrayKey = null
         multilineArrayLines = []
       }
@@ -492,7 +416,7 @@ export function parseAutomationToml(raw: string): ThreadAutomationRecord | null 
         : line
       multilineStringLines.push(nextLine)
       if (closingIndex >= 0) {
-        if (multilineStringKey) values[multilineStringKey] = multilineStringLines.join('\n')
+        if (multilineStringKey) rawValues[multilineStringKey] = multilineStringLines.join('\n')
         multilineStringKey = null
         multilineStringDelimiter = null
         multilineStringLines = []
@@ -519,27 +443,27 @@ export function parseAutomationToml(raw: string): ThreadAutomationRecord | null 
       multilineStringLines = [assignment.value]
       continue
     }
-    values[assignment.key] = assignment.value
+    rawValues[assignment.key] = assignment.value
   }
 
-  const version = readTomlNumberValue(parsed?.version, values.version, 1)
-  const id = readTomlStringValue(parsed?.id, values.id)
-  const kindValue = readTomlStringValue(parsed?.kind, values.kind ?? '"heartbeat"')
-  const name = readTomlStringValue(parsed?.name, values.name)
-  const prompt = readTomlStringValue(parsed?.prompt, values.prompt)
-  const normalizedRrule = normalizeAutomationRruleForRead(readTomlStringValue(parsed?.rrule, values.rrule))
-  const statusValue = readTomlStringValue(parsed?.status, values.status ?? '"ACTIVE"')
-  const targetThreadId = readTomlStringValue(parsed?.target_thread_id, values.target_thread_id) || null
-  const model = readTomlStringValue(parsed?.model, values.model) || null
-  const reasoningEffort = readTomlStringValue(parsed?.reasoning_effort, values.reasoning_effort) || null
-  const executionEnvironment = readTomlStringValue(parsed?.execution_environment, values.execution_environment) || null
-  const localEnvironmentConfigPath = readTomlStringValue(parsed?.local_environment_config_path, values.local_environment_config_path) || null
-  const cwdValue = readTomlStringValue(parsed?.cwd, values.cwd) || null
-  const parsedCwds = readTomlStringArrayValue(parsed?.cwds, values.cwds)
+  const version = readTomlNumberValue(parsed.version, rawValues.version, 1)
+  const id = readTomlStringValue(parsed.id, rawValues.id)
+  const kindValue = readTomlStringValue(parsed.kind, rawValues.kind) || 'heartbeat'
+  const name = readTomlStringValue(parsed.name, rawValues.name)
+  const prompt = readTomlStringValue(parsed.prompt, rawValues.prompt)
+  const normalizedRrule = normalizeAutomationRruleForRead(readTomlStringValue(parsed.rrule, rawValues.rrule))
+  const statusValue = readTomlStringValue(parsed.status, rawValues.status) || 'ACTIVE'
+  const targetThreadId = readTomlStringValue(parsed.target_thread_id, rawValues.target_thread_id) || null
+  const model = readTomlStringValue(parsed.model, rawValues.model) || null
+  const reasoningEffort = readTomlStringValue(parsed.reasoning_effort, rawValues.reasoning_effort) || null
+  const executionEnvironment = readTomlStringValue(parsed.execution_environment, rawValues.execution_environment) || null
+  const localEnvironmentConfigPath = readTomlStringValue(parsed.local_environment_config_path, rawValues.local_environment_config_path) || null
+  const cwdValue = readTomlStringValue(parsed.cwd, rawValues.cwd) || null
+  const parsedCwds = readTomlStringArrayValue(parsed.cwds, rawValues.cwds)
   const cwd = cwdValue ?? parsedCwds[0] ?? null
   const cwds = parsedCwds.length > 0 ? parsedCwds : (cwdValue ? [cwdValue] : [])
-  const createdAtMs = readTomlNumberValue(parsed?.created_at, values.created_at, Number.NaN)
-  const updatedAtMs = readTomlNumberValue(parsed?.updated_at, values.updated_at, Number.NaN)
+  const createdAtMs = readTomlNumberValue(parsed.created_at, rawValues.created_at, Number.NaN)
+  const updatedAtMs = readTomlNumberValue(parsed.updated_at, rawValues.updated_at, Number.NaN)
 
   if (!id || !name || !prompt || !normalizedRrule.rrule) return null
   if (kindValue !== 'heartbeat' && kindValue !== 'cron') return null

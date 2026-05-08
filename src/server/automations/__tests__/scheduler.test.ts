@@ -494,6 +494,45 @@ Run the cron task`)
     })
   })
 
+  it('recovers stale same-automation manual cron runs before checking manual capacity', async () => {
+    const policy = { ...enabledPolicy, maxGlobalActiveRuns: 1, maxActiveRunsPerRepo: 1 } as unknown as AutomationExecutionPolicy
+    const { codexHomeDir, service, rpcCalls } = await createHarness({ policy, availableModels: ['gpt-5.5'] })
+    const repo = join(codexHomeDir, 'repo')
+    await mkdir(repo, { recursive: true })
+    const automationDir = await writeNative(codexHomeDir, 'cron-check-dir', {
+      ...nativeRecord,
+      id: 'cron-check',
+      kind: 'cron',
+      name: 'Cron Check',
+      prompt: 'Run the cron task',
+      rrulePrefix: 'RRULE:',
+      targetThreadId: null,
+      executionEnvironment: 'local',
+      runMode: 'local',
+      cwd: repo,
+      cwds: [repo],
+    })
+    await writeActiveRun(automationDir, {
+      id: 'stale-manual-run',
+      automationId: 'cron-check',
+      automationName: 'Cron Check',
+      runMode: 'local',
+      cwd: repo,
+      state: 'running',
+      startedAtIso: '2026-04-30T08:00:00.000Z',
+    })
+
+    const run = await service.runNow('cron-check')
+    const runs = await createAutomationRunStore(automationDir).listRuns()
+
+    expect(run.id).not.toBe('stale-manual-run')
+    expect(rpcCalls.some((call) => call.method === 'turn/start')).toBe(true)
+    expect(runs.find((candidate) => candidate.id === 'stale-manual-run')).toMatchObject({
+      state: 'failed',
+      errorMessage: 'Automation run was interrupted by a previous server session',
+    })
+  })
+
   it('starts one scheduled cron run for each configured Desktop cwd', async () => {
     const { codexHomeDir, service, rpcCalls } = await createHarness()
     const repoOne = join(codexHomeDir, 'repo-one')

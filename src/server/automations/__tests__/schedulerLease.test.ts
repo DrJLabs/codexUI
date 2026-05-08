@@ -53,6 +53,24 @@ describe('createAutomationSchedulerLeaseStore', () => {
     await expect(readFile(store.path, 'utf8')).resolves.toContain('"releasedAtIso":')
   })
 
+  it('rejects invalid due timestamps before writing a lease file', async () => {
+    const automationDir = await tempAutomationDir()
+    const store = createAutomationSchedulerLeaseStore(automationDir, {
+      ownerId: 'owner-a',
+      pid: 111,
+      hostname: 'host-a',
+      ttlMs: 60_000,
+    })
+
+    await expect(store.acquire({
+      automationId: 'daily-check',
+      sourceDirName: 'daily-check-dir',
+      dueAtIso: 'not-a-date',
+      nowIso: '2026-04-30T08:59:00.000Z',
+    })).rejects.toThrow('Invalid scheduler lease dueAtIso')
+    await expect(readdir(automationDir)).rejects.toMatchObject({ code: 'ENOENT' })
+  })
+
   it('blocks a second owner while the current lease is active', async () => {
     const automationDir = await tempAutomationDir()
     await createAutomationSchedulerLeaseStore(automationDir, {
