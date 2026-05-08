@@ -347,7 +347,7 @@ Section 8 implementation notes:
 
 ### Review Hardening Notes
 
-- Automations no longer derive trust from hardcoded Tailscale or private IP ranges. The main app's auth/CSRF flow remains canonical; the remote-access classifier only exposes loopback as an optional execution-policy signal.
+- Automations do not maintain their own remote/IP trust classifier. The main app's auth/CSRF flow remains the canonical access boundary.
 - Scheduler and lease stores validate before writeback and tolerate malformed historical lock JSON, preventing a single corrupt runtime file from blocking healthy automations.
 - Desktop local-environment TOML parsing now uses `smol-toml`; setup environment capture uses the current Node executable path and fails loudly if the capture file is missing or invalid.
 - Managed worktree safety was tightened with owner-scoped create locks, malformed legacy lock tolerance, and cleanup rejection for live worktrees.

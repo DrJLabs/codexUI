@@ -25,22 +25,10 @@ async function runGit(cwd: string, args: string[]): Promise<string> {
 }
 
 const enabledPolicy = {
-  enabled: true,
-  executionMode: 'trusted_remote',
   executionEnabled: true,
-  requireLoopbackForExecution: false,
-  disableExecutionWhenRemote: false,
-  sandboxMode: 'workspace-write',
-  approvalPolicy: 'on-request',
-  networkAccess: false,
-  allowDangerFullAccess: false,
-  allowApprovalNever: false,
-  allowAcceptForSession: false,
-  useThreadShellCommand: false,
   maxGlobalActiveRuns: 10,
   maxActiveRunsPerRepo: 10,
-  maxActiveRunsPerTask: 1,
-} as unknown as AutomationExecutionPolicy
+} satisfies AutomationExecutionPolicy
 
 const runProfileSnapshot: CodexRunProfile = {
   id: 'full-access',
@@ -501,6 +489,51 @@ Run the cron task`)
     expect(turnStartParams?.sandboxPolicy).toMatchObject({
       type: 'workspaceWrite',
       writableRoots: [repo, automationDir],
+    })
+  })
+
+  it('honors configured run profile permissions without an automation-specific permission gate', async () => {
+    const { codexHomeDir, service, rpcCalls } = await createHarness({ availableModels: ['gpt-5.5'] })
+    const repo = join(codexHomeDir, 'repo-profile-policy')
+    await mkdir(repo, { recursive: true })
+    await writeNative(codexHomeDir, 'cron-profile-policy-dir', {
+      ...nativeRecord,
+      id: 'cron-profile-policy',
+      kind: 'cron',
+      name: 'Cron Profile Policy',
+      prompt: 'Run with configured profile',
+      rrulePrefix: 'RRULE:',
+      targetThreadId: null,
+      executionEnvironment: 'local',
+      runMode: 'local',
+      cwd: repo,
+      cwds: [repo],
+    })
+
+    const operatorProfile: CodexRunProfile = {
+      id: 'operator-profile',
+      name: 'Operator profile',
+      description: 'Configured by the app operator',
+      model: 'gpt-5.5',
+      reasoningEffort: 'high',
+      approvalPolicy: 'never',
+      sandboxMode: 'danger-full-access',
+      networkAccess: true,
+      writableRoots: [],
+      createdAtIso: '2026-04-30T00:00:00.000Z',
+      updatedAtIso: '2026-04-30T00:00:00.000Z',
+    }
+
+    await service.runNow('cron-profile-policy', {
+      runProfiles: [operatorProfile],
+      runProfileId: 'operator-profile',
+    })
+
+    const threadStartParams = rpcCalls.find((call) => call.method === 'thread/start')?.params as Record<string, unknown> | undefined
+    expect(threadStartParams).toMatchObject({
+      model: 'gpt-5.5',
+      approvalPolicy: 'never',
+      sandbox: 'danger-full-access',
     })
   })
 

@@ -43,7 +43,6 @@ import { parseAutomationSidecarRead, type AutomationCreateInput, type Automation
 import { AUTOMATION_TEMPLATES } from './templates'
 import {
   assertAutomationExecutionPolicy,
-  assertAutomationRunProfileAllowed,
   DEFAULT_AUTOMATION_EXECUTION_POLICY,
   isAutomationExecutionPolicyEnabled,
   resolveAutomationRunProfile,
@@ -557,11 +556,11 @@ export class AutomationsService {
           ? null
           : await this.readExecutionOptions(targetConfigCwds(targetCwd, targetDefinition), { preferCwdDefault: true })
         const runProfiles = options.runProfiles ?? executionOptions?.runProfiles
-        assertAutomationRunProfileAllowed(resolveAutomationRunProfile(targetDefinition, {
+        resolveAutomationRunProfile(targetDefinition, {
           ...options,
           defaultRunProfileId: executionOptions?.defaultRunProfileId,
           runProfiles,
-        }), this.policy)
+        })
         const run = await this.runner.runNow({
           definition: targetDefinition,
           automationDirPath: entry.automationDirPath,
@@ -635,11 +634,11 @@ export class AutomationsService {
             ? null
             : await this.readExecutionOptions(targetConfigCwds(targetCwd, targetDefinition), { preferCwdDefault: true })
           const runProfiles = input.runProfiles ?? executionOptions?.runProfiles
-          assertAutomationRunProfileAllowed(resolveAutomationRunProfile(targetDefinition, {
+          resolveAutomationRunProfile(targetDefinition, {
             ...input,
             defaultRunProfileId: executionOptions?.defaultRunProfileId,
             runProfiles,
-          }), this.policy)
+          })
           const run = await this.runner.runScheduled({
             definition,
             automationDirPath: entry.automationDirPath,

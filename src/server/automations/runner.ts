@@ -11,7 +11,6 @@ import { AutomationConflictError, AutomationDeferredRunError, AutomationValidati
 import { classifyAutomationRunFailure, classifyAutomationRunResult, stripAutomationInboxDirectives } from './resultClassifier'
 import {
   assertAutomationExecutionPolicy,
-  assertAutomationRunProfileAllowed,
   resolveAutomationRunProfile,
   type AutomationExecutionPolicy,
   type AutomationRunProfileInput,
@@ -170,7 +169,6 @@ export class AutomationRunner {
       : baseDefinition
     this.validateRunTarget(definition, runMode)
     let runProfileSnapshot = resolveAutomationRunProfile(definition, input)
-    assertAutomationRunProfileAllowed(runProfileSnapshot, this.policy)
     runProfileSnapshot = await this.resolveAvailableCronRunProfile(definition, runProfileSnapshot)
     if (definition.kind === 'heartbeat') {
       await this.assertHeartbeatEligible(definition)

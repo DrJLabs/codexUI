@@ -4,28 +4,14 @@ import {
   BUILTIN_CODEX_RUN_PROFILES,
   DEFAULT_CODEX_RUN_PROFILE_ID,
 } from '../execution/runProfiles'
-import type { AutomationsRemoteAccess } from './remoteAccess'
-
 export type AutomationExecutionPolicy = {
   executionEnabled: boolean
-  executionMode: 'disabled' | 'local_only' | 'trusted_remote' | 'open_remote'
-  requireLoopbackForExecution: boolean
-  disableExecutionWhenRemote: boolean
-  allowDangerFullAccess: boolean
-  allowApprovalNever: boolean
-  networkAccess: boolean
   maxGlobalActiveRuns: number
   maxActiveRunsPerRepo: number
 }
 
 export const DEFAULT_AUTOMATION_EXECUTION_POLICY: AutomationExecutionPolicy = {
   executionEnabled: true,
-  executionMode: 'trusted_remote',
-  requireLoopbackForExecution: false,
-  disableExecutionWhenRemote: false,
-  allowDangerFullAccess: false,
-  allowApprovalNever: false,
-  networkAccess: false,
   maxGlobalActiveRuns: 3,
   maxActiveRunsPerRepo: 1,
 }
@@ -37,25 +23,12 @@ export type AutomationRunProfileInput = {
 }
 
 export function isAutomationExecutionPolicyEnabled(policy: AutomationExecutionPolicy): boolean {
-  return policy.executionEnabled && policy.executionMode !== 'disabled'
+  return policy.executionEnabled
 }
 
 export function assertAutomationExecutionPolicy(policy: AutomationExecutionPolicy): void {
   if (!isAutomationExecutionPolicyEnabled(policy)) {
     throw createAutomationPolicyError(403, 'Automation execution is disabled')
-  }
-}
-
-export function assertAutomationExecutionAccess(access: AutomationsRemoteAccess, policy: AutomationExecutionPolicy): void {
-  assertAutomationExecutionPolicy(policy)
-  if (policy.requireLoopbackForExecution && !access.loopback) {
-    throw createAutomationPolicyError(403, 'Automation execution requires loopback access')
-  }
-  if (policy.disableExecutionWhenRemote && !access.loopback) {
-    throw createAutomationPolicyError(403, 'Automation execution is disabled for remote access')
-  }
-  if (policy.executionMode === 'local_only' && !access.loopback) {
-    throw createAutomationPolicyError(403, 'Automation execution mode allows local access only')
   }
 }
 
@@ -78,18 +51,6 @@ export function resolveAutomationRunProfile(
     ...baseProfile,
     model: definition.model?.trim() || baseProfile.model,
     reasoningEffort: normalizeReasoningEffort(definition.reasoningEffort) || baseProfile.reasoningEffort,
-  }
-}
-
-export function assertAutomationRunProfileAllowed(profile: CodexRunProfile, policy: AutomationExecutionPolicy): void {
-  if (profile.sandboxMode === 'danger-full-access' && !policy.allowDangerFullAccess) {
-    throw createAutomationPolicyError(403, 'Automation run profile uses danger-full-access but policy does not allow it')
-  }
-  if (profile.approvalPolicy === 'never' && !policy.allowApprovalNever) {
-    throw createAutomationPolicyError(403, 'Automation run profile uses approval policy never but policy does not allow it')
-  }
-  if (profile.networkAccess && !policy.networkAccess) {
-    throw createAutomationPolicyError(403, 'Automation run profile enables network access but policy does not allow it')
   }
 }
 
