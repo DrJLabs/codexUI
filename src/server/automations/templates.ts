@@ -259,7 +259,6 @@ Grounding rules:
     runMode: 'chat',
     groupId: 'codexui-template-aliases',
     groupName: GROUP_NAMES['codexui-template-aliases'],
-    aliasFor: 'heartbeat-thread-check',
   },
   quickAliasTemplate({
     id: 'project-cron',

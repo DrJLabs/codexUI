@@ -500,7 +500,7 @@ Implementation:
 1. Ported Desktop's automation template catalog into `src/server/automations/templates.ts`.
 2. Returned that catalog from `/codex-api/automations/templates`.
 3. Rendered templates in grouped create-mode sections instead of a hard-coded three-button strip.
-4. Kept simplified CodexUI templates only as `Quick aliases`.
+4. Kept simplified CodexUI templates only under `Quick aliases`; quick entries use `aliasFor` only when they point at a real Desktop catalog template.
 5. Made heartbeat alias use `FREQ=MINUTELY;INTERVAL=15`.
 6. Added template catalog tests for Desktop group coverage, schedule defaults, canonical RRULE strings, and alias behavior.
 

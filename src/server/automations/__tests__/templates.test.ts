@@ -22,7 +22,7 @@ describe('AUTOMATION_TEMPLATES', () => {
   })
 
   it('keeps Desktop catalog entries canonical and worktree based', () => {
-    const desktopTemplates = AUTOMATION_TEMPLATES.filter((candidate) => !candidate.aliasFor)
+    const desktopTemplates = AUTOMATION_TEMPLATES.filter((candidate) => candidate.groupId !== 'codexui-template-aliases')
     expect(desktopTemplates).toHaveLength(17)
     expect(desktopTemplates.every((candidate) => candidate.kind === 'cron')).toBe(true)
     expect(desktopTemplates.every((candidate) => candidate.runMode === 'worktree')).toBe(true)
@@ -33,7 +33,6 @@ describe('AUTOMATION_TEMPLATES', () => {
     expect(template('thread-heartbeat')).toMatchObject({
       kind: 'heartbeat',
       runMode: 'chat',
-      aliasFor: 'heartbeat-thread-check',
       groupName: 'Quick aliases',
     })
     expect(template('thread-heartbeat').schedule.rrule).toBe('FREQ=MINUTELY;INTERVAL=15')
@@ -47,6 +46,15 @@ describe('AUTOMATION_TEMPLATES', () => {
       runMode: 'worktree',
       aliasFor: 'performance-regression-watch',
     })
+  })
+
+  it('points every template alias at a real Desktop catalog entry', () => {
+    const templateIds = new Set(AUTOMATION_TEMPLATES.map((candidate) => candidate.id))
+    for (const candidate of AUTOMATION_TEMPLATES) {
+      if (!candidate.aliasFor) continue
+      expect(templateIds.has(candidate.aliasFor), `${candidate.id} alias target`).toBe(true)
+      expect(template(candidate.aliasFor).groupId).not.toBe('codexui-template-aliases')
+    }
   })
 })
 
