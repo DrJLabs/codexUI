@@ -2092,6 +2092,58 @@ Run the cron task`)
     expect(firstRuns.length + secondRuns.length).toBe(1)
   })
 
+  it('does not hold the native run-start lock while slow turns start', async () => {
+    const policy = { ...enabledPolicy, maxGlobalActiveRuns: 2 } as unknown as AutomationExecutionPolicy
+    const { codexHomeDir, service, bridge } = await createHarness({ policy, turnStartDelayMs: 200 })
+    const secondService = new AutomationsService({
+      codexHomeDir,
+      bridge,
+      policy,
+      enableScheduler: true,
+    })
+    const firstRepo = join(codexHomeDir, 'repo-one')
+    const secondRepo = join(codexHomeDir, 'repo-two')
+    await mkdir(firstRepo, { recursive: true })
+    await mkdir(secondRepo, { recursive: true })
+    const firstDir = await writeNative(codexHomeDir, 'first-dir', {
+      ...nativeRecord,
+      id: 'first-local',
+      name: 'First Local',
+      kind: 'cron',
+      rrulePrefix: 'RRULE:',
+      targetThreadId: null,
+      executionEnvironment: 'local',
+      runMode: 'local',
+      cwd: firstRepo,
+      cwds: [firstRepo],
+    })
+    const secondDir = await writeNative(codexHomeDir, 'second-dir', {
+      ...nativeRecord,
+      id: 'second-local',
+      name: 'Second Local',
+      kind: 'cron',
+      rrulePrefix: 'RRULE:',
+      targetThreadId: null,
+      executionEnvironment: 'local',
+      runMode: 'local',
+      cwd: secondRepo,
+      cwds: [secondRepo],
+    })
+    await writeFreshScheduler(service, 'first-local', firstDir, { automationId: 'first-local', sourceDirName: 'first-dir' })
+    await writeFreshScheduler(service, 'second-local', secondDir, { automationId: 'second-local', sourceDirName: 'second-dir' })
+
+    const startedAt = Date.now()
+    await Promise.all([
+      new AutomationScheduler({ service, now: () => new Date('2026-04-30T10:00:00.000Z') }).tick(),
+      new AutomationScheduler({ service: secondService, now: () => new Date('2026-04-30T10:00:00.000Z') }).tick(),
+    ])
+
+    expect(Date.now() - startedAt).toBeLessThan(350)
+    const firstRuns = await createAutomationRunStore(firstDir).listRuns()
+    const secondRuns = await createAutomationRunStore(secondDir).listRuns()
+    expect(firstRuns.length + secondRuns.length).toBe(2)
+  })
+
   it('serializes overlapping ticks', async () => {
     const { codexHomeDir, service } = await createHarness()
     const automationDir = await writeNative(codexHomeDir, 'daily-check-dir', nativeRecord)

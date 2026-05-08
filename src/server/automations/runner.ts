@@ -57,6 +57,11 @@ type HeartbeatRendererState = {
   atIso: string
 }
 
+type AutomationRunStartReservation = (input: {
+  definition: AutomationDefinition
+  createRun: () => Promise<AutomationRun>
+}) => Promise<AutomationRun>
+
 export class AutomationRunner {
   private readonly bridge: RestrictedCodexBridgeAdapter
   private readonly policy: AutomationExecutionPolicy
@@ -92,6 +97,7 @@ export class AutomationRunner {
   async runNow(input: {
     definition: AutomationDefinition
     automationDirPath: string
+    reserveRunStart?: AutomationRunStartReservation
   } & AutomationRunProfileInput): Promise<AutomationRun> {
     return await this.withAutomationLock(input.definition.id, async () => {
       return await this.startRun({
@@ -110,6 +116,7 @@ export class AutomationRunner {
     cwd?: string | null
     dueAtIso: string
     nextDueAtIso: string | null
+    reserveRunStart?: AutomationRunStartReservation
   } & AutomationRunProfileInput): Promise<AutomationRun> {
     return await this.withAutomationLock(input.definition.id, async () => {
       return await this.startRun({
@@ -144,6 +151,7 @@ export class AutomationRunner {
     trigger: AutomationRun['trigger']
     dueAtIso: string | null
     nextDueAtIso: string | null
+    reserveRunStart?: AutomationRunStartReservation
   } & AutomationRunProfileInput): Promise<AutomationRun> {
     assertAutomationExecutionPolicy(this.policy)
     const baseDefinition = input.definition
@@ -170,15 +178,6 @@ export class AutomationRunner {
 
     const store = createAutomationRunStore(input.automationDirPath)
     await this.failOrphanedActiveRuns(store, definition)
-    const activeRun = (await store.listActiveRuns()).find((candidate) => conflictsWithNewRun(candidate, {
-      trigger: input.trigger,
-      runMode,
-      cwd: targetCwd,
-    }))
-    if (activeRun) {
-      const activeTrigger = activeRun.trigger === 'schedule' ? 'scheduled' : 'manual'
-      throw new AutomationConflictError(`Automation ${definition.id} already has an active ${activeTrigger} run`)
-    }
     const previousRun = (await store.listRuns({ limit: 1 }))[0] ?? null
     const previousRunAtIso = previousRun?.startedAtIso ?? previousRun?.createdAtIso ?? null
 
@@ -220,8 +219,23 @@ export class AutomationRunner {
       completedAtIso: null,
       updatedAtIso: now,
     }
-    await store.createRun(run)
-    this.ownedActiveRunIds.add(run.id)
+    const createRun = async (): Promise<AutomationRun> => {
+      const activeRun = (await store.listActiveRuns()).find((candidate) => conflictsWithNewRun(candidate, {
+        trigger: input.trigger,
+        runMode,
+        cwd: targetCwd,
+      }))
+      if (activeRun) {
+        const activeTrigger = activeRun.trigger === 'schedule' ? 'scheduled' : 'manual'
+        throw new AutomationConflictError(`Automation ${definition.id} already has an active ${activeTrigger} run`)
+      }
+      await store.createRun(run)
+      this.ownedActiveRunIds.add(run.id)
+      return run
+    }
+    run = input.reserveRunStart
+      ? await input.reserveRunStart({ definition, createRun })
+      : await createRun()
     let activeTurnKeyForRun: string | null = null
     let markRunningRecordReady: (ready: boolean) => void = () => {}
     let runtimeDefinition = definition

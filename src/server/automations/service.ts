@@ -538,52 +538,52 @@ export class AutomationsService {
   }
 
   async runNow(automationId: string, options: { runProfiles?: CodexRunProfile[]; runProfileId?: string | null } = {}): Promise<AutomationRun> {
-    return await this.withRunStartLock(async () => {
-      const entry = await this.findEntry(automationId)
-      if (!entry) throw new AutomationNotFoundError(automationId)
-      if (!this.runner) throw createServiceError(503, 'Codex bridge is not available for automation manual runs')
-      const sidecarResult = await readSidecar(entry)
-      const definition = (await mapDefinition(entry, sidecarResult.sidecar, { includeRecentRuns: false })).definition
-      assertAutomationNotDeleted(definition)
-      await this.ensureInterruptedRunRecoveryBeforeCapacity()
-      assertAutomationExecutionPolicy(this.policy)
-      const targetCwds = manualRunCwds(definition)
-      let firstRun: AutomationRun | null = null
-      let firstError: unknown = null
-      for (const targetCwd of targetCwds) {
-        try {
-          const targetDefinition = definitionWithTargetCwd(definition, targetCwd)
-          await this.assertRunStartCapacity(targetDefinition)
-          assertAutomationRunnerTarget(targetDefinition)
-          const executionOptions = options.runProfiles
-            ? null
-            : await this.readExecutionOptions(targetConfigCwds(targetCwd, targetDefinition), { preferCwdDefault: true })
-          const runProfiles = options.runProfiles ?? executionOptions?.runProfiles
-          assertAutomationRunProfileAllowed(resolveAutomationRunProfile(targetDefinition, {
-            ...options,
-            defaultRunProfileId: executionOptions?.defaultRunProfileId,
-            runProfiles,
-          }), this.policy)
-          const run = await this.runner.runNow({
-            definition: targetDefinition,
-            automationDirPath: entry.automationDirPath,
-            runProfiles,
-            defaultRunProfileId: executionOptions?.defaultRunProfileId,
-            runProfileId: options.runProfileId,
-          })
-          if (run.state === 'failed') {
-            firstError ??= new Error(run.errorMessage ?? `Manual run failed for ${targetCwd ?? definition.id}`)
-            continue
-          }
-          firstRun ??= run
-        } catch (error) {
-          firstError ??= error
+    const entry = await this.findEntry(automationId)
+    if (!entry) throw new AutomationNotFoundError(automationId)
+    if (!this.runner) throw createServiceError(503, 'Codex bridge is not available for automation manual runs')
+    const sidecarResult = await readSidecar(entry)
+    const definition = (await mapDefinition(entry, sidecarResult.sidecar, { includeRecentRuns: false })).definition
+    assertAutomationNotDeleted(definition)
+    await this.ensureInterruptedRunRecoveryBeforeCapacity()
+    assertAutomationExecutionPolicy(this.policy)
+    const targetCwds = manualRunCwds(definition)
+    let firstRun: AutomationRun | null = null
+    let firstError: unknown = null
+    for (const targetCwd of targetCwds) {
+      try {
+        const targetDefinition = definitionWithTargetCwd(definition, targetCwd)
+        assertAutomationRunnerTarget(targetDefinition)
+        const executionOptions = options.runProfiles
+          ? null
+          : await this.readExecutionOptions(targetConfigCwds(targetCwd, targetDefinition), { preferCwdDefault: true })
+        const runProfiles = options.runProfiles ?? executionOptions?.runProfiles
+        assertAutomationRunProfileAllowed(resolveAutomationRunProfile(targetDefinition, {
+          ...options,
+          defaultRunProfileId: executionOptions?.defaultRunProfileId,
+          runProfiles,
+        }), this.policy)
+        const run = await this.runner.runNow({
+          definition: targetDefinition,
+          automationDirPath: entry.automationDirPath,
+          runProfiles,
+          defaultRunProfileId: executionOptions?.defaultRunProfileId,
+          runProfileId: options.runProfileId,
+          reserveRunStart: async ({ definition: runDefinition, createRun }) => {
+            return await this.reserveRunStart(runDefinition, createRun)
+          },
+        })
+        if (run.state === 'failed') {
+          firstError ??= new Error(run.errorMessage ?? `Manual run failed for ${targetCwd ?? definition.id}`)
+          continue
         }
+        firstRun ??= run
+      } catch (error) {
+        firstError ??= error
       }
-      if (firstRun) return firstRun
-      if (firstError) throw firstError
-      throw new AutomationDeferredRunError('Manual run skipped: no folders configured', { deferMode: 'unsupported_target' })
-    })
+    }
+    if (firstRun) return firstRun
+    if (firstError) throw firstError
+    throw new AutomationDeferredRunError('Manual run skipped: no folders configured', { deferMode: 'unsupported_target' })
   }
 
   private async readCodexConfig(cwd?: string): Promise<CodexConfigReadResult> {
@@ -612,73 +612,73 @@ export class AutomationsService {
       runProfileId?: string | null
     },
   ): Promise<AutomationRun> {
-    return await this.withRunStartLock(async () => {
-      const entry = await this.findEntry(automationId)
-      if (!entry) throw new AutomationNotFoundError(automationId)
-      if (!this.runner) throw createServiceError(503, 'Codex bridge is not available for automation scheduled runs')
-      const sidecarResult = await readSidecar(entry)
-      const definition = (await mapDefinition(entry, sidecarResult.sidecar, { includeRecentRuns: false })).definition
-      assertAutomationNotDeleted(definition)
-      await this.ensureInterruptedRunRecoveryBeforeCapacity()
-      assertAutomationExecutionPolicy(this.policy)
-      const targetCwds = scheduledRunCwds(definition)
-      if (targetCwds.length === 0) {
-        throw new AutomationDeferredRunError('Scheduled run skipped: no folders configured', { deferMode: 'unsupported_target' })
-      }
-      let firstRun: AutomationRun | null = null
-      let firstError: unknown = null
-      try {
-        for (const targetCwd of targetCwds) {
-          try {
-            const targetDefinition = definitionWithTargetCwd(definition, targetCwd)
-            await this.assertRunStartCapacity(targetDefinition)
-            assertAutomationRunnerTarget(targetDefinition)
-            const executionOptions = input.runProfiles
-              ? null
-              : await this.readExecutionOptions(targetConfigCwds(targetCwd, targetDefinition), { preferCwdDefault: true })
-            const runProfiles = input.runProfiles ?? executionOptions?.runProfiles
-            assertAutomationRunProfileAllowed(resolveAutomationRunProfile(targetDefinition, {
-              ...input,
-              defaultRunProfileId: executionOptions?.defaultRunProfileId,
-              runProfiles,
-            }), this.policy)
-            const run = await this.runner.runScheduled({
-              definition,
-              automationDirPath: entry.automationDirPath,
-              sourceDirName: entry.sourceDirName,
-              cwd: targetCwd,
-              dueAtIso: input.dueAtIso,
-              nextDueAtIso: input.nextDueAtIso,
-              runProfiles,
-              defaultRunProfileId: executionOptions?.defaultRunProfileId,
-              runProfileId: input.runProfileId,
-            })
-            if (run.state === 'failed') {
-              firstError ??= new Error(run.errorMessage ?? `Scheduled run failed for ${targetCwd}`)
-              continue
-            }
-            firstRun ??= run
-          } catch (error) {
-            firstError ??= error
-          }
-        }
-        if (firstRun) return firstRun
-        if (firstError) throw firstError
-        if (!firstRun) throw new AutomationDeferredRunError('Scheduled run skipped: no folders configured', { deferMode: 'unsupported_target' })
-        return firstRun
-      } catch (error) {
-        if (error instanceof AutomationDeferredRunError) {
-          await this.deferScheduledRun(entry, {
+    const entry = await this.findEntry(automationId)
+    if (!entry) throw new AutomationNotFoundError(automationId)
+    if (!this.runner) throw createServiceError(503, 'Codex bridge is not available for automation scheduled runs')
+    const sidecarResult = await readSidecar(entry)
+    const definition = (await mapDefinition(entry, sidecarResult.sidecar, { includeRecentRuns: false })).definition
+    assertAutomationNotDeleted(definition)
+    await this.ensureInterruptedRunRecoveryBeforeCapacity()
+    assertAutomationExecutionPolicy(this.policy)
+    const targetCwds = scheduledRunCwds(definition)
+    if (targetCwds.length === 0) {
+      throw new AutomationDeferredRunError('Scheduled run skipped: no folders configured', { deferMode: 'unsupported_target' })
+    }
+    let firstRun: AutomationRun | null = null
+    let firstError: unknown = null
+    try {
+      for (const targetCwd of targetCwds) {
+        try {
+          const targetDefinition = definitionWithTargetCwd(definition, targetCwd)
+          assertAutomationRunnerTarget(targetDefinition)
+          const executionOptions = input.runProfiles
+            ? null
+            : await this.readExecutionOptions(targetConfigCwds(targetCwd, targetDefinition), { preferCwdDefault: true })
+          const runProfiles = input.runProfiles ?? executionOptions?.runProfiles
+          assertAutomationRunProfileAllowed(resolveAutomationRunProfile(targetDefinition, {
+            ...input,
+            defaultRunProfileId: executionOptions?.defaultRunProfileId,
+            runProfiles,
+          }), this.policy)
+          const run = await this.runner.runScheduled({
+            definition,
+            automationDirPath: entry.automationDirPath,
+            sourceDirName: entry.sourceDirName,
+            cwd: targetCwd,
             dueAtIso: input.dueAtIso,
             nextDueAtIso: input.nextDueAtIso,
-            unsupportedReason: error.deferMode === 'requires_renderer_state' || error.deferMode === 'unsupported_target'
-              ? error.message
-              : null,
+            runProfiles,
+            defaultRunProfileId: executionOptions?.defaultRunProfileId,
+            runProfileId: input.runProfileId,
+            reserveRunStart: async ({ definition: runDefinition, createRun }) => {
+              return await this.reserveRunStart(runDefinition, createRun)
+            },
           })
+          if (run.state === 'failed') {
+            firstError ??= new Error(run.errorMessage ?? `Scheduled run failed for ${targetCwd}`)
+            continue
+          }
+          firstRun ??= run
+        } catch (error) {
+          firstError ??= error
         }
-        throw error
       }
-    })
+      if (firstRun) return firstRun
+      if (firstError) throw firstError
+      if (!firstRun) throw new AutomationDeferredRunError('Scheduled run skipped: no folders configured', { deferMode: 'unsupported_target' })
+      return firstRun
+    } catch (error) {
+      if (error instanceof AutomationDeferredRunError) {
+        await this.deferScheduledRun(entry, {
+          dueAtIso: input.dueAtIso,
+          nextDueAtIso: input.nextDueAtIso,
+          unsupportedReason: error.deferMode === 'requires_renderer_state' || error.deferMode === 'unsupported_target'
+            ? error.message
+            : null,
+        })
+      }
+      throw error
+    }
   }
 
   async recoverInterruptedRuns(): Promise<{ recovered: number }> {
@@ -751,6 +751,15 @@ export class AutomationsService {
       return
     }
     await this.recoverInterruptedRuns()
+  }
+
+  private async reserveRunStart(definition: AutomationDefinition, createRun: () => Promise<AutomationRun>): Promise<AutomationRun> {
+    return await this.withRunStartLock(async () => {
+      await this.ensureInterruptedRunRecoveryBeforeCapacity()
+      assertAutomationExecutionPolicy(this.policy)
+      await this.assertRunStartCapacity(definition)
+      return await createRun()
+    })
   }
 
   private async withRunStartLock<T>(fn: () => Promise<T>): Promise<T> {
