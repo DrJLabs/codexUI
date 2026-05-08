@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto'
-import { readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
+import { hostname } from 'node:os'
 import { isAbsolute, join } from 'node:path'
 import type {
   AutomationDefinition,
@@ -52,6 +53,13 @@ import {
 const LOCAL_SIDECAR_FILENAME = 'codexui.local.json'
 const LEGACY_SIDECAR_FILENAME = 'codexui.json'
 const HEARTBEAT_THREAD_ENTRY_CACHE_MS = 5000
+const RUN_START_LOCK_FILENAME = '.run-start.lock'
+const RUN_START_LOCK_OWNER_FILENAME = 'owner.json'
+const RUN_START_LOCK_HOSTNAME = hostname()
+const RUN_START_LOCK_TIMEOUT_MS = 10_000
+const RUN_START_LOCK_POLL_MS = 20
+const RUN_START_STALE_LOCK_MS = 120_000
+const INTERRUPTED_RUN_RECOVERY_GRACE_MS = 6 * 60 * 60 * 1000
 
 type AutomationSidecar = AutomationSidecarRead
 type MapDefinitionOptions = {
@@ -698,6 +706,7 @@ export class AutomationsService {
         : null
       for (const run of activeRuns) {
         if (this.runner?.ownsActiveRun(run.id)) continue
+        if (!isInterruptedRunRecoveryCandidate(run)) continue
         if (run.trigger === 'schedule') {
           await reconcileSchedulerFromScheduledRun(entry, run)
         }
@@ -733,7 +742,10 @@ export class AutomationsService {
       return
     }
     const activeRuns = await this.listPersistedActiveRuns()
-    const needsRecovery = activeRuns.some((activeRun) => !this.runner?.ownsActiveRun(activeRun.run.id))
+    const needsRecovery = activeRuns.some((activeRun) => (
+      !this.runner?.ownsActiveRun(activeRun.run.id) &&
+      isInterruptedRunRecoveryCandidate(activeRun.run)
+    ))
     if (!needsRecovery) {
       await this.waitForRecovery()
       return
@@ -751,7 +763,7 @@ export class AutomationsService {
     this.runStartLock = chained
     await previous.catch(() => {})
     try {
-      return await fn()
+      return await withNativeRunStartLock(getNativeAutomationsRoot(this.options), fn)
     } finally {
       release()
       if (this.runStartLock === chained) this.runStartLock = Promise.resolve()
@@ -1422,6 +1434,109 @@ function readNonEmptyString(value: unknown): string | null {
   if (typeof value !== 'string') return null
   const trimmed = value.trim()
   return trimmed || null
+}
+
+function isInterruptedRunRecoveryCandidate(run: AutomationRun): boolean {
+  const latestActivityIso = run.updatedAtIso || run.startedAtIso || run.createdAtIso
+  const latestActivityMs = Date.parse(latestActivityIso)
+  return !Number.isFinite(latestActivityMs) || Date.now() - latestActivityMs >= INTERRUPTED_RUN_RECOVERY_GRACE_MS
+}
+
+async function withNativeRunStartLock<T>(automationsRoot: string, fn: () => Promise<T>): Promise<T> {
+  const lockPath = join(automationsRoot, RUN_START_LOCK_FILENAME)
+  const startedAt = Date.now()
+  await mkdir(automationsRoot, { recursive: true })
+  for (;;) {
+    try {
+      await mkdir(lockPath)
+      await writeRunStartLockOwner(lockPath)
+      break
+    } catch (error) {
+      if (!isErrorCode(error, 'EEXIST')) throw error
+      if (await reclaimStaleRunStartLock(lockPath)) continue
+      if (Date.now() - startedAt >= RUN_START_LOCK_TIMEOUT_MS) {
+        throw new Error(`Timed out waiting for automation run-start lock at ${lockPath}`)
+      }
+      await sleep(RUN_START_LOCK_POLL_MS)
+    }
+  }
+  try {
+    return await fn()
+  } finally {
+    await rm(lockPath, { recursive: true, force: true })
+  }
+}
+
+async function writeRunStartLockOwner(lockPath: string): Promise<void> {
+  try {
+    await writeFile(join(lockPath, RUN_START_LOCK_OWNER_FILENAME), `${JSON.stringify({
+      pid: process.pid,
+      hostname: RUN_START_LOCK_HOSTNAME,
+      startedAtMs: Date.now(),
+    }, null, 2)}\n`, 'utf8')
+  } catch (error) {
+    await rm(lockPath, { recursive: true, force: true }).catch(() => {})
+    throw error
+  }
+}
+
+async function reclaimStaleRunStartLock(lockPath: string): Promise<boolean> {
+  const owner = await readRunStartLockOwner(lockPath)
+  if (
+    owner?.hostname === RUN_START_LOCK_HOSTNAME &&
+    (!isProcessAlive(owner.pid) || Date.now() - owner.startedAtMs >= RUN_START_STALE_LOCK_MS)
+  ) {
+    await rm(lockPath, { recursive: true, force: true })
+    return true
+  }
+  if (!owner || owner.hostname !== RUN_START_LOCK_HOSTNAME) {
+    try {
+      const lockStat = await stat(lockPath)
+      if (Date.now() - lockStat.mtimeMs >= RUN_START_STALE_LOCK_MS) {
+        await rm(lockPath, { recursive: true, force: true })
+        return true
+      }
+    } catch (error) {
+      return isErrorCode(error, 'ENOENT')
+    }
+  }
+  return false
+}
+
+async function readRunStartLockOwner(lockPath: string): Promise<{ pid: number; hostname: string | null; startedAtMs: number } | null> {
+  try {
+    const parsed = JSON.parse(await readFile(join(lockPath, RUN_START_LOCK_OWNER_FILENAME), 'utf8')) as unknown
+    if (!parsed || typeof parsed !== 'object') return null
+    const pid = (parsed as { pid?: unknown }).pid
+    const parsedHostname = (parsed as { hostname?: unknown }).hostname
+    const startedAtMs = (parsed as { startedAtMs?: unknown }).startedAtMs
+    if (!Number.isInteger(pid) || Number(pid) <= 0 || typeof startedAtMs !== 'number') return null
+    return {
+      pid: Number(pid),
+      hostname: typeof parsedHostname === 'string' && parsedHostname.trim() ? parsedHostname : null,
+      startedAtMs,
+    }
+  } catch {
+    return null
+  }
+}
+
+function isProcessAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch (error) {
+    if (isErrorCode(error, 'ESRCH')) return false
+    return true
+  }
+}
+
+function isErrorCode(error: unknown, code: string): boolean {
+  return typeof error === 'object' && error !== null && 'code' in error && (error as { code?: unknown }).code === code
+}
+
+async function sleep(ms: number): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, ms))
 }
 
 function isNodeError(error: unknown): error is NodeJS.ErrnoException {
