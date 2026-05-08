@@ -83,6 +83,7 @@ async function createHarness(options: {
   threadReadById?: Record<string, unknown>
   projectlessHomeDir?: string
   availableModels?: string[]
+  turnStartErrorByCwd?: Record<string, Error>
 } = {}) {
   const codexHomeDir = await mkdtemp(join(tmpdir(), 'codexui-automation-scheduler-'))
   codexHomeDirs.push(codexHomeDir)
@@ -99,6 +100,10 @@ async function createHarness(options: {
         return { thread: { id: `thread_local_${threadStartCount}` } } as T
       }
       if (method === 'turn/start') {
+        const cwd = params && typeof params === 'object' && 'cwd' in params ? (params as { cwd?: unknown }).cwd : undefined
+        if (typeof cwd === 'string' && options.turnStartErrorByCwd?.[cwd]) {
+          throw options.turnStartErrorByCwd[cwd]
+        }
         if (options.turnStartDelayMs) {
           await new Promise((resolve) => setTimeout(resolve, options.turnStartDelayMs))
         }
@@ -901,6 +906,52 @@ Run the cron task`)
     })
   })
 
+  it('blocks resuming a paused heartbeat when an active heartbeat already owns the thread', async () => {
+    const { codexHomeDir, service } = await createHarness()
+    await writeNative(codexHomeDir, 'paused-thread-dir', {
+      ...nativeRecord,
+      id: 'paused-thread-check',
+      targetThreadId: 'thread-resume-duplicate',
+      status: 'PAUSED',
+    })
+    await writeNative(codexHomeDir, 'active-thread-dir', {
+      ...nativeRecord,
+      id: 'active-thread-check',
+      targetThreadId: 'thread-resume-duplicate',
+      status: 'ACTIVE',
+    })
+
+    await expect(service.resumeDefinition('paused-thread-check')).rejects.toThrow('Automation already exists for targetThreadId')
+  })
+
+  it('blocks patching a heartbeat into a local cron-shaped target', async () => {
+    const { codexHomeDir, service } = await createHarness()
+    const repo = join(codexHomeDir, 'repo')
+    const created = await service.createDefinition({
+      kind: 'heartbeat',
+      name: 'Thread heartbeat',
+      description: null,
+      prompt: 'Check this thread',
+      schedule: { type: 'rrule', rrule: 'FREQ=MINUTELY;INTERVAL=15' },
+      targetThreadId: 'thread-local-edit',
+      cwd: null,
+      cwds: [],
+      runMode: 'chat',
+      model: null,
+      reasoningEffort: null,
+      localEnvironmentConfigPath: null,
+      kanbanProjection: { mode: 'off' },
+      notes: '',
+    })
+
+    await expect(service.patchDefinition(created.id, {
+      targetThreadId: null,
+      cwd: repo,
+      cwds: [repo],
+      runMode: 'local',
+    })).rejects.toThrow('Heartbeat automations must stay attached to a chat thread')
+  })
+
   it('blocks patching an automation onto another active heartbeat target', async () => {
     const { codexHomeDir, service } = await createHarness()
     await writeNative(codexHomeDir, 'active-thread-dir', {
@@ -1227,6 +1278,47 @@ Run the cron task`)
     })
     expect(threadStartParams).toMatchObject({ model: 'gpt-5.4' })
     expect(cronTurnStartParams).toMatchObject({ model: 'gpt-5.4', effort: 'low' })
+  })
+
+  it('attempts later cron folders when an earlier folder fails to start', async () => {
+    const repoA = join(tmpdir(), 'codexui-cron-fail-a')
+    const repoB = join(tmpdir(), 'codexui-cron-fail-b')
+    const { codexHomeDir, service, rpcCalls } = await createHarness({
+      turnStartErrorByCwd: {
+        [repoA]: new Error('repo A failed'),
+      },
+    })
+    await mkdir(repoA, { recursive: true })
+    await mkdir(repoB, { recursive: true })
+    const automationDir = await writeNative(codexHomeDir, 'multi-cron-dir', {
+      ...nativeRecord,
+      id: 'multi-cron',
+      kind: 'cron',
+      name: 'Multi cron',
+      rrulePrefix: 'RRULE:',
+      targetThreadId: null,
+      executionEnvironment: 'local',
+      runMode: 'local',
+      cwd: repoA,
+      cwds: [repoA, repoB],
+      model: 'gpt-5.5',
+      reasoningEffort: 'low',
+    })
+
+    const run = await service.runScheduled('multi-cron', {
+      dueAtIso: '2026-05-07T12:00:00.000Z',
+      nextDueAtIso: '2026-05-07T13:00:00.000Z',
+    })
+
+    const runs = await createAutomationRunStore(automationDir).listRuns()
+    expect(run.cwd).toBe(repoB)
+    expect(runs).toHaveLength(2)
+    expect(runs.map((candidate) => candidate.cwd)).toEqual([repoB, repoA])
+    expect(runs.find((candidate) => candidate.cwd === repoA)?.state).toBe('failed')
+    expect(rpcCalls.filter((call) => call.method === 'turn/start').map((call) => (call.params as { cwd?: string }).cwd)).toEqual([
+      repoA,
+      repoB,
+    ])
   })
 
   it('projects Desktop inbox directives into local run history without storing the directive in the summary', async () => {

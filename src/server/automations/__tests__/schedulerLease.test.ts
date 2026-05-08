@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm } from 'node:fs/promises'
+import { mkdtemp, readFile, readdir, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -133,5 +133,36 @@ describe('createAutomationSchedulerLeaseStore', () => {
     })
     await expect(readFile(join(automationDir, 'scheduler-lock.json'), 'utf8')).resolves.toContain('"releasedAtIso":')
     await expect(readFile(join(automationDir, 'scheduler-lock.1.json'), 'utf8')).resolves.toContain('"releasedAtIso": null')
+  })
+
+  it('keeps only recent lock generations when acquiring new leases', async () => {
+    const automationDir = await tempAutomationDir()
+    const store = createAutomationSchedulerLeaseStore(automationDir, {
+      ownerId: 'owner-a',
+      ttlMs: 60_000,
+    })
+
+    for (let index = 0; index < 70; index += 1) {
+      const handle = await store.acquire({
+        automationId: 'daily-check',
+        sourceDirName: 'daily-check-dir',
+        dueAtIso: '2026-04-30T09:00:00.000Z',
+        nowIso: new Date(Date.parse('2026-04-30T08:00:00.000Z') + index * 1000).toISOString(),
+      })
+      expect(handle?.lease.generation).toBe(index)
+      await handle?.release()
+    }
+
+    const lockFiles = (await readdir(automationDir)).filter((name) => /^scheduler-lock(?:\.\d+)?\.json$/.test(name))
+    expect(lockFiles.length).toBeLessThanOrEqual(65)
+    expect(lockFiles).not.toContain('scheduler-lock.json')
+
+    const next = await store.acquire({
+      automationId: 'daily-check',
+      sourceDirName: 'daily-check-dir',
+      dueAtIso: '2026-04-30T09:00:00.000Z',
+      nowIso: '2026-04-30T09:30:00.000Z',
+    })
+    expect(next?.lease.generation).toBe(70)
   })
 })

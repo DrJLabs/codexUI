@@ -22,6 +22,7 @@ import type { AutomationDefinition, AutomationDiagnostic, AutomationRun, Automat
 export type AutomationDraft = {
   id: string
   mode: 'create' | 'edit'
+  kind: AutomationDefinition['kind'] | null
   name: string
   targetThreadId: string
   prompt: string
@@ -101,6 +102,7 @@ function createEmptyDraft(threadId = ''): AutomationDraft {
   return {
     id: '',
     mode: 'create',
+    kind: null,
     name: 'Thread automation',
     targetThreadId: threadId,
     prompt: '',
@@ -120,6 +122,7 @@ function draftFromDefinition(definition: AutomationDefinition): AutomationDraft 
   return {
     id: definition.id,
     mode: 'edit',
+    kind: definition.kind,
     name: definition.name,
     targetThreadId: definition.targetThreadId ?? '',
     prompt: definition.prompt,
@@ -475,6 +478,9 @@ function toCreateInput(draft: AutomationDraft): CreateAutomationInput {
 }
 
 function toPatchInput(draft: AutomationDraft): PatchAutomationInput {
+  if (draft.kind === 'heartbeat' && draft.runMode !== 'chat') {
+    throw new Error('Heartbeat automations must stay attached to a chat thread. Create a project cron automation for local or worktree runs.')
+  }
   const targetThreadId = draft.runMode === 'chat' ? normalizeOptionalNullable(draft.targetThreadId) : null
   const cwds = normalizeDraftCwds(draft)
   return {

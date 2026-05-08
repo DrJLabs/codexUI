@@ -7,6 +7,7 @@ const DEFAULT_LEASE_TTL_MS = 10 * 60_000
 const DEFAULT_OWNER_ID = `codexui:${hostname()}:${process.pid}:${randomUUID()}`
 const BASE_LOCK_FILENAME = 'scheduler-lock.json'
 const LOCK_FILENAME_PATTERN = /^scheduler-lock(?:\.(\d+))?\.json$/
+const MAX_LOCK_SLOTS_TO_READ = 64
 
 export type AutomationSchedulerLease = {
   automationId: string
@@ -76,7 +77,8 @@ export function createAutomationSchedulerLeaseStore(
       for (let attempt = 0; attempt < 5; attempt += 1) {
         const slots = await listLockSlots(automationDirPath)
         if (slots.some((slot) => slot.lease && isActiveLease(slot.lease, nowMs))) return null
-        const generation = slots.length ? Math.max(...slots.map((slot) => slot.generation)) + 1 : 0
+        const latestGeneration = slots.reduce((max, slot) => Math.max(max, slot.generation), -1)
+        const generation = latestGeneration + 1
         const lockPath = lockPathForGeneration(automationDirPath, generation)
         const lease: AutomationSchedulerLease = {
           automationId: input.automationId,
@@ -172,12 +174,14 @@ async function listLockSlots(automationDirPath: string): Promise<LockSlot[]> {
     if (isNodeError(error) && error.code === 'ENOENT') return []
     throw error
   }
-  const slots = await Promise.all(names.flatMap((name): Promise<LockSlot>[] => {
+  const lockFiles = names.flatMap((name): Array<{ generation: number; path: string }> => {
     const generation = generationFromFilename(name)
-    if (generation === null) return []
-    const path = join(automationDirPath, name)
-    return [readLockSlot(path, generation)]
-  }))
+    return generation === null ? [] : [{ generation, path: join(automationDirPath, name) }]
+  })
+  lockFiles.sort((a, b) => a.generation - b.generation)
+  const staleFiles = lockFiles.slice(0, Math.max(0, lockFiles.length - MAX_LOCK_SLOTS_TO_READ))
+  await Promise.all(staleFiles.map((slot) => rm(slot.path, { force: true }).catch(() => {})))
+  const slots = await Promise.all(lockFiles.slice(-MAX_LOCK_SLOTS_TO_READ).map((slot) => readLockSlot(slot.path, slot.generation)))
   slots.sort((a, b) => a.generation - b.generation)
   return slots
 }

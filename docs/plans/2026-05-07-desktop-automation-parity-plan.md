@@ -156,6 +156,7 @@ Section 3 implementation notes:
 - Treat renderer state as the loaded-mode gate. Transient thread-state reasons such as busy, missing, or pending must be revalidated with `thread/read` so stale renderer snapshots do not permanently suppress scheduled heartbeats.
 - For blocked scheduled heartbeats, advance the scheduler cursor to the next due time without creating a run record so a busy thread does not retry every scheduler tick.
 - Keep full persisted cooldown alignment with Desktop's exact next-run fields in the scheduler-state/RRULE slices so this section stays focused on heartbeat target eligibility.
+- Review pass evidence from Desktop main bundle: heartbeat records are handled by the heartbeat path only, read `targetThreadId`, and resume the existing thread before starting a turn. CodexUI must therefore reject edits that leave `kind = "heartbeat"` with a local/worktree target shape, and resume must recheck duplicate active heartbeat targets before writing `ACTIVE`.
 
 ### 4. Heartbeat Prompt Wrapper
 
@@ -189,6 +190,7 @@ Section 4 implementation notes:
 - Desktop Linux build evidence: `/tmp/codex-desktop-asar-extracted/.vite/build/main-DlFGMsC6.js` defines a literal heartbeat prompt template named `Ut` and builds the prompt with `replaceAll('{{AUTOMATION_ID}}', e.id)`, `replaceAll('{{NOW_ISO}}', new Date().toISOString())`, and `replaceAll('{{AUTOMATION_PROMPT}}', e.prompt)`.
 - Mirror that raw substitution exactly, including the trailing newline and without escaping, trimming, or indenting the user prompt.
 - Scope the wrapper to `kind = "heartbeat"` in the turn-start payload only. Keep `promptSnapshot` canonical and keep cron/local/worktree input unchanged.
+- Review pass evidence: Desktop starts heartbeat turns with `model: null`, `effort: null`, `summary: "auto"`, `personality: null`, `outputSchema: null`, and a renderer-provided `collaborationMode`. CodexUI currently mirrors the app-server-supported subset and intentionally leaves `serviceTier` out because the checked generated app-server schema does not expose that field.
 
 ### 5. Automation Memory
 

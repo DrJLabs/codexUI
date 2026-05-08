@@ -226,6 +226,7 @@ export class AutomationsService {
     }
     await this.assertKanbanProjectionTarget(input.kanbanProjection)
     assertAutomationRunTarget(input.runMode, input.cwd, input.targetThreadId)
+    assertHeartbeatKindTarget(input.kind, input.runMode, input.targetThreadId)
 
     const record = await writeNativeAutomation({
       kind: input.kind,
@@ -311,6 +312,7 @@ export class AutomationsService {
     }
     if (!preserveUnknownExecutionEnvironment) {
       assertAutomationRunTarget(nextRecord.runMode, nextRecord.cwd, nextRecord.targetThreadId)
+      assertHeartbeatKindTarget(nextRecord.kind, nextRecord.runMode, nextRecord.targetThreadId)
     }
     await writeNativeHeartbeatAutomationBySourceDir(entry.sourceDirName, nextRecord, this.options)
     await writeSidecar(entry, nextSidecar)
@@ -548,33 +550,44 @@ export class AutomationsService {
         throw new AutomationDeferredRunError('Scheduled run skipped: no folders configured', { deferMode: 'unsupported_target' })
       }
       let firstRun: AutomationRun | null = null
+      let firstError: unknown = null
       try {
         for (const targetCwd of targetCwds) {
-          const targetDefinition = definitionWithTargetCwd(definition, targetCwd)
-          await this.assertRunStartCapacity(targetDefinition)
-          assertAutomationRunnerTarget(targetDefinition)
-          const executionOptions = input.runProfiles
-            ? null
-            : await this.readExecutionOptions(targetConfigCwds(targetCwd, targetDefinition), { preferCwdDefault: true })
-          const runProfiles = input.runProfiles ?? executionOptions?.runProfiles
-          assertAutomationRunProfileAllowed(resolveAutomationRunProfile(targetDefinition, {
-            ...input,
-            defaultRunProfileId: executionOptions?.defaultRunProfileId,
-            runProfiles,
-          }), this.policy)
-          const run = await this.runner.runScheduled({
-            definition,
-            automationDirPath: entry.automationDirPath,
-            sourceDirName: entry.sourceDirName,
-            cwd: targetCwd,
-            dueAtIso: input.dueAtIso,
-            nextDueAtIso: input.nextDueAtIso,
-            runProfiles,
-            defaultRunProfileId: executionOptions?.defaultRunProfileId,
-            runProfileId: input.runProfileId,
-          })
-          firstRun ??= run
+          try {
+            const targetDefinition = definitionWithTargetCwd(definition, targetCwd)
+            await this.assertRunStartCapacity(targetDefinition)
+            assertAutomationRunnerTarget(targetDefinition)
+            const executionOptions = input.runProfiles
+              ? null
+              : await this.readExecutionOptions(targetConfigCwds(targetCwd, targetDefinition), { preferCwdDefault: true })
+            const runProfiles = input.runProfiles ?? executionOptions?.runProfiles
+            assertAutomationRunProfileAllowed(resolveAutomationRunProfile(targetDefinition, {
+              ...input,
+              defaultRunProfileId: executionOptions?.defaultRunProfileId,
+              runProfiles,
+            }), this.policy)
+            const run = await this.runner.runScheduled({
+              definition,
+              automationDirPath: entry.automationDirPath,
+              sourceDirName: entry.sourceDirName,
+              cwd: targetCwd,
+              dueAtIso: input.dueAtIso,
+              nextDueAtIso: input.nextDueAtIso,
+              runProfiles,
+              defaultRunProfileId: executionOptions?.defaultRunProfileId,
+              runProfileId: input.runProfileId,
+            })
+            if (run.state === 'failed') {
+              firstError ??= new Error(run.errorMessage ?? `Scheduled run failed for ${targetCwd}`)
+              continue
+            }
+            firstRun ??= run
+          } catch (error) {
+            firstError ??= error
+          }
         }
+        if (firstRun) return firstRun
+        if (firstError) throw firstError
         if (!firstRun) throw new AutomationDeferredRunError('Scheduled run skipped: no folders configured', { deferMode: 'unsupported_target' })
         return firstRun
       } catch (error) {
@@ -722,6 +735,9 @@ export class AutomationsService {
     if (entry.record.status === 'DELETED') {
       throw createServiceError(409, 'Deleted automations cannot be paused or resumed')
     }
+    if (status === 'ACTIVE') {
+      await this.assertNoDuplicateActiveHeartbeatTarget(entry.record, entry.sourceDirName)
+    }
     await writeNativeHeartbeatAutomationBySourceDir(entry.sourceDirName, {
       ...entry.record,
       status,
@@ -735,6 +751,16 @@ export class AutomationsService {
       }
     }
     return await this.getDefinition(automationId)
+  }
+
+  private async assertNoDuplicateActiveHeartbeatTarget(record: ThreadAutomationRecord, sourceDirName: string): Promise<void> {
+    if (record.kind !== 'heartbeat' || !record.targetThreadId) return
+    const entries = await listNativeAutomationEntries(this.options)
+    const duplicate = entries.records.find((candidate) => (
+      isActiveHeartbeatTarget(candidate.record, record.targetThreadId as string) &&
+      !(candidate.record.id === record.id && candidate.sourceDirName === sourceDirName)
+    ))
+    if (duplicate) throw new AutomationConflictError('Automation already exists for targetThreadId')
   }
 
   private async projectRecoveredRun(input: {
@@ -1122,6 +1148,14 @@ function assertAutomationRunTarget(runMode: AutomationRunMode | null, cwd: strin
   }
   if (effectiveRunMode === 'chat' && !targetThreadId) {
     throw createServiceError(400, 'targetThreadId is required for chat automations')
+  }
+}
+
+function assertHeartbeatKindTarget(kind: AutomationDefinition['kind'], runMode: AutomationRunMode | null, targetThreadId: string | null): void {
+  const effectiveRunMode = runMode ?? 'chat'
+  if (kind !== 'heartbeat') return
+  if (effectiveRunMode !== 'chat' || !targetThreadId) {
+    throw createServiceError(400, 'Heartbeat automations must stay attached to a chat thread')
   }
 }
 

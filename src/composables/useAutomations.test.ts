@@ -196,11 +196,19 @@ it('allows editing a detached automation without a target thread id', async () =
 })
 
 it('does not serialize hidden thread targets for non-chat updates', async () => {
-  const gateway = createGatewayFixture([automationFixture({ id: 'auto_1', targetThreadId: 'thread_1', runMode: 'chat' })])
+  const gateway = createGatewayFixture([automationFixture({
+    id: 'auto_1',
+    kind: 'cron',
+    targetThreadId: null,
+    runMode: 'local',
+    cwd: '/tmp/old-project',
+    cwds: ['/tmp/old-project'],
+  })])
   const automations = useAutomations({ gateway })
   await automations.loadAll()
   automations.draft.value.runMode = 'local'
   automations.draft.value.cwd = '/tmp/project'
+  automations.draft.value.cwds = ['/tmp/project']
   automations.draft.value.localEnvironmentConfigPath = '/tmp/project/.codex/local-env.toml'
 
   await automations.saveDraft()
@@ -211,6 +219,19 @@ it('does not serialize hidden thread targets for non-chat updates', async () => 
     cwd: '/tmp/project',
     localEnvironmentConfigPath: '/tmp/project/.codex/local-env.toml',
   }))
+})
+
+it('prevents editing a heartbeat automation into a local target', async () => {
+  const gateway = createGatewayFixture([automationFixture({ id: 'auto_1', targetThreadId: 'thread_1', runMode: 'chat' })])
+  const automations = useAutomations({ gateway })
+  await automations.loadAll()
+  automations.draft.value.runMode = 'local'
+  automations.draft.value.cwd = '/tmp/project'
+
+  await automations.saveDraft()
+
+  expect(gateway.updateAutomation).not.toHaveBeenCalled()
+  expect(automations.mutationError.value).toContain('Heartbeat automations must stay attached to a chat thread')
 })
 
 it('clears a route prefill and returns to the first automation when query state is cleared', async () => {
