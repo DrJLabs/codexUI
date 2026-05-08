@@ -638,6 +638,21 @@ async function readAutomationRecordFromFile(filePath: string): Promise<ThreadAut
   }
 }
 
+export async function readNativeAutomationEntryFromDirectory(
+  sourceDirName: string,
+  automationDirPath: string,
+): Promise<NativeAutomationEntry | null> {
+  const automationTomlPath = join(automationDirPath, 'automation.toml')
+  const record = await readAutomationRecordFromFile(automationTomlPath)
+  if (!record) return null
+  return {
+    record,
+    sourceDirName,
+    automationDirPath,
+    automationTomlPath,
+  }
+}
+
 export async function listNativeAutomationEntries(
   options?: NativeAutomationStoreOptions,
 ): Promise<NativeAutomationEntryList> {
@@ -655,24 +670,18 @@ export async function listNativeAutomationEntries(
   for (const entry of entries) {
     if (!entry.isDirectory()) continue
     const automationDirPath = join(automationRoot, entry.name)
-    const automationTomlPath = join(automationDirPath, 'automation.toml')
-    const record = await readAutomationRecordFromFile(automationTomlPath)
-    if (!record) {
+    const nativeEntry = await readNativeAutomationEntryFromDirectory(entry.name, automationDirPath)
+    if (!nativeEntry) {
       diagnostics.push({
         automationId: entry.name,
         sourceDirName: entry.name,
-        path: automationTomlPath,
+        path: join(automationDirPath, 'automation.toml'),
         severity: 'error',
         message: 'Invalid automation.toml',
       })
       continue
     }
-    records.push({
-      record,
-      sourceDirName: entry.name,
-      automationDirPath,
-      automationTomlPath,
-    })
+    records.push(nativeEntry)
   }
 
   return { records, diagnostics, storageRoot: automationRoot }

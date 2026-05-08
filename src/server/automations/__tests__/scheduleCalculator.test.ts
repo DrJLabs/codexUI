@@ -1,5 +1,19 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { classifyRruleScheduleKind, evaluateRruleSchedule } from '../scheduleCalculator'
+
+const originalTz = process.env.TZ
+
+beforeEach(() => {
+  process.env.TZ = 'UTC'
+})
+
+afterEach(() => {
+  if (originalTz === undefined) {
+    delete process.env.TZ
+  } else {
+    process.env.TZ = originalTz
+  }
+})
 
 describe('evaluateRruleSchedule', () => {
   it('classifies Desktop interval schedules separately from wall-clock schedules', () => {
@@ -91,6 +105,42 @@ describe('evaluateRruleSchedule', () => {
       due: false,
       dueAtIso: null,
       nextDueAtIso: '2026-04-29T08:00:00.000Z',
+      unsupportedReason: null,
+    })
+  })
+
+  it('evaluates daily wall-clock schedules in the host local timezone', () => {
+    process.env.TZ = 'America/New_York'
+
+    const decision = evaluateRruleSchedule({
+      rrule: 'FREQ=DAILY;INTERVAL=1;BYHOUR=9;BYMINUTE=0',
+      anchorIso: '2026-05-06T13:00:00.000Z',
+      nextDueAtIso: null,
+      nowIso: '2026-05-07T12:30:00.000Z',
+    })
+
+    expect(decision).toMatchObject({
+      due: false,
+      dueAtIso: null,
+      nextDueAtIso: '2026-05-07T13:00:00.000Z',
+      unsupportedReason: null,
+    })
+  })
+
+  it('evaluates weekly BYDAY against the host local weekday', () => {
+    process.env.TZ = 'America/New_York'
+
+    const decision = evaluateRruleSchedule({
+      rrule: 'FREQ=WEEKLY;INTERVAL=1;BYDAY=MO;BYHOUR=9;BYMINUTE=0',
+      anchorIso: '2026-05-04T13:00:00.000Z',
+      nextDueAtIso: null,
+      nowIso: '2026-05-11T03:00:00.000Z',
+    })
+
+    expect(decision).toMatchObject({
+      due: false,
+      dueAtIso: null,
+      nextDueAtIso: '2026-05-11T13:00:00.000Z',
       unsupportedReason: null,
     })
   })

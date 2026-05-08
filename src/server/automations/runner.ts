@@ -425,7 +425,7 @@ export class AutomationRunner {
       dataDir: resolveCodexHomeDir(this.options),
       projectRoot: definition.cwd,
       isOwnerRunActive: async (lock) => {
-        if (lock.owner.source !== 'automation' || lock.owner.id !== definition.id) return true
+        if (lock.owner.source !== 'automation' || !isAutomationWorktreeOwnerId(lock.owner.id, definition.id)) return true
         try {
           const storedRun = await store.readRun(lock.runId)
           return isActiveAutomationRunState(storedRun.state)
@@ -436,8 +436,9 @@ export class AutomationRunner {
       },
     })
     try {
+      const ownerId = automationWorktreeOwnerId(definition, run)
       const worktree = await service.createManagedWorktree({
-        owner: { source: 'automation', id: definition.id },
+        owner: { source: 'automation', id: ownerId },
         taskId: definition.id,
         runId: run.id,
         name: definition.name,
@@ -1184,6 +1185,14 @@ function resolveTargetCwd(
 ): string | null {
   if (runMode !== 'local' && runMode !== 'worktree') return null
   return cwdOverride?.trim() || definition.cwd
+}
+
+function automationWorktreeOwnerId(definition: AutomationDefinition, run: AutomationRun): string {
+  return `${definition.id}:${definition.cwd ?? run.cwd ?? run.id}`
+}
+
+function isAutomationWorktreeOwnerId(ownerId: string, automationId: string): boolean {
+  return ownerId === automationId || ownerId.startsWith(`${automationId}:`)
 }
 
 function conflictsWithNewRun(

@@ -252,8 +252,8 @@ async function reclaimStaleActiveRunIndexLock(lockPath: string): Promise<boolean
         await rm(lockPath, { recursive: true, force: true })
         return true
       }
-    } catch {
-      return true
+    } catch (error) {
+      return isErrorCode(error, 'ENOENT')
     }
   }
   return false

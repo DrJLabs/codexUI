@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AutomationRun } from '../../../types/automations'
 import type { CodexRunProfile } from '../../../types/execution'
 import type { AutomationExecutionPolicy } from '../policy'
@@ -17,6 +17,7 @@ import { AutomationsService } from '../service'
 
 const codexHomeDirs: string[] = []
 const execFileAsync = promisify(execFile)
+const originalTz = process.env.TZ
 
 async function runGit(cwd: string, args: string[]): Promise<string> {
   const { stdout } = await execFileAsync('git', args, { cwd })
@@ -77,7 +78,16 @@ const nativeRecord: ThreadAutomationRecord = {
   nextRunAtMs: null,
 }
 
+beforeEach(() => {
+  process.env.TZ = 'UTC'
+})
+
 afterEach(async () => {
+  if (originalTz === undefined) {
+    delete process.env.TZ
+  } else {
+    process.env.TZ = originalTz
+  }
   await Promise.all(codexHomeDirs.splice(0).map(async (codexHomeDir) => {
     await rm(codexHomeDir, { recursive: true, force: true })
   }))
@@ -703,6 +713,45 @@ Run the cron task`)
     expect(threadStartParams?.cwd).toBe(runs[0]?.worktreePath)
     expect(turnStartParams?.cwd).toBe(runs[0]?.worktreePath)
     await expect(readFile(join(runs[0]?.worktreePath ?? '', 'package.json'), 'utf8')).resolves.toBe('{"name":"app"}\n')
+  })
+
+  it('creates separate worktrees for multi-folder worktree cron runs in one source repository', async () => {
+    const { codexHomeDir, service } = await createHarness()
+    const repo = join(codexHomeDir, 'multi-worktree-repo')
+    const firstCwd = join(repo, 'packages', 'first')
+    const secondCwd = join(repo, 'packages', 'second')
+    await mkdir(firstCwd, { recursive: true })
+    await mkdir(secondCwd, { recursive: true })
+    await runGit(repo, ['init', '-b', 'main'])
+    await runGit(repo, ['config', 'user.name', 'CodexUI Test'])
+    await runGit(repo, ['config', 'user.email', 'codexui@example.test'])
+    await writeFile(join(firstCwd, 'package.json'), '{"name":"first"}\n', 'utf8')
+    await writeFile(join(secondCwd, 'package.json'), '{"name":"second"}\n', 'utf8')
+    await runGit(repo, ['add', 'packages/first/package.json', 'packages/second/package.json'])
+    await runGit(repo, ['commit', '-m', 'add workspaces'])
+    const automationDir = await writeNative(codexHomeDir, 'multi-worktree-dir', {
+      ...nativeRecord,
+      id: 'multi-worktree-cron',
+      kind: 'cron',
+      name: 'Multi worktree cron',
+      rrulePrefix: 'RRULE:',
+      targetThreadId: null,
+      executionEnvironment: 'worktree',
+      runMode: 'worktree',
+      cwd: firstCwd,
+      cwds: [firstCwd, secondCwd],
+    })
+
+    await service.runScheduled('multi-worktree-cron', {
+      dueAtIso: '2026-05-07T12:00:00.000Z',
+      nextDueAtIso: '2026-05-07T13:00:00.000Z',
+    })
+
+    const runs = await createAutomationRunStore(automationDir).listRuns()
+    expect(runs).toHaveLength(2)
+    expect(runs.map((run) => run.cwd).sort()).toEqual([firstCwd, secondCwd].sort())
+    expect(runs.every((run) => run.runMode === 'worktree' && run.worktreePath && run.branchName)).toBe(true)
+    expect(new Set(runs.map((run) => run.worktreePath)).size).toBe(2)
   })
 
   it('marks scheduled cron automations without cwds unsupported instead of starting runs', async () => {

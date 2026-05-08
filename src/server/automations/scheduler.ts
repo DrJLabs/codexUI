@@ -111,7 +111,7 @@ export class AutomationScheduler {
       })
       if (!leaseHandle) continue
 
-      let current = await this.resolveDueEntry(entry.definition.id, nowIso)
+      let current = await this.resolveDueEntry(entry, nowIso)
       if (!current) {
         await leaseHandle.release()
         continue
@@ -182,13 +182,13 @@ export class AutomationScheduler {
   }
 
   private async resolveDueEntry(
-    automationId: string,
+    entrySnapshot: AutomationSchedulerEntry,
     nowIso: string,
   ): Promise<{
     entry: AutomationSchedulerEntry
     decision: { dueAtIso: string; nextDueAtIso: string | null }
   } | null> {
-    const entry = (await this.service.listSchedulerEntries()).find((candidate) => candidate.definition.id === automationId)
+    const entry = await this.service.readSchedulerEntry(entrySnapshot)
     if (!entry || entry.definition.status !== 'active') return null
     let schedulerState = entry.schedulerState
     if (!schedulerState) {

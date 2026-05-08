@@ -26,6 +26,7 @@ import {
   deleteNativeAutomationBySourceDir,
   getNativeAutomationsRoot,
   listNativeAutomationEntries,
+  readNativeAutomationEntryFromDirectory,
   writeNativeHeartbeatAutomationBySourceDir,
   writeNativeAutomation,
   type NativeAutomationEntry,
@@ -440,6 +441,27 @@ export class AutomationsService {
     }
     schedulerEntries.sort((a, b) => a.definition.name.localeCompare(b.definition.name) || a.definition.id.localeCompare(b.definition.id))
     return schedulerEntries
+  }
+
+  async readSchedulerEntry(entry: Pick<AutomationSchedulerEntry, 'automationDirPath' | 'sourceDirName'>): Promise<AutomationSchedulerEntry | null> {
+    const nativeEntry = await readNativeAutomationEntryFromDirectory(entry.sourceDirName, entry.automationDirPath)
+    if (!nativeEntry || nativeEntry.record.status === 'DELETED') return null
+    const sidecarResult = await readSidecar(nativeEntry)
+    const mapped = await mapDefinition(nativeEntry, sidecarResult.sidecar, { includeRecentRuns: false })
+    if (nativeEntry.record.executionEnvironment && !nativeEntry.record.runMode) {
+      await writeUnsupportedExecutionEnvironmentSchedulerState(nativeEntry, sidecarResult.sidecar)
+      return null
+    }
+    const schedulerState = await readSchedulerStateForTick(nativeEntry)
+    const currentScheduleHash = buildScheduleHash(nativeEntry, sidecarResult.sidecar)
+    return {
+      definition: mapped.definition,
+      automationDirPath: nativeEntry.automationDirPath,
+      sourceDirName: nativeEntry.sourceDirName,
+      schedulerState: schedulerState && schedulerState.scheduleHash !== currentScheduleHash
+        ? await refreshSchedulerState(nativeEntry, sidecarResult.sidecar)
+        : schedulerState,
+    }
   }
 
   async refreshSchedulerState(automationId: string, nowIso = new Date().toISOString()): Promise<AutomationSchedulerState> {

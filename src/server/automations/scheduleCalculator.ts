@@ -171,34 +171,22 @@ function findNextOccurrence(rrule: SupportedRrule, anchor: Date, after: Date): D
   }
 
   if (rrule.freq === 'HOURLY') {
-    for (let bucket = roundDownToHour(start); bucket.getTime() <= searchEnd.getTime(); bucket = new Date(bucket.getTime() + 60 * 60_000)) {
-      const minutes = rrule.byminute ?? [roundDownToMinute(anchor).getUTCMinutes()]
+    for (let bucket = roundDownToHour(start); bucket.getTime() <= searchEnd.getTime(); bucket = addLocalHours(bucket, 1)) {
+      const minutes = rrule.byminute ?? [roundDownToMinute(anchor).getMinutes()]
       for (const minute of minutes) {
-        const candidate = new Date(Date.UTC(
-          bucket.getUTCFullYear(),
-          bucket.getUTCMonth(),
-          bucket.getUTCDate(),
-          bucket.getUTCHours(),
-          minute,
-        ))
+        const candidate = new Date(bucket.getFullYear(), bucket.getMonth(), bucket.getDate(), bucket.getHours(), minute)
         if (candidate.getTime() > after.getTime() && matchesOccurrence(candidate, anchor, rrule)) return candidate
       }
     }
     throw new Error('Unsupported automation RRULE for scheduler: no occurrence found in search window')
   }
 
-  const hours = rrule.byhour ?? [roundDownToMinute(anchor).getUTCHours()]
-  const minutes = rrule.byminute ?? [roundDownToMinute(anchor).getUTCMinutes()]
-  for (let day = startOfUtcDay(start); day.getTime() <= searchEnd.getTime(); day = new Date(day.getTime() + 24 * 60 * 60_000)) {
+  const hours = rrule.byhour ?? [roundDownToMinute(anchor).getHours()]
+  const minutes = rrule.byminute ?? [roundDownToMinute(anchor).getMinutes()]
+  for (let day = startOfLocalDay(start); day.getTime() <= searchEnd.getTime(); day = addLocalDays(day, 1)) {
     for (const hour of hours) {
       for (const minute of minutes) {
-        const candidate = new Date(Date.UTC(
-          day.getUTCFullYear(),
-          day.getUTCMonth(),
-          day.getUTCDate(),
-          hour,
-          minute,
-        ))
+        const candidate = new Date(day.getFullYear(), day.getMonth(), day.getDate(), hour, minute)
         if (candidate.getTime() > after.getTime() && matchesOccurrence(candidate, anchor, rrule)) return candidate
       }
     }
@@ -207,67 +195,70 @@ function findNextOccurrence(rrule: SupportedRrule, anchor: Date, after: Date): D
 }
 
 function matchesOccurrence(candidate: Date, anchor: Date, rrule: SupportedRrule): boolean {
-  if (candidate.getUTCSeconds() !== 0 || candidate.getUTCMilliseconds() !== 0) return false
-  if (rrule.byhour && !rrule.byhour.includes(candidate.getUTCHours())) return false
-  if (rrule.byminute && !rrule.byminute.includes(candidate.getUTCMinutes())) return false
-  if (rrule.byday && !rrule.byday.some((day) => WEEKDAY_INDEX[day] === candidate.getUTCDay())) return false
+  if (candidate.getSeconds() !== 0 || candidate.getMilliseconds() !== 0) return false
+  if (rrule.byhour && !rrule.byhour.includes(candidate.getHours())) return false
+  if (rrule.byminute && !rrule.byminute.includes(candidate.getMinutes())) return false
+  if (rrule.byday && !rrule.byday.some((day) => WEEKDAY_INDEX[day] === candidate.getDay())) return false
 
   const anchorMinute = roundDownToMinute(anchor)
   if (candidate.getTime() < anchorMinute.getTime()) return false
   if (rrule.freq === 'MINUTELY') {
     return wholeMinutesBetween(anchorMinute, candidate) % rrule.interval === 0
   }
-  if (!rrule.byminute && candidate.getUTCMinutes() !== anchorMinute.getUTCMinutes()) return false
+  if (!rrule.byminute && candidate.getMinutes() !== anchorMinute.getMinutes()) return false
 
   if (rrule.freq === 'HOURLY') {
-    return wholeHoursBetween(roundDownToHour(anchorMinute), roundDownToHour(candidate)) % rrule.interval === 0
+    return localHourOrdinal(candidate) >= localHourOrdinal(anchorMinute) &&
+      (localHourOrdinal(candidate) - localHourOrdinal(anchorMinute)) % rrule.interval === 0
   }
-  if (!rrule.byhour && candidate.getUTCHours() !== anchorMinute.getUTCHours()) return false
+  if (!rrule.byhour && candidate.getHours() !== anchorMinute.getHours()) return false
 
   if (rrule.freq === 'DAILY') {
-    return wholeDaysBetween(startOfUtcDay(anchorMinute), startOfUtcDay(candidate)) % rrule.interval === 0
+    return localDayOrdinal(candidate) >= localDayOrdinal(anchorMinute) &&
+      (localDayOrdinal(candidate) - localDayOrdinal(anchorMinute)) % rrule.interval === 0
   }
 
-  if (!rrule.byday && candidate.getUTCDay() !== anchorMinute.getUTCDay()) return false
-  return wholeWeeksBetween(startOfUtcWeek(anchorMinute), startOfUtcWeek(candidate)) % rrule.interval === 0
+  if (!rrule.byday && candidate.getDay() !== anchorMinute.getDay()) return false
+  return localWeekOrdinal(candidate) >= localWeekOrdinal(anchorMinute) &&
+    (localWeekOrdinal(candidate) - localWeekOrdinal(anchorMinute)) % rrule.interval === 0
 }
 
 function roundDownToMinute(value: Date): Date {
-  return new Date(Date.UTC(
-    value.getUTCFullYear(),
-    value.getUTCMonth(),
-    value.getUTCDate(),
-    value.getUTCHours(),
-    value.getUTCMinutes(),
-  ))
+  return new Date(value.getFullYear(), value.getMonth(), value.getDate(), value.getHours(), value.getMinutes())
 }
 
 function roundDownToHour(value: Date): Date {
-  return new Date(Date.UTC(value.getUTCFullYear(), value.getUTCMonth(), value.getUTCDate(), value.getUTCHours()))
+  return new Date(value.getFullYear(), value.getMonth(), value.getDate(), value.getHours())
 }
 
-function startOfUtcDay(value: Date): Date {
-  return new Date(Date.UTC(value.getUTCFullYear(), value.getUTCMonth(), value.getUTCDate()))
+function startOfLocalDay(value: Date): Date {
+  return new Date(value.getFullYear(), value.getMonth(), value.getDate())
 }
 
-function startOfUtcWeek(value: Date): Date {
-  const dayStart = startOfUtcDay(value)
-  const daysSinceMonday = (dayStart.getUTCDay() + 6) % 7
-  return new Date(dayStart.getTime() - daysSinceMonday * 24 * 60 * 60 * 1000)
+function addLocalHours(value: Date, hours: number): Date {
+  const next = new Date(value)
+  next.setHours(next.getHours() + hours)
+  return next
+}
+
+function addLocalDays(value: Date, days: number): Date {
+  const next = new Date(value)
+  next.setDate(next.getDate() + days)
+  return next
+}
+
+function localDayOrdinal(value: Date): number {
+  return Math.floor(Date.UTC(value.getFullYear(), value.getMonth(), value.getDate()) / (24 * 60 * 60_000))
+}
+
+function localHourOrdinal(value: Date): number {
+  return localDayOrdinal(value) * 24 + value.getHours()
+}
+
+function localWeekOrdinal(value: Date): number {
+  return Math.floor((localDayOrdinal(value) - ((value.getDay() + 6) % 7)) / 7)
 }
 
 function wholeMinutesBetween(a: Date, b: Date): number {
   return Math.floor((b.getTime() - a.getTime()) / 60_000)
-}
-
-function wholeHoursBetween(a: Date, b: Date): number {
-  return Math.floor((b.getTime() - a.getTime()) / (60 * 60_000))
-}
-
-function wholeDaysBetween(a: Date, b: Date): number {
-  return Math.floor((b.getTime() - a.getTime()) / (24 * 60 * 60_000))
-}
-
-function wholeWeeksBetween(a: Date, b: Date): number {
-  return Math.floor(wholeDaysBetween(a, b) / 7)
 }
