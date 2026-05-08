@@ -142,7 +142,7 @@ describe('createAutomationSchedulerLeaseStore', () => {
       ttlMs: 60_000,
     })
 
-    for (let index = 0; index < 70; index += 1) {
+    for (let index = 0; index < 90; index += 1) {
       const handle = await store.acquire({
         automationId: 'daily-check',
         sourceDirName: 'daily-check-dir',
@@ -154,7 +154,8 @@ describe('createAutomationSchedulerLeaseStore', () => {
     }
 
     const lockFiles = (await readdir(automationDir)).filter((name) => /^scheduler-lock(?:\.\d+)?\.json$/.test(name))
-    expect(lockFiles.length).toBeLessThanOrEqual(65)
+    expect(lockFiles.length).toBeLessThanOrEqual(81)
+    expect(lockFiles.length).toBeLessThan(90)
     expect(lockFiles).not.toContain('scheduler-lock.json')
 
     const next = await store.acquire({
@@ -163,6 +164,6 @@ describe('createAutomationSchedulerLeaseStore', () => {
       dueAtIso: '2026-04-30T09:00:00.000Z',
       nowIso: '2026-04-30T09:30:00.000Z',
     })
-    expect(next?.lease.generation).toBe(70)
+    expect(next?.lease.generation).toBe(90)
   })
 })

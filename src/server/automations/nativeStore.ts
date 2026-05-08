@@ -274,6 +274,7 @@ function previousRawHasTopLevelKey(previousRaw: string | undefined, key: string)
   if (typeof previousRaw !== 'string') return false
   let multilineStringDelimiter: '"""' | "'''" | null = null
   let multilineArrayValue: string | null = null
+  let inTopLevel = true
   for (const line of previousRaw.split(/\r?\n/u)) {
     if (multilineArrayValue !== null) {
       multilineArrayValue += `\n${line}`
@@ -285,6 +286,11 @@ function previousRawHasTopLevelKey(previousRaw: string | undefined, key: string)
       if (findTomlMultilineCloseIndex(line, multilineStringDelimiter) >= 0) multilineStringDelimiter = null
       continue
     }
+    if (isTomlTableHeader(line)) {
+      inTopLevel = false
+      continue
+    }
+    if (!inTopLevel) continue
     const assignment = readTopLevelTomlAssignment(line)
     if (!assignment) continue
     if (assignment.key === key) return true
@@ -300,7 +306,6 @@ function previousRawHasTopLevelKey(previousRaw: string | undefined, key: string)
 
 function buildAutomationTomlFields(record: ThreadAutomationRecord, previousRaw?: string): Record<string, string> {
   const previousHasCwd = previousRawHasTopLevelKey(previousRaw, 'cwd')
-  const previousHasCwds = previousRawHasTopLevelKey(previousRaw, 'cwds')
   const fields: Record<string, string> = {
     version: String(record.version || 1),
     id: serializeTomlString(record.id),
@@ -314,7 +319,7 @@ function buildAutomationTomlFields(record: ThreadAutomationRecord, previousRaw?:
   if (record.model) fields.model = serializeTomlString(record.model)
   if (record.reasoningEffort) fields.reasoning_effort = serializeTomlString(record.reasoningEffort)
   if (record.executionEnvironment) fields.execution_environment = serializeTomlString(record.executionEnvironment)
-  if (record.cwds.length > 0 && (previousRaw === undefined || previousHasCwds || !previousHasCwd)) {
+  if (record.cwds.length > 0) {
     fields.cwds = serializeTomlStringArray(record.cwds)
   }
   if (record.localEnvironmentConfigPath) {
@@ -337,7 +342,22 @@ function readTopLevelTomlAssignment(line: string): { key: string, value: string 
   return { key, value: stripTomlLineComment(trimmed.slice(separatorIndex + 1)) }
 }
 
+function isTomlTableHeader(line: string): boolean {
+  const trimmed = stripTomlLineComment(line).trim()
+  return trimmed.startsWith('[') && trimmed.endsWith(']')
+}
+
 function stripTomlLineComment(value: string): string {
+  const commentIndex = findTomlLineCommentIndex(value)
+  return (commentIndex >= 0 ? value.slice(0, commentIndex) : value).trim()
+}
+
+function readTomlTrailingComment(line: string): string {
+  const commentIndex = findTomlLineCommentIndex(line)
+  return commentIndex >= 0 ? ` ${line.slice(commentIndex).trimEnd()}` : ''
+}
+
+function findTomlLineCommentIndex(value: string): number {
   let quote: '"' | "'" | null = null
   let multilineDelimiter: '"""' | "'''" | null = null
   let escaped = false
@@ -373,9 +393,9 @@ function stripTomlLineComment(value: string): string {
       quote = char
       continue
     }
-    if (char === '#') return value.slice(0, index).trim()
+    if (char === '#') return index
   }
-  return value.trim()
+  return -1
 }
 
 function stripCommentAfterMultilineClose(line: string, delimiter: '"""' | "'''"): string {
@@ -452,6 +472,7 @@ export function parseAutomationToml(raw: string): ThreadAutomationRecord | null 
   let multilineStringLines: string[] = []
   let multilineArrayKey: string | null = null
   let multilineArrayLines: string[] = []
+  let inTopLevel = true
   for (const line of raw.split(/\r?\n/u)) {
     if (multilineArrayKey) {
       multilineArrayLines.push(line)
@@ -479,6 +500,11 @@ export function parseAutomationToml(raw: string): ThreadAutomationRecord | null 
       continue
     }
 
+    if (isTomlTableHeader(line)) {
+      inTopLevel = false
+      continue
+    }
+    if (!inTopLevel) continue
     const assignment = readTopLevelTomlAssignment(line)
     if (!assignment) continue
     const trimmedValue = assignment.value.trim()
@@ -569,6 +595,8 @@ export function serializeAutomationToml(record: ThreadAutomationRecord, previous
   let multilineStringDelimiter: '"""' | "'''" | null = null
   let skipMultilineString = false
   let skippedArrayValue: string | null = null
+  let inTopLevel = true
+  let appendedMissingBeforeTable = false
 
   for (const [index, line] of lines.entries()) {
     if (index === lines.length - 1 && line.length === 0) continue
@@ -588,6 +616,21 @@ export function serializeAutomationToml(record: ThreadAutomationRecord, previous
       continue
     }
 
+    if (isTomlTableHeader(line)) {
+      if (!appendedMissingBeforeTable) {
+        for (const key of orderedKeys) {
+          if (!seen.has(key)) merged.push(`${key} = ${fields[key]}`)
+        }
+        appendedMissingBeforeTable = true
+      }
+      inTopLevel = false
+      merged.push(line)
+      continue
+    }
+    if (!inTopLevel) {
+      merged.push(line)
+      continue
+    }
     const assignment = readTopLevelTomlAssignment(line)
     if (!assignment || !knownKeys.has(assignment.key)) {
       merged.push(line)
@@ -600,7 +643,7 @@ export function serializeAutomationToml(record: ThreadAutomationRecord, previous
     if (!seen.has(assignment.key)) {
       seen.add(assignment.key)
       if (Object.prototype.hasOwnProperty.call(fields, assignment.key)) {
-        merged.push(`${assignment.key} = ${fields[assignment.key]}`)
+        merged.push(`${assignment.key} = ${fields[assignment.key]}${readTomlTrailingComment(line)}`)
       }
     }
     if (skipFollowingArrayLines) skippedArrayValue = assignment.value
@@ -610,8 +653,10 @@ export function serializeAutomationToml(record: ThreadAutomationRecord, previous
     }
   }
 
-  for (const key of orderedKeys) {
-    if (!seen.has(key)) merged.push(`${key} = ${fields[key]}`)
+  if (!appendedMissingBeforeTable) {
+    for (const key of orderedKeys) {
+      if (!seen.has(key)) merged.push(`${key} = ${fields[key]}`)
+    }
   }
 
   return `${merged.join('\n')}\n`

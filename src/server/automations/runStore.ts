@@ -1,5 +1,6 @@
 import { setTimeout as sleep } from 'node:timers/promises'
 import { appendFile, mkdir, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises'
+import { hostname } from 'node:os'
 import { dirname, join } from 'node:path'
 import type { AutomationRun } from '../../types/automations'
 
@@ -7,6 +8,7 @@ const ACTIVE_RUN_INDEX_LOCK_TIMEOUT_MS = 5000
 const ACTIVE_RUN_INDEX_LOCK_POLL_MS = 10
 const ACTIVE_RUN_INDEX_STALE_LOCK_MS = 30_000
 const ACTIVE_RUN_INDEX_LOCK_OWNER_FILENAME = 'owner.json'
+const ACTIVE_RUN_INDEX_LOCK_HOSTNAME = hostname()
 
 export type AutomationRunStore = {
   createRun(run: AutomationRun): Promise<AutomationRun>
@@ -224,6 +226,7 @@ async function writeActiveRunIndexLockOwner(lockPath: string): Promise<void> {
   try {
     await writeFile(join(lockPath, ACTIVE_RUN_INDEX_LOCK_OWNER_FILENAME), `${JSON.stringify({
       pid: process.pid,
+      hostname: ACTIVE_RUN_INDEX_LOCK_HOSTNAME,
       startedAtMs: Date.now(),
     }, null, 2)}\n`, 'utf8')
   } catch (error) {
@@ -234,11 +237,11 @@ async function writeActiveRunIndexLockOwner(lockPath: string): Promise<void> {
 
 async function reclaimStaleActiveRunIndexLock(lockPath: string): Promise<boolean> {
   const owner = await readActiveRunIndexLockOwner(lockPath)
-  if (owner && !isProcessAlive(owner.pid)) {
+  if (owner?.hostname === ACTIVE_RUN_INDEX_LOCK_HOSTNAME && !isProcessAlive(owner.pid)) {
     await rm(lockPath, { recursive: true, force: true })
     return true
   }
-  if (!owner) {
+  if (!owner || owner.hostname !== ACTIVE_RUN_INDEX_LOCK_HOSTNAME) {
     try {
       const lockStat = await stat(lockPath)
       if (Date.now() - lockStat.mtimeMs >= ACTIVE_RUN_INDEX_STALE_LOCK_MS) {
@@ -252,14 +255,19 @@ async function reclaimStaleActiveRunIndexLock(lockPath: string): Promise<boolean
   return false
 }
 
-async function readActiveRunIndexLockOwner(lockPath: string): Promise<{ pid: number; startedAtMs: number } | null> {
+async function readActiveRunIndexLockOwner(lockPath: string): Promise<{ pid: number; hostname: string | null; startedAtMs: number } | null> {
   try {
     const parsed = JSON.parse(await readFile(join(lockPath, ACTIVE_RUN_INDEX_LOCK_OWNER_FILENAME), 'utf8')) as unknown
     if (!parsed || typeof parsed !== 'object') return null
     const pid = (parsed as { pid?: unknown }).pid
+    const parsedHostname = (parsed as { hostname?: unknown }).hostname
     const startedAtMs = (parsed as { startedAtMs?: unknown }).startedAtMs
     if (!Number.isInteger(pid) || Number(pid) <= 0 || typeof startedAtMs !== 'number') return null
-    return { pid: Number(pid), startedAtMs }
+    return {
+      pid: Number(pid),
+      hostname: typeof parsedHostname === 'string' && parsedHostname.trim() ? parsedHostname : null,
+      startedAtMs,
+    }
   } catch {
     return null
   }

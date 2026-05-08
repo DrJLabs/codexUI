@@ -101,6 +101,37 @@ describe('native automation store TOML compatibility', () => {
     })
   })
 
+  it('ignores nested table fields while parsing Desktop top-level automation fields', () => {
+    const raw = [
+      'version = 1',
+      'id = "top-level-id"',
+      'kind = "cron"',
+      'name = "Top Level"',
+      'prompt = "Run top-level prompt"',
+      'status = "ACTIVE"',
+      'rrule = "RRULE:FREQ=DAILY"',
+      'execution_environment = "worktree"',
+      'cwds = ["/repo/top"]',
+      'created_at = 1777654085276',
+      'updated_at = 1777654085276',
+      '',
+      '[metadata]',
+      'id = "nested-id"',
+      'name = "Nested name"',
+      'prompt = "Nested prompt"',
+      'cwds = ["/repo/nested"]',
+      '',
+    ].join('\n')
+
+    expect(parseAutomationToml(raw)).toMatchObject({
+      id: 'top-level-id',
+      name: 'Top Level',
+      prompt: 'Run top-level prompt',
+      cwd: '/repo/top',
+      cwds: ['/repo/top'],
+    })
+  })
+
   it('parses a top-level Desktop cwd when cwds is absent', () => {
     const raw = [
       'version = 1',
@@ -627,6 +658,75 @@ describe('native automation store filesystem behavior', () => {
     expect(rewritten).toContain('name = "Updated Daily Check"')
     expect(rewritten).toContain('status = "ACTIVE"')
     expect(rewritten).toContain('desktop_only = "keep me"')
+  })
+
+  it('preserves nested tables and trailing comments when updating known top-level TOML fields', () => {
+    const previousRaw = [
+      'version = 1',
+      'id = "daily-check" # keep id note',
+      'kind = "heartbeat"',
+      'name = "Daily Check" # keep name note',
+      'prompt = "Check the thread"',
+      'status = "PAUSED" # keep status note',
+      'rrule = "FREQ=DAILY"',
+      'target_thread_id = "thread-123"',
+      'created_at = 1710000000000',
+      'updated_at = 1710000005000',
+      '',
+      '[metadata]',
+      'status = "desktop-owned"',
+      'name = "Nested name"',
+      '',
+    ].join('\n')
+
+    const rewritten = serializeAutomationToml({
+      ...pausedRecord,
+      name: 'Updated Daily Check',
+      status: 'ACTIVE',
+      updatedAtMs: 1710000006000,
+    }, previousRaw)
+
+    expect(rewritten).toContain('id = "daily-check" # keep id note')
+    expect(rewritten).toContain('name = "Updated Daily Check" # keep name note')
+    expect(rewritten).toContain('status = "ACTIVE" # keep status note')
+    expect(rewritten).toContain('[metadata]\nstatus = "desktop-owned"\nname = "Nested name"')
+  })
+
+  it('writes cwds when expanding a legacy single-cwd automation to multiple folders', () => {
+    const previousRaw = [
+      'version = 1',
+      'id = "legacy-cwd"',
+      'kind = "cron"',
+      'name = "Legacy cwd"',
+      'prompt = "Run"',
+      'status = "ACTIVE"',
+      'rrule = "RRULE:FREQ=DAILY"',
+      'execution_environment = "worktree"',
+      'cwd = "/repo/one"',
+      'created_at = 1777654085276',
+      'updated_at = 1777654085276',
+      '',
+    ].join('\n')
+
+    const rewritten = serializeAutomationToml({
+      ...pausedRecord,
+      id: 'legacy-cwd',
+      kind: 'cron',
+      name: 'Legacy cwd',
+      prompt: 'Run',
+      rrule: 'FREQ=DAILY',
+      rrulePrefix: 'RRULE:',
+      targetThreadId: null,
+      executionEnvironment: 'worktree',
+      runMode: 'worktree',
+      cwd: '/repo/one',
+      cwds: ['/repo/one', '/repo/two'],
+      createdAtMs: 1777654085276,
+      updatedAtMs: 1777654085277,
+    }, previousRaw)
+
+    expect(rewritten).toContain('cwd = "/repo/one"')
+    expect(rewritten).toContain('cwds = ["/repo/one", "/repo/two"]')
   })
 
   it('only treats a missing automations directory as empty storage', async () => {

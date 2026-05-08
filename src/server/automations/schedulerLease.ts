@@ -8,6 +8,7 @@ const DEFAULT_OWNER_ID = `codexui:${hostname()}:${process.pid}:${randomUUID()}`
 const BASE_LOCK_FILENAME = 'scheduler-lock.json'
 const LOCK_FILENAME_PATTERN = /^scheduler-lock(?:\.(\d+))?\.json$/
 const MAX_LOCK_SLOTS_TO_READ = 64
+const LOCK_CLEANUP_FILE_THRESHOLD = MAX_LOCK_SLOTS_TO_READ + 16
 
 export type AutomationSchedulerLease = {
   automationId: string
@@ -179,8 +180,10 @@ async function listLockSlots(automationDirPath: string): Promise<LockSlot[]> {
     return generation === null ? [] : [{ generation, path: join(automationDirPath, name) }]
   })
   lockFiles.sort((a, b) => a.generation - b.generation)
-  const staleFiles = lockFiles.slice(0, Math.max(0, lockFiles.length - MAX_LOCK_SLOTS_TO_READ))
-  await Promise.all(staleFiles.map((slot) => rm(slot.path, { force: true }).catch(() => {})))
+  if (lockFiles.length > LOCK_CLEANUP_FILE_THRESHOLD) {
+    const staleFiles = lockFiles.slice(0, lockFiles.length - MAX_LOCK_SLOTS_TO_READ)
+    await Promise.all(staleFiles.map((slot) => rm(slot.path, { force: true }).catch(() => {})))
+  }
   const slots = await Promise.all(lockFiles.slice(-MAX_LOCK_SLOTS_TO_READ).map((slot) => readLockSlot(slot.path, slot.generation)))
   slots.sort((a, b) => a.generation - b.generation)
   return slots

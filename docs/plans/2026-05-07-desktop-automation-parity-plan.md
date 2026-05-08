@@ -224,6 +224,8 @@ Section 5 implementation notes:
 - Keep `memory.md` in the native automation directory. CodexUI already creates that file on native writes; this section adds the stable path to storage metadata rather than adding a second memory store.
 - If a native directory name differs from the automation id, use the actual native directory path for both the Advanced display and prompt so CodexUI does not create a competing `$CODEX_HOME/automations/<id>/memory.md`.
 - Use the previous persisted run, not the new in-flight run, for `Last run:`. Leave Desktop's full developer instructions and inbox directive contract to the run-history/inbox section.
+- Review pass finding: because `automation.toml` is the canonical Desktop contract, the fallback TOML preservation path must be table-aware. CodexUI should never read nested table keys as top-level automation fields, and serializer merge updates must not rewrite nested Desktop-owned metadata tables.
+- Review pass fix: non-empty `cwds` is always persisted so legacy single-`cwd` automations can be safely expanded to multi-folder Desktop cron automations without losing the folder list used by manual and scheduled execution.
 
 ### 6. Scheduler State And Cross-App Race Avoidance
 
@@ -271,6 +273,8 @@ $CODEX_HOME/automations/<native_dir>/scheduler-lock.<generation>.json
 - CodexUI now re-reads the current automation entry and due state after acquiring the lease, then starts the run only if the automation is still active and due. This prevents stale pre-lock decisions from queuing work after another process has advanced scheduler state.
 - Desktop owns scheduling by default because CodexUI's `scheduler.json` cursor is private runtime state, not a shared Desktop scheduling contract. `CODEXUI_AUTOMATIONS_SCHEDULER=enabled` opts CodexUI into standalone scheduling; `CODEXUI_AUTOMATIONS_SCHEDULER=desktop` or an unset value disables CodexUI scheduling. `CODEXUI_AUTOMATIONS_SCHEDULER=auto` remains a best-effort development mode that skips ticks and startup recovery while a Codex Desktop process is detected.
 - The CodexUI scheduler now follows Desktop's max-three-runs-per-tick behavior.
+- Review pass fix: scheduler lock cleanup still bounds lease reads to recent generations, but stale file deletion only runs after a threshold to reduce per-tick I/O churn across many automations.
+- Review pass fix: active-run index lock owners include host identity, and CodexUI only uses `process.kill(pid, 0)` for same-host owners. Cross-host or legacy owners fall back to lock-age expiry so network-mounted stores do not mistake a remote pid for a dead local process.
 
 ### 7. RRULE And Schedule Semantics
 
