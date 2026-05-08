@@ -417,7 +417,7 @@
                     </option>
                   </select>
                   <small class="automations-field-help">
-                    Copies model, reasoning, sandbox, approval, and network defaults from config profiles.
+                    Copies only Desktop-compatible model and reasoning defaults from config profiles.
                   </small>
                 </label>
 
