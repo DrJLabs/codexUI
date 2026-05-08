@@ -434,6 +434,9 @@
                 <label class="automations-field automations-field-wide">
                   <span>Local environment config</span>
                   <input v-model="draft.localEnvironmentConfigPath" type="text" placeholder="/absolute/path/to/local-env.toml" />
+                  <small class="automations-field-help">
+                    Runs the local setup script from this file before worktree runs. Use only trusted local configs.
+                  </small>
                 </label>
               </div>
 
