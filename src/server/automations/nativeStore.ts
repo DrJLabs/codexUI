@@ -89,7 +89,17 @@ export function getNativeAutomationsRoot(options?: NativeAutomationStoreOptions)
 }
 
 function serializeTomlString(value: string): string {
+  if (value.includes('\n') || value.includes('\r')) {
+    return `"""${escapeTomlMultilineBasicString(value)}"""`
+  }
   return JSON.stringify(value)
+}
+
+function escapeTomlMultilineBasicString(value: string): string {
+  return value
+    .replace(/\\/gu, '\\\\')
+    .replace(/"""/gu, '\\"\\"\\"')
+    .replace(/\r/gu, '\\r')
 }
 
 function findTomlArrayStringEndIndex(value: string, startIndex: number): number {

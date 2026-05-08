@@ -271,6 +271,18 @@ describe('native automation store TOML compatibility', () => {
     expect(serializeAutomationToml(record!, raw)).toBe(raw)
   })
 
+  it('writes multiline prompts with TOML multiline string syntax', () => {
+    const raw = serializeAutomationToml({
+      ...pausedRecord,
+      prompt: 'Line one\nLine two',
+    })
+
+    expect(raw).toContain('prompt = """Line one\nLine two"""')
+    expect(parseAutomationToml(raw)).toMatchObject({
+      prompt: 'Line one\nLine two',
+    })
+  })
+
   it('updates or removes top-level cwd during TOML writeback', () => {
     const previousRaw = `${serializeAutomationToml({
       ...pausedRecord,
