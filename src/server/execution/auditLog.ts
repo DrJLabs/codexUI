@@ -99,7 +99,12 @@ export class ExecutionAuditLog<TInput extends ExecutionAuditEventInput = Executi
     if (this.fileState.lastEventHash !== undefined) return this.fileState.lastEventHash
     const lastLine = await readLastNonEmptyLine(this.filePath)
     if (!lastLine) return null
-    const lastRecord = JSON.parse(lastLine) as { eventHash?: unknown }
+    let lastRecord: { eventHash?: unknown }
+    try {
+      lastRecord = JSON.parse(lastLine) as { eventHash?: unknown }
+    } catch {
+      throw new Error(this.corruptMessage)
+    }
     if (typeof lastRecord.eventHash !== 'string' || !/^[a-f0-9]{64}$/u.test(lastRecord.eventHash)) {
       throw new Error(this.corruptMessage)
     }
@@ -161,6 +166,10 @@ function sortForCanonicalJson(value: unknown): unknown {
   if (!value || typeof value !== 'object') {
     return value
   }
+  if (value instanceof Date) return value.toJSON()
+  if (Object.getPrototypeOf(value) !== Object.prototype) {
+    return JSON.parse(JSON.stringify(value)) as unknown
+  }
   return Object.fromEntries(
     Object.entries(value)
       .filter(([, child]) => child !== undefined)
@@ -180,6 +189,7 @@ function redactValue(value: unknown): unknown {
   if (!value || typeof value !== 'object') {
     return value
   }
+  if (value instanceof Date) return value.toJSON()
   const redacted: Record<string, unknown> = {}
   for (const [key, child] of Object.entries(value)) {
     redacted[key] = SECRET_FIELD_PATTERN.test(key) ? '[REDACTED]' : redactValue(child)

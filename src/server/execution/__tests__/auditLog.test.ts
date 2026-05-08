@@ -34,6 +34,7 @@ function sortForCanonicalJson(value: unknown): unknown {
   if (!value || typeof value !== 'object') {
     return value
   }
+  if (value instanceof Date) return value.toJSON()
   return Object.fromEntries(
     Object.entries(value)
       .filter(([, child]) => child !== undefined)
@@ -150,6 +151,26 @@ describe('ExecutionAuditLog', () => {
     expect(record.env).toEqual({ apiKey: '[REDACTED]' })
     expect(content).not.toContain('default-secret-token')
     expect(content).not.toContain('sk-default-secret')
+    expect(persisted.eventHash).toBe(hashRecordWithoutEventHash(persisted))
+  })
+
+  it('wraps corrupt previous records with the configured corruption error', async () => {
+    const { auditLog, filePath } = await createHarness('automation')
+    await writeFile(filePath, '{"eventHash":\n', 'utf8')
+
+    await expect(auditLog.append(createEvent('run.started'))).rejects.toThrow('Execution audit log is corrupt')
+  })
+
+  it('hashes Date values as their persisted JSON representation', async () => {
+    const { auditLog, filePath } = await createHarness('automation')
+
+    await auditLog.append({
+      ...createEvent('run.started'),
+      observedAt: new Date('2026-05-08T00:00:00.000Z'),
+    })
+    const persisted = JSON.parse((await readFile(filePath, 'utf8')).trim())
+
+    expect(persisted.observedAt).toBe('2026-05-08T00:00:00.000Z')
     expect(persisted.eventHash).toBe(hashRecordWithoutEventHash(persisted))
   })
 })

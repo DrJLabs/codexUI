@@ -58,6 +58,22 @@ export class ManagedWorktreeService {
 
   async createManagedWorktree(input: CreateManagedWorktreeInput): Promise<ManagedWorktree> {
     const gitRoot = await this.resolveGitRoot()
+    const worktreeRoot = resolveManagedWorktreeRoot(this.dataDir, gitRoot)
+    await mkdir(worktreeRoot, { recursive: true })
+    const ownerLockPath = join(worktreeRoot, `${ownerLockSegment(input.owner)}.lock`)
+    await acquireOwnerWorktreeLock(ownerLockPath, input.owner)
+    try {
+      return await this.createManagedWorktreeWithOwnerLock(input, gitRoot, worktreeRoot)
+    } finally {
+      await rm(ownerLockPath, { recursive: true, force: true }).catch(() => {})
+    }
+  }
+
+  private async createManagedWorktreeWithOwnerLock(
+    input: CreateManagedWorktreeInput,
+    gitRoot: string,
+    worktreeRoot: string,
+  ): Promise<ManagedWorktree> {
     await this.assertNoActiveWorktreeForOwner(input.owner)
     const branchName = createAutomationBranchName(input.owner.id, input.runId, input.name)
     if (branchName === 'main' || branchName === 'master') {
@@ -65,7 +81,7 @@ export class ManagedWorktreeService {
     }
     const baseRef = await this.resolveBaseRef(gitRoot, input.baseBranch)
     const repoName = basename(gitRoot)
-    const worktreeParent = join(resolveManagedWorktreeRoot(this.dataDir, gitRoot), sanitizePathSegment(input.runId))
+    const worktreeParent = join(worktreeRoot, sanitizePathSegment(input.runId))
     const worktreePath = join(worktreeParent, repoName)
     const lockPath = join(worktreeParent, MANAGED_WORKTREE_LOCK_FILENAME)
 
@@ -217,6 +233,21 @@ function sanitizePathSegment(value: string, options: { preserveUnderscore?: bool
   return `${normalized.slice(0, 71)}-${hash}`
 }
 
+function ownerLockSegment(owner: ManagedWorktreeOwner): string {
+  return `owner-${owner.source}-${createHash('sha256').update(`${owner.source}:${owner.id}`).digest('hex').slice(0, 16)}`
+}
+
+async function acquireOwnerWorktreeLock(lockPath: string, owner: ManagedWorktreeOwner): Promise<void> {
+  try {
+    await mkdir(lockPath)
+  } catch (error) {
+    if (isFileExistsError(error)) {
+      throw new Error(`Managed worktree creation is already in progress for ${owner.source} ${owner.id}`)
+    }
+    throw error
+  }
+}
+
 async function gitRefExists(cwd: string, ref: string): Promise<boolean> {
   try {
     await runGit(cwd, ['show-ref', '--verify', '--quiet', ref])
@@ -257,6 +288,10 @@ async function cleanupWorktreeAndBranch(gitRoot: string, worktreePath: string, b
 
 function isMissingFileError(error: unknown): boolean {
   return Boolean(error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT')
+}
+
+function isFileExistsError(error: unknown): boolean {
+  return Boolean(error && typeof error === 'object' && 'code' in error && error.code === 'EEXIST')
 }
 
 function isNotGitRepositoryError(error: unknown): boolean {

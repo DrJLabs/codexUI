@@ -370,9 +370,7 @@ function validateRrule(rrule: string): void {
     throw new AutomationValidationError('Invalid RRULE FREQ')
   }
   for (const key of values.keys()) {
-    if (!['FREQ', 'INTERVAL', 'BYHOUR', 'BYMINUTE', 'BYDAY'].includes(key)) {
-      throw new AutomationValidationError('Invalid RRULE key')
-    }
+    if (!/^[A-Z][A-Z0-9-]*$/u.test(key)) throw new AutomationValidationError('Invalid RRULE key')
   }
   const interval = values.get('INTERVAL')
   if (interval && !/^[1-9]\d*$/u.test(interval)) throw new AutomationValidationError('Invalid RRULE INTERVAL')

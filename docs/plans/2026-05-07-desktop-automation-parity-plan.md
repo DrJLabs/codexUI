@@ -313,6 +313,7 @@ Section 7 implementation notes:
 - The automation editor now exposes menu selections for minute interval, Desktop hourly, hour interval, daily, weekdays, weekends, weekly, and custom. Raw custom RRULE editing remains in Advanced and preserves the user's raw string in the UI.
 - Template presets now select interval controls directly instead of hiding interval RRULEs behind `Custom`.
 - Display labels preserve the raw `RRULE:` prefix for custom schedules through the API/UI path while keeping the canonical normalized RRULE prefix-free internally; saving keeps existing Desktop prefixes in `automation.toml`, and CodexUI-created cron automations continue to write the Desktop `RRULE:` prefix.
+- Review pass fix: custom RRULE keys such as `BYMONTHDAY`, `COUNT`, `UNTIL`, and other Desktop-valid fields are accepted at the API boundary and preserved. Scheduler execution now records unsupported RRULE state instead of throwing for parser-unsupported keys.
 
 ### 8. Multi-CWD Cron Execution
 
@@ -342,6 +343,14 @@ Section 8 implementation notes:
 - Empty local/worktree cron `cwds` now writes an unsupported scheduler state with the Desktop-aligned message `Scheduled run skipped: no folders configured`, suppresses run starts, and surfaces a warning diagnostic in the automation state.
 - The editor project control accepts multiple newline-separated project folders and saves them through the existing `cwds` array while keeping `cwd` as the first folder for compatibility with existing CodexUI code paths.
 - Scheduler hashes now include `cwd`/`cwds`, so adding or removing target folders refreshes scheduler state.
+- Review pass fix: scheduler capacity checks now reserve global and per-repo capacity for every folder in a multi-`cwds` cron before starting the automation, including secondary folders. Run history limits are applied after timestamp sorting, and run artifact helpers validate run IDs before deriving paths.
+
+### Review Hardening Notes
+
+- Automations no longer derive trust from hardcoded Tailscale or private IP ranges. The main app's auth/CSRF flow remains canonical; the remote-access classifier only exposes loopback as an optional execution-policy signal.
+- Scheduler and lease stores validate before writeback and tolerate malformed historical lock JSON, preventing a single corrupt runtime file from blocking healthy automations.
+- Desktop local-environment TOML parsing now uses `smol-toml`; setup environment capture uses the current Node executable path and fails loudly if the capture file is missing or invalid.
+- Managed worktree safety was tightened with owner-scoped create locks, malformed legacy lock tolerance, and cleanup rejection for live worktrees.
 
 ### 9. Projectless Automation
 

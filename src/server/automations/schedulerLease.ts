@@ -190,20 +190,23 @@ async function listLockSlots(automationDirPath: string): Promise<LockSlot[]> {
 }
 
 async function readLockSlot(path: string, generation: number): Promise<LockSlot> {
+  let raw: string
   try {
-    return {
-      generation,
-      path,
-      lease: parseLease(await readFile(path, 'utf8')),
-    }
+    raw = await readFile(path, 'utf8')
   } catch (error) {
     if (isNodeError(error) && error.code === 'ENOENT') {
       return { generation, path, lease: null }
     }
-    if (error instanceof SyntaxError) {
-      return { generation, path, lease: null }
-    }
     throw error
+  }
+  try {
+    return {
+      generation,
+      path,
+      lease: parseLease(raw),
+    }
+  } catch {
+    return { generation, path, lease: null }
   }
 }
 

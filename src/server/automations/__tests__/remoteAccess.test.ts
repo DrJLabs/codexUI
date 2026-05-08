@@ -17,13 +17,21 @@ describe('automation remote access classification', () => {
     })
   })
 
-  it('does not trust spoofed forwarded-for loopback headers', () => {
+  it('ignores spoofed forwarded-for loopback headers', () => {
     expect(classifyAutomationsRemoteAccess(requestWithRemoteAddress('203.0.113.10', {
       'x-forwarded-for': '127.0.0.1',
     }))).toEqual({
       loopback: false,
       tailscale: false,
-      trusted: false,
+      trusted: true,
+    })
+  })
+
+  it('does not infer trust or Tailscale status from hardcoded IP ranges', () => {
+    expect(classifyAutomationsRemoteAccess(requestWithRemoteAddress('100.64.0.1'))).toEqual({
+      loopback: false,
+      tailscale: false,
+      trusted: true,
     })
   })
 })

@@ -50,6 +50,7 @@ import {
 
 const LOCAL_SIDECAR_FILENAME = 'codexui.local.json'
 const LEGACY_SIDECAR_FILENAME = 'codexui.json'
+const HEARTBEAT_THREAD_ENTRY_CACHE_MS = 5000
 
 type AutomationSidecar = AutomationSidecarRead
 type MapDefinitionOptions = {
@@ -101,6 +102,7 @@ export class AutomationsService {
   private recoveryPromise: Promise<{ recovered: number }> | null = null
   private hasRecoveredInterruptedRuns = false
   private runStartLock: Promise<void> = Promise.resolve()
+  private readonly heartbeatThreadEntryCache = new Map<string, { expiresAtMs: number; entries: NativeAutomationEntry[] }>()
 
   constructor(private readonly options: AutomationsServiceOptions = {}) {
     this.projectionAdapter = options.projectionAdapter ?? null
@@ -136,15 +138,38 @@ export class AutomationsService {
   async recordHeartbeatThreadState(input: HeartbeatThreadStateInput): Promise<void> {
     if (!this.runner) throw createServiceError(503, 'Codex bridge is not available for heartbeat renderer state')
     this.runner.recordHeartbeatThreadState(input)
-    const entries = await listNativeAutomationEntries(this.options)
-    for (const entry of entries.records) {
-      if (entry.record.kind !== 'heartbeat' || entry.record.targetThreadId !== input.threadId || entry.record.status !== 'ACTIVE') continue
+    for (const entry of await this.listActiveHeartbeatEntriesForThread(input.threadId)) {
       const sidecarResult = await readSidecar(entry)
       const current = await createAutomationSchedulerStore(entry.automationDirPath).readState().catch(() => null)
       if (current?.unsupportedReason === 'Heartbeat renderer state has not loaded for target thread') {
         await refreshSchedulerState(entry, sidecarResult.sidecar)
       }
     }
+  }
+
+  private async listActiveHeartbeatEntriesForThread(threadId: string): Promise<NativeAutomationEntry[]> {
+    const cached = this.heartbeatThreadEntryCache.get(threadId)
+    const now = Date.now()
+    if (cached && cached.expiresAtMs > now) return cached.entries
+    const entries = await listNativeAutomationEntries(this.options)
+    const activeEntries = entries.records.filter((entry) => (
+      entry.record.kind === 'heartbeat' &&
+      entry.record.targetThreadId === threadId &&
+      entry.record.status === 'ACTIVE'
+    ))
+    this.heartbeatThreadEntryCache.set(threadId, {
+      expiresAtMs: now + HEARTBEAT_THREAD_ENTRY_CACHE_MS,
+      entries: activeEntries,
+    })
+    return activeEntries
+  }
+
+  private invalidateHeartbeatThreadEntryCache(threadId?: string | null): void {
+    if (threadId) {
+      this.heartbeatThreadEntryCache.delete(threadId)
+      return
+    }
+    this.heartbeatThreadEntryCache.clear()
   }
 
   async listDefinitions(): Promise<AutomationDefinition[]> {
@@ -243,6 +268,7 @@ export class AutomationsService {
       cwds: input.cwds,
       localEnvironmentConfigPath: input.localEnvironmentConfigPath,
     }, this.options)
+    this.invalidateHeartbeatThreadEntryCache(input.targetThreadId)
     const entry = await this.findEntry(record.id)
     if (!entry) throw new AutomationNotFoundError(record.id)
     let sidecar = sidecarFromCreate(input)
@@ -315,6 +341,8 @@ export class AutomationsService {
       assertHeartbeatKindTarget(nextRecord.kind, nextRecord.runMode, nextRecord.targetThreadId)
     }
     await writeNativeHeartbeatAutomationBySourceDir(entry.sourceDirName, nextRecord, this.options)
+    this.invalidateHeartbeatThreadEntryCache(entry.record.targetThreadId)
+    this.invalidateHeartbeatThreadEntryCache(nextRecord.targetThreadId)
     await writeSidecar(entry, nextSidecar)
     nextSidecar = await this.projectDefinitionSidecar({ ...entry, record: nextRecord }, nextSidecar)
     await writeSidecar(entry, nextSidecar)
@@ -337,6 +365,7 @@ export class AutomationsService {
     if (!entry) throw new AutomationNotFoundError(automationId)
     if (options.removeNative) {
       const removedNative = await deleteNativeAutomationBySourceDir(entry.sourceDirName, this.options)
+      if (removedNative) this.invalidateHeartbeatThreadEntryCache(entry.record.targetThreadId)
       return { removed: removedNative, removedNative }
     }
     const removed = await deleteSidecar(entry)
@@ -742,6 +771,7 @@ export class AutomationsService {
       status,
       updatedAtMs: Date.now(),
     }, this.options)
+    this.invalidateHeartbeatThreadEntryCache(entry.record.targetThreadId)
     if (status === 'ACTIVE') {
       const updatedEntry = await this.findEntry(automationId)
       if (updatedEntry) {
@@ -912,7 +942,7 @@ async function mapDefinition(
   const recentRuns = includeRecentRuns
     ? await createAutomationRunStore(entry.automationDirPath).listRuns({ limit: 5 })
     : []
-  const nextRun = await readDefinitionNextRunAtIso(entry, createdAtIso, updatedAtIso)
+  const nextRun = await readDefinitionNextRunAtIso(entry, sidecar, createdAtIso, updatedAtIso)
   const executionEnvironmentDiagnostic: AutomationDiagnostic | null = entry.record.executionEnvironment && !entry.record.runMode
     ? {
         automationId: entry.record.id,
@@ -1007,6 +1037,7 @@ async function refreshSchedulerState(
 
 async function readDefinitionNextRunAtIso(
   entry: NativeAutomationEntry,
+  sidecar: AutomationSidecar,
   createdAtIso: string,
   updatedAtIso: string,
 ): Promise<{ nextRunAtIso: string | null; diagnostic: AutomationDiagnostic | null }> {
@@ -1028,7 +1059,7 @@ async function readDefinitionNextRunAtIso(
       },
     }
   }
-  if (state) return { nextRunAtIso: state.nextDueAtIso, diagnostic: null }
+  if (state && state.scheduleHash === buildScheduleHash(entry, sidecar)) return { nextRunAtIso: state.nextDueAtIso, diagnostic: null }
   return { nextRunAtIso: computeTransientNextRunAtIso(entry, createdAtIso, updatedAtIso), diagnostic: null }
 }
 

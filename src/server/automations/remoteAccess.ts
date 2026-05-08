@@ -13,10 +13,11 @@ export function classifyAutomationsRemoteAccess(req: Request): AutomationsRemote
     host === '::1' ||
     host === '::ffff:127.0.0.1' ||
     host === 'localhost'
-  const tailscale = /^100\./u.test(host) || /^fd7a:115c:a1e0:/iu.test(host)
   return {
     loopback,
-    tailscale,
-    trusted: loopback || tailscale,
+    tailscale: false,
+    // The main app owns authentication. Automations should not add a
+    // hardcoded IP-range trust layer that can drift from the app's access model.
+    trusted: true,
   }
 }

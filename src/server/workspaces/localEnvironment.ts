@@ -1,11 +1,15 @@
 import { execFile } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { readFile, rm, stat, writeFile, mkdir } from 'node:fs/promises'
+import { createRequire } from 'node:module'
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path'
 import { tmpdir } from 'node:os'
 import { promisify } from 'node:util'
 
 const execFileAsync = promisify(execFile)
+const { parse: parseTomlDocument } = createRequire(import.meta.url)('smol-toml') as {
+  parse: (input: string) => unknown
+}
 
 const WORKTREE_ENV_CONFIG_KEY = 'codex.localEnvironmentConfigPath'
 const NO_LOCAL_ENVIRONMENT_CONFIG = '__none__'
@@ -128,119 +132,9 @@ async function readLocalEnvironmentConfig(configPath: string, sourceGitRoot: str
 }
 
 function parseLocalEnvironmentToml(raw: string): Record<string, unknown> {
-  const root: Record<string, unknown> = {}
-  let tablePath: string[] = []
-  const lines = raw.split(/\r?\n/u)
-  for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
-    let line = stripTomlComment(lines[lineIndex] ?? '').trim()
-    if (!line) continue
-
-    const tableMatch = /^\[([A-Za-z0-9_.-]+)\]$/u.exec(line)
-    if (tableMatch) {
-      tablePath = tableMatch[1].split('.')
-      ensureTomlTable(root, tablePath)
-      continue
-    }
-
-    const assignmentMatch = /^([A-Za-z0-9_-]+)\s*=\s*(.*)$/u.exec(line)
-    if (!assignmentMatch) continue
-    const key = assignmentMatch[1]
-    let value = assignmentMatch[2].trim()
-    const multilineDelimiter = value.startsWith('"""') ? '"""' : value.startsWith("'''") ? "'''" : null
-    if (multilineDelimiter && !endsWithTomlMultilineDelimiter(value, multilineDelimiter)) {
-      const collected = [value]
-      while (lineIndex + 1 < lines.length) {
-        lineIndex += 1
-        collected.push(lines[lineIndex] ?? '')
-        if (endsWithTomlMultilineDelimiter(lines[lineIndex] ?? '', multilineDelimiter)) break
-      }
-      value = collected.join('\n')
-    }
-    const table = ensureTomlTable(root, tablePath)
-    table[key] = readTomlValue(value)
-  }
-  return root
-}
-
-function stripTomlComment(value: string): string {
-  let quote: '"' | "'" | null = null
-  let escaped = false
-  for (let index = 0; index < value.length; index += 1) {
-    const char = value[index]
-    if (quote === '"' && !escaped && char === '\\') {
-      escaped = true
-      continue
-    }
-    if (!escaped && (char === '"' || char === "'")) {
-      quote = quote === char ? null : quote ?? char
-      continue
-    }
-    if (!quote && char === '#') return value.slice(0, index)
-    escaped = false
-  }
-  return value
-}
-
-function endsWithTomlMultilineDelimiter(value: string, delimiter: '"""' | "'''"): boolean {
-  const trimmed = value.trimEnd()
-  return trimmed.length > delimiter.length && trimmed.endsWith(delimiter)
-}
-
-function ensureTomlTable(root: Record<string, unknown>, path: string[]): Record<string, unknown> {
-  let cursor = root
-  for (const segment of path) {
-    const current = cursor[segment]
-    if (current && typeof current === 'object' && !Array.isArray(current)) {
-      cursor = current as Record<string, unknown>
-      continue
-    }
-    const next: Record<string, unknown> = {}
-    cursor[segment] = next
-    cursor = next
-  }
-  return cursor
-}
-
-function readTomlValue(value: string): unknown {
-  const trimmed = value.trim()
-  const multilineDelimiter = trimmed.startsWith('"""') ? '"""' : trimmed.startsWith("'''") ? "'''" : null
-  if (multilineDelimiter && trimmed.endsWith(multilineDelimiter)) {
-    let content = trimmed.slice(multilineDelimiter.length, -multilineDelimiter.length)
-    if (content.startsWith('\n')) content = content.slice(1)
-    if (content.endsWith('\n')) content = content.slice(0, -1)
-    return multilineDelimiter === '"""' ? unescapeTomlBasicString(content) : content
-  }
-  if ((trimmed.startsWith('"') && trimmed.endsWith('"')) || (trimmed.startsWith("'") && trimmed.endsWith("'"))) {
-    if (trimmed.startsWith('"')) {
-      try {
-        return JSON.parse(trimmed)
-      } catch {
-        return unescapeTomlBasicString(trimmed.slice(1, -1))
-      }
-    }
-    return trimmed.slice(1, -1)
-  }
-  if (/^[+-]?\d+$/u.test(trimmed)) return Number(trimmed)
-  return trimmed
-}
-
-function unescapeTomlBasicString(value: string): string {
-  return value.replace(/\\(?:u([0-9a-fA-F]{4})|U([0-9a-fA-F]{8})|([btnfr"\\]))/gu, (match, shortHex: string | undefined, longHex: string | undefined, escaped: string | undefined) => {
-    if (shortHex || longHex) {
-      const codePoint = Number.parseInt(shortHex ?? longHex ?? '', 16)
-      return Number.isFinite(codePoint) ? String.fromCodePoint(codePoint) : match
-    }
-    switch (escaped) {
-      case 'b': return '\b'
-      case 't': return '\t'
-      case 'n': return '\n'
-      case 'f': return '\f'
-      case 'r': return '\r'
-      case '"': return '"'
-      case '\\': return '\\'
-      default: return match
-    }
-  })
+  const parsed = parseTomlDocument(raw)
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('Local environment config must be a TOML table')
+  return parsed as Record<string, unknown>
 }
 
 function isLocalEnvironmentScript(value: unknown): value is LocalEnvironmentScript {
@@ -356,22 +250,21 @@ function normalizeSetupScript(script: string): string {
 
 function buildSetupWrapper(setupScriptPath: string, capturedEnvPath: string): string {
   if (process.platform === 'win32') {
-    return `call "${setupScriptPath}"\r\nset CODEX_SETUP_EXIT_CODE=%ERRORLEVEL%\r\nif %CODEX_SETUP_EXIT_CODE% EQU 0 node -e "require('fs').writeFileSync(process.argv[1], JSON.stringify(process.env))" "${capturedEnvPath}"\r\nexit /b %CODEX_SETUP_EXIT_CODE%\r\n`
+    return `call "${setupScriptPath}"\r\nset CODEX_SETUP_EXIT_CODE=%ERRORLEVEL%\r\nif %CODEX_SETUP_EXIT_CODE% EQU 0 "${process.execPath}" -e "require('fs').writeFileSync(process.argv[1], JSON.stringify(process.env))" "${capturedEnvPath}"\r\nexit /b %CODEX_SETUP_EXIT_CODE%\r\n`
   }
-  return `. ${shellQuote(setupScriptPath)}\nsetup_exit_code=$?\nif [ "$setup_exit_code" -eq 0 ]; then\n  node -e 'require("fs").writeFileSync(process.argv[1], JSON.stringify(process.env))' ${shellQuote(capturedEnvPath)}\nfi\nexit "$setup_exit_code"\n`
+  return `. ${shellQuote(setupScriptPath)}\nsetup_exit_code=$?\nif [ "$setup_exit_code" -eq 0 ]; then\n  ${shellQuote(process.execPath)} -e 'require("fs").writeFileSync(process.argv[1], JSON.stringify(process.env))' ${shellQuote(capturedEnvPath)}\nfi\nexit "$setup_exit_code"\n`
 }
 
 async function readCapturedEnvironment(path: string): Promise<Record<string, string>> {
-  try {
-    const parsed = JSON.parse(await readFile(path, 'utf8')) as Record<string, unknown>
-    const env: Record<string, string> = {}
-    for (const [key, value] of Object.entries(parsed)) {
-      if (typeof value === 'string') env[key] = value
-    }
-    return env
-  } catch {
-    return {}
+  const parsed = JSON.parse(await readFile(path, 'utf8')) as Record<string, unknown>
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    throw new Error('Setup script did not capture a shell environment')
   }
+  const env: Record<string, string> = {}
+  for (const [key, value] of Object.entries(parsed)) {
+    if (typeof value === 'string') env[key] = value
+  }
+  return env
 }
 
 function diffShellEnvironment(before: NodeJS.ProcessEnv, after: Record<string, string>): { version: 1; set: Record<string, string>; exclude: string[] } {

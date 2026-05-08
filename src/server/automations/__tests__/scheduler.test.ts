@@ -1724,6 +1724,35 @@ Run the cron task`)
     expect(rpcCalls).toEqual([])
   })
 
+  it('enforces global active run limits across every folder in a scheduled cron automation', async () => {
+    const policy = { ...enabledPolicy, maxGlobalActiveRuns: 1 } as unknown as AutomationExecutionPolicy
+    const { codexHomeDir, service, rpcCalls } = await createHarness({ policy })
+    const firstRepo = join(codexHomeDir, 'repo-one')
+    const secondRepo = join(codexHomeDir, 'repo-two')
+    await mkdir(firstRepo, { recursive: true })
+    await mkdir(secondRepo, { recursive: true })
+    const dueDir = await writeNative(codexHomeDir, 'multi-dir', {
+      ...nativeRecord,
+      id: 'multi-check',
+      name: 'Multi Check',
+      kind: 'cron',
+      rrulePrefix: 'RRULE:',
+      targetThreadId: null,
+      executionEnvironment: 'local',
+      runMode: 'local',
+      cwd: firstRepo,
+      cwds: [firstRepo, secondRepo],
+    })
+    await writeFreshScheduler(service, 'multi-check', dueDir, { automationId: 'multi-check', sourceDirName: 'multi-dir' })
+
+    await new AutomationScheduler({ service, now: () => new Date('2026-04-30T10:00:00.000Z') }).tick()
+
+    const schedulerState = JSON.parse(await readFile(join(dueDir, 'scheduler.json'), 'utf8')) as AutomationSchedulerState
+    expect(await createAutomationRunStore(dueDir).listRuns()).toEqual([])
+    expect(schedulerState.nextDueAtIso).toBe('2026-04-30T09:00:00.000Z')
+    expect(rpcCalls).toEqual([])
+  })
+
   it('conservatively enforces per-repo active run limits across due local automations', async () => {
     const policy = { ...enabledPolicy, maxGlobalActiveRuns: 10, maxActiveRunsPerRepo: 1 } as unknown as AutomationExecutionPolicy
     const { codexHomeDir, service, rpcCalls } = await createHarness({ policy })
@@ -1768,6 +1797,51 @@ Run the cron task`)
       { includeLayers: true, cwd: repo },
       { includeLayers: true, cwd: repo },
     ])
+  })
+
+  it('enforces per-repo active run limits against secondary cron folders', async () => {
+    const policy = { ...enabledPolicy, maxGlobalActiveRuns: 10, maxActiveRunsPerRepo: 1 } as unknown as AutomationExecutionPolicy
+    const { codexHomeDir, service, rpcCalls } = await createHarness({ policy })
+    const firstRepo = join(codexHomeDir, 'repo-one')
+    const secondRepo = join(codexHomeDir, 'repo-two')
+    await mkdir(firstRepo, { recursive: true })
+    await mkdir(secondRepo, { recursive: true })
+    const activeDir = await writeNative(codexHomeDir, 'active-dir', {
+      ...nativeRecord,
+      id: 'active-local',
+      name: 'Active Local',
+      kind: 'cron',
+      rrulePrefix: 'RRULE:',
+      targetThreadId: null,
+      executionEnvironment: 'local',
+      runMode: 'local',
+      cwd: secondRepo,
+      cwds: [secondRepo],
+    })
+    const dueDir = await writeNative(codexHomeDir, 'multi-dir', {
+      ...nativeRecord,
+      id: 'multi-local',
+      name: 'Multi Local',
+      kind: 'cron',
+      rrulePrefix: 'RRULE:',
+      targetThreadId: null,
+      executionEnvironment: 'local',
+      runMode: 'local',
+      cwd: firstRepo,
+      cwds: [firstRepo, secondRepo],
+    })
+    await writeActiveRun(activeDir, {
+      id: 'active-local-run',
+      automationId: 'active-local',
+      runMode: 'local',
+      cwd: secondRepo,
+    })
+    await writeFreshScheduler(service, 'multi-local', dueDir, { automationId: 'multi-local', sourceDirName: 'multi-dir' })
+
+    await new AutomationScheduler({ service, now: () => new Date('2026-04-30T10:00:00.000Z') }).tick()
+
+    expect(await createAutomationRunStore(dueDir).listRuns()).toEqual([])
+    expect(rpcCalls).toEqual([])
   })
 
   it('serializes overlapping ticks', async () => {

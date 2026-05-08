@@ -93,14 +93,14 @@ describe('createAutomationRunStore', () => {
     const automationDir = await mkdtemp(join(tmpdir(), 'codexui-automation-run-store-'))
     tempDirs.push(automationDir)
     const store = createAutomationRunStore(automationDir)
-    await store.createRun(automationRunFixture({ id: 'automation_run_1000_old', createdAtIso: '2026-04-30T08:00:00.000Z' }))
-    await store.createRun(automationRunFixture({ id: 'automation_run_2000_new', createdAtIso: '2026-04-30T10:00:00.000Z' }))
+    await store.createRun(automationRunFixture({ id: 'automation_run_9000_old', createdAtIso: '2026-04-30T08:00:00.000Z' }))
+    await store.createRun(automationRunFixture({ id: 'automation_run_1000_new', createdAtIso: '2026-04-30T10:00:00.000Z' }))
     await mkdir(join(automationDir, 'runs', 'automation_run_3000_broken'), { recursive: true })
     await writeFile(join(automationDir, 'runs', 'automation_run_3000_broken', 'run.json'), '{broken', 'utf8')
 
     const runs = await store.listRuns({ limit: 1 })
 
-    expect(runs.map((run) => run.id)).toEqual(['automation_run_2000_new'])
+    expect(runs.map((run) => run.id)).toEqual(['automation_run_1000_new'])
   })
 
   it('surfaces non-missing run directory read failures instead of reporting empty history', async () => {

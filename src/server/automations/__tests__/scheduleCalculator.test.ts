@@ -128,33 +128,25 @@ describe('evaluateRruleSchedule', () => {
     }
   })
 
-  it('throws scheduler-specific errors for invalid direct RRULE fields', () => {
-    expect(() => evaluateRruleSchedule({
-      rrule: 'FREQ=DAILY;BYSECOND=30',
-      anchorIso: '2026-04-30T00:00:00.000Z',
-      nextDueAtIso: null,
-      nowIso: '2026-04-30T10:00:00.000Z',
-    })).toThrow(/Unsupported automation RRULE for scheduler: .*BYSECOND/)
-
-    expect(() => evaluateRruleSchedule({
-      rrule: 'FREQ=MINUTELY;INTERVAL=0',
-      anchorIso: '2026-04-30T00:00:00.000Z',
-      nextDueAtIso: null,
-      nowIso: '2026-04-30T10:00:00.000Z',
-    })).toThrow(/Unsupported automation RRULE for scheduler: .*INTERVAL/)
-
-    expect(() => evaluateRruleSchedule({
-      rrule: `FREQ=MINUTELY;INTERVAL=${'9'.repeat(400)}`,
-      anchorIso: '2026-04-30T00:00:00.000Z',
-      nextDueAtIso: null,
-      nowIso: '2026-04-30T10:00:00.000Z',
-    })).toThrow(/Unsupported automation RRULE for scheduler: .*INTERVAL/)
-
-    expect(() => evaluateRruleSchedule({
-      rrule: 'FREQ=WEEKLY;BYDAY=__proto__',
-      anchorIso: '2026-04-30T00:00:00.000Z',
-      nextDueAtIso: null,
-      nowIso: '2026-04-30T10:00:00.000Z',
-    })).toThrow(/Unsupported automation RRULE for scheduler: .*BYDAY/)
+  it('preserves invalid or scheduler-unsupported custom RRULEs as unsupported states', () => {
+    for (const [rrule, reason] of [
+      ['FREQ=DAILY;BYSECOND=30', 'BYSECOND'],
+      ['FREQ=MINUTELY;INTERVAL=0', 'INTERVAL'],
+      [`FREQ=MINUTELY;INTERVAL=${'9'.repeat(400)}`, 'INTERVAL'],
+      ['FREQ=WEEKLY;BYDAY=__proto__', 'BYDAY'],
+    ]) {
+      expect(evaluateRruleSchedule({
+        rrule,
+        anchorIso: '2026-04-30T00:00:00.000Z',
+        nextDueAtIso: null,
+        nowIso: '2026-04-30T10:00:00.000Z',
+      })).toEqual({
+        due: false,
+        dueAtIso: null,
+        nextDueAtIso: null,
+        missedRunPolicy: 'one_catch_up',
+        unsupportedReason: expect.stringContaining(reason),
+      })
+    }
   })
 })

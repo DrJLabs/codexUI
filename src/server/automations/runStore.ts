@@ -34,14 +34,12 @@ export function createAutomationRunStore(automationDirPath: string): AutomationR
       if (!isErrorCode(error, 'ENOENT')) throw error
       return []
     }
-    const limit = normalizeListLimit(options.limit)
     const runDirs = entries
       .filter((entry) => entry.isDirectory())
       .map((entry) => entry.name)
       .sort((left, right) => right.localeCompare(left))
     const runs: AutomationRun[] = []
     for (const runId of runDirs) {
-      if (Number.isFinite(limit) && runs.length >= limit) break
       try {
         runs.push(parseRun(await readFile(runJsonPath(runsRoot, runId), 'utf8'), automationDirPath, runId))
       } catch (error) {
@@ -49,8 +47,10 @@ export function createAutomationRunStore(automationDirPath: string): AutomationR
         // Ignore stale or malformed run directories so one bad run does not hide the rest.
       }
     }
-    return runs
+    const limit = normalizeListLimit(options.limit)
+    const sortedRuns = runs
       .sort((a, b) => compareIsoDesc(a.createdAtIso, b.createdAtIso) || b.id.localeCompare(a.id))
+    return Number.isFinite(limit) ? sortedRuns.slice(0, limit) : sortedRuns
   }
 
   return {
@@ -128,6 +128,7 @@ export function createAutomationRunStore(automationDirPath: string): AutomationR
 }
 
 export function createAutomationRunPaths(automationDirPath: string, runId: string): Pick<AutomationRun, 'runJsonPath' | 'eventsPath' | 'logPath'> {
+  assertSafeRunId(runId)
   const runDir = join(automationDirPath, 'runs', runId)
   return {
     runJsonPath: join(runDir, 'run.json'),

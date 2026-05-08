@@ -39,9 +39,10 @@ export function createAutomationSchedulerStore(automationDirPath: string) {
     },
 
     async writeState(state: AutomationSchedulerState): Promise<AutomationSchedulerState> {
+      const normalized = parseState(JSON.stringify(state))
       await mkdir(dirname(schedulerJsonPath), { recursive: true })
-      await writeFile(schedulerJsonPath, `${JSON.stringify(state, null, 2)}\n`, 'utf8')
-      return state
+      await writeFile(schedulerJsonPath, `${JSON.stringify(normalized, null, 2)}\n`, 'utf8')
+      return normalized
     },
 
     async updateState(update: Partial<AutomationSchedulerState>): Promise<AutomationSchedulerState> {

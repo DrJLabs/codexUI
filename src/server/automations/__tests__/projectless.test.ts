@@ -1,6 +1,6 @@
 import { mkdtemp, rm, stat } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { basename, join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { parseAutomationCreateInput, parseAutomationPatchInput } from '../schema'
 import {
@@ -48,8 +48,8 @@ describe('projectless automation workspace helpers', () => {
       prompt: 'hi',
     })
 
-    expect(first.cwd.endsWith('/hi')).toBe(true)
-    expect(second.cwd.endsWith('/hi-2')).toBe(true)
+    expect(basename(first.cwd)).toBe('hi')
+    expect(basename(second.cwd)).toBe('hi-2')
   })
 
   it('builds Desktop projectless developer instructions', () => {
@@ -88,6 +88,29 @@ describe('projectless automation workspace helpers', () => {
       cwd: '~',
       cwds: ['~'],
       runMode: 'local',
+    })
+  })
+
+  it('accepts Desktop custom RRULE keys without rewriting them', () => {
+    expect(parseAutomationCreateInput({
+      kind: 'cron',
+      name: 'Monthly custom cron',
+      description: null,
+      prompt: 'Run monthly',
+      schedule: { type: 'rrule', rrule: 'RRULE:FREQ=MONTHLY;BYMONTHDAY=1;COUNT=3' },
+      targetThreadId: null,
+      cwd: '~',
+      cwds: ['~'],
+      runMode: 'local',
+      model: null,
+      reasoningEffort: null,
+      localEnvironmentConfigPath: null,
+      kanbanProjection: { mode: 'off' },
+      notes: '',
+    }).schedule).toEqual({
+      type: 'rrule',
+      rrule: 'FREQ=MONTHLY;BYMONTHDAY=1;COUNT=3',
+      rawRrule: 'RRULE:FREQ=MONTHLY;BYMONTHDAY=1;COUNT=3',
     })
   })
 })

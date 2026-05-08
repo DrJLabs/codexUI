@@ -131,11 +131,19 @@ function draftFromDefinition(definition: AutomationDefinition): AutomationDraft 
     notes: definition.notes,
     runMode: definition.runMode ?? 'chat',
     cwd: definition.cwd ?? '',
-    cwds: definition.cwds,
+    cwds: [...definition.cwds],
     model: definition.model ?? '',
     reasoningEffort: definition.reasoningEffort ?? '',
     localEnvironmentConfigPath: definition.localEnvironmentConfigPath ?? '',
   }
+}
+
+function serializeDraftSchedule(rrule: string): CreateAutomationInput['schedule'] {
+  const trimmed = rrule.trim()
+  if (trimmed.startsWith('RRULE:')) {
+    return { type: 'rrule', rrule: trimmed.slice('RRULE:'.length), rawRrule: trimmed }
+  }
+  return { type: 'rrule', rrule: trimmed }
 }
 
 function normalizeOptionalNullable(value: string): string | null {
@@ -464,7 +472,7 @@ function toCreateInput(draft: AutomationDraft): CreateAutomationInput {
     kind: targetThreadId ? 'heartbeat' : 'cron',
     name: draft.name.trim(),
     prompt: draft.prompt.trim(),
-    schedule: { type: 'rrule', rrule: draft.rrule.trim() },
+    schedule: serializeDraftSchedule(draft.rrule),
     targetThreadId,
     description: normalizeOptionalNullable(draft.description),
     cwd: cwds[0] ?? null,
@@ -486,7 +494,7 @@ function toPatchInput(draft: AutomationDraft): PatchAutomationInput {
   return {
     name: draft.name.trim(),
     prompt: draft.prompt.trim(),
-    schedule: { type: 'rrule', rrule: draft.rrule.trim() },
+    schedule: serializeDraftSchedule(draft.rrule),
     targetThreadId,
     description: normalizeOptionalNullable(draft.description),
     cwd: cwds[0] ?? null,

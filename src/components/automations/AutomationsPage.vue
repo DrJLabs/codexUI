@@ -727,6 +727,15 @@ watch(
   },
 )
 
+watch(
+  () => draft.value.runMode,
+  (runMode, previousRunMode) => {
+    if (runMode !== 'chat' || previousRunMode === undefined || previousRunMode === 'chat') return
+    draft.value.cwd = ''
+    draft.value.cwds = []
+  },
+)
+
 watch([scheduleFrequency, scheduleTime, scheduleWeekday, scheduleIntervalCount], () => {
   if (scheduleFrequency.value === 'custom') return
   try {

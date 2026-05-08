@@ -39,7 +39,9 @@ const WEEKDAY_INDEX: Record<Weekday, number> = {
 }
 
 export function classifyRruleScheduleKind(rrule: string): RruleScheduleExecutionKind {
-  const parsed = parseRrule(rrule)
+  const parsedResult = tryParseRrule(rrule)
+  if (!parsedResult.parsed) return { scheduleKind: 'wall_clock', intervalMs: null }
+  const parsed = parsedResult.parsed
   if (parsed.freq === 'MINUTELY' && parsed.byhour === null && parsed.byminute === null && parsed.byday === null) {
     return { scheduleKind: 'interval', intervalMs: parsed.interval * 60_000 }
   }
@@ -55,15 +57,11 @@ export function evaluateRruleSchedule(input: {
   nextDueAtIso: string | null
   anchorIso: string
 }): SchedulerDecision {
-  const parsed = parseRrule(input.rrule)
+  const parsedResult = tryParseRrule(input.rrule)
+  if (!parsedResult.parsed) return unsupportedDecision(parsedResult.reason)
+  const parsed = parsedResult.parsed
   if (parsed.freq === 'MONTHLY' || parsed.freq === 'YEARLY') {
-    return {
-      due: false,
-      dueAtIso: null,
-      nextDueAtIso: null,
-      missedRunPolicy: 'one_catch_up',
-      unsupportedReason: `Scheduler execution for FREQ=${parsed.freq} is not implemented`,
-    }
+    return unsupportedDecision(`Scheduler execution for FREQ=${parsed.freq} is not implemented`)
   }
   const supported = parsed as SupportedRrule
 
@@ -90,7 +88,17 @@ export function evaluateRruleSchedule(input: {
   }
 }
 
-function parseRrule(rrule: string): ParsedRrule {
+function unsupportedDecision(reason: string): SchedulerDecision {
+  return {
+    due: false,
+    dueAtIso: null,
+    nextDueAtIso: null,
+    missedRunPolicy: 'one_catch_up',
+    unsupportedReason: reason,
+  }
+}
+
+function tryParseRrule(rrule: string): { parsed: ParsedRrule; reason: null } | { parsed: null; reason: string } {
   try {
     const values = new Map<string, string>()
     for (const rawPart of normalizeAutomationRrule(rrule).split(';')) {
@@ -110,15 +118,18 @@ function parseRrule(rrule: string): ParsedRrule {
     if (!/^[1-9]\d*$/u.test(intervalValue) || !Number.isSafeInteger(interval)) throw new Error('invalid INTERVAL')
 
     return {
-      freq: freqValue as Frequency,
-      interval,
-      byhour: parseNumberList(values.get('BYHOUR'), 0, 23, 'BYHOUR'),
-      byminute: parseNumberList(values.get('BYMINUTE'), 0, 59, 'BYMINUTE'),
-      byday: parseByday(values.get('BYDAY')),
+      parsed: {
+        freq: freqValue as Frequency,
+        interval,
+        byhour: parseNumberList(values.get('BYHOUR'), 0, 23, 'BYHOUR'),
+        byminute: parseNumberList(values.get('BYMINUTE'), 0, 59, 'BYMINUTE'),
+        byday: parseByday(values.get('BYDAY')),
+      },
+      reason: null,
     }
   } catch (error) {
     const message = error instanceof Error ? error.message : 'invalid RRULE'
-    throw new Error(`Unsupported automation RRULE for scheduler: ${message}`)
+    return { parsed: null, reason: `Unsupported automation RRULE for scheduler: ${message}` }
   }
 }
 

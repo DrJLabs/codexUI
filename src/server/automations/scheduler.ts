@@ -4,6 +4,7 @@ import { evaluateRruleSchedule } from './scheduleCalculator'
 import { createAutomationSchedulerLeaseStore } from './schedulerLease'
 import type { AutomationSchedulerState } from './schedulerStore'
 import { AutomationsService, type AutomationSchedulerEntry, type PersistedAutomationActiveRun } from './service'
+import type { AutomationDefinition } from '../../types/automations'
 
 const DEFAULT_MAX_RUNS_PER_TICK = 3
 
@@ -96,9 +97,11 @@ export class AutomationScheduler {
       })
       if (!decision.due || !decision.dueAtIso) continue
       if (activeRunIndex.activeAutomationIds.has(entry.definition.id)) continue
-      if (activeRunIndex.globalActiveRuns >= maxGlobalActiveRuns) continue
-      const repoKey = repoLimitKey(entry)
-      if (repoKey && (activeRunIndex.repoActiveRuns.get(repoKey) ?? 0) >= maxActiveRunsPerRepo) continue
+      const targetCwds = scheduledTargetCwds(entry.definition)
+      if (targetCwds.length === 0) continue
+      if (startedRuns + targetCwds.length > this.maxRunsPerTick) continue
+      if (activeRunIndex.globalActiveRuns + targetCwds.length > maxGlobalActiveRuns) continue
+      if (!hasRepoCapacity(activeRunIndex.repoActiveRuns, targetCwds, maxActiveRunsPerRepo)) continue
 
       const leaseStore = createAutomationSchedulerLeaseStore(entry.automationDirPath, { ttlMs: this.leaseTtlMs })
       const leaseHandle = await leaseStore.acquire({
@@ -127,13 +130,12 @@ export class AutomationScheduler {
       } finally {
         await leaseHandle.release()
       }
-      activeRunIndex.globalActiveRuns += 1
+      activeRunIndex.globalActiveRuns += targetCwds.length
       activeRunIndex.activeAutomationIds.add(current.entry.definition.id)
-      const currentRepoKey = repoLimitKey(current.entry)
-      if (currentRepoKey) {
+      for (const currentRepoKey of scheduledTargetCwds(current.entry.definition).filter((cwd): cwd is string => Boolean(cwd))) {
         activeRunIndex.repoActiveRuns.set(currentRepoKey, (activeRunIndex.repoActiveRuns.get(currentRepoKey) ?? 0) + 1)
       }
-      startedRuns += 1
+      startedRuns += targetCwds.length
     }
   }
 
@@ -222,8 +224,20 @@ function buildActiveRunIndex(activeRuns: PersistedAutomationActiveRun[]): {
   return { activeAutomationIds, repoActiveRuns, globalActiveRuns }
 }
 
-function repoLimitKey(entry: AutomationSchedulerEntry): string | null {
-  const runMode = entry.definition.runMode ?? 'chat'
-  if (runMode !== 'local' && runMode !== 'worktree') return null
-  return entry.definition.cwd
+function scheduledTargetCwds(definition: AutomationDefinition): Array<string | null> {
+  const runMode = definition.runMode ?? 'chat'
+  if (definition.kind !== 'cron' || (runMode !== 'local' && runMode !== 'worktree')) return [null]
+  return definition.cwds.map((cwd) => cwd.trim()).filter(Boolean)
+}
+
+function hasRepoCapacity(repoActiveRuns: Map<string, number>, targetCwds: Array<string | null>, maxActiveRunsPerRepo: number): boolean {
+  const neededByRepo = new Map<string, number>()
+  for (const cwd of targetCwds) {
+    if (!cwd) continue
+    neededByRepo.set(cwd, (neededByRepo.get(cwd) ?? 0) + 1)
+  }
+  for (const [cwd, needed] of neededByRepo) {
+    if ((repoActiveRuns.get(cwd) ?? 0) + needed > maxActiveRunsPerRepo) return false
+  }
+  return true
 }

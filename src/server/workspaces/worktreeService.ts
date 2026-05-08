@@ -37,6 +37,9 @@ export class WorkspaceWorktreeService {
     }
     const lock = await this.readLockForRun(input.runId)
     const description = await this.describeLock(lock)
+    if (description.lockStatus === 'active' && !description.stale) {
+      throw new Error(`Cannot clean up live managed worktree for run ${input.runId}`)
+    }
     if (description.dirty) throw new Error('Refusing to remove dirty managed worktree')
     if (!description.missing && description.lockStatus === 'active') {
       await runGit(lock.projectRoot, ['worktree', 'remove', lock.worktreePath])

@@ -31,6 +31,33 @@ it('keeps Desktop raw RRULE prefixes visible in editable drafts', async () => {
   expect(automations.draft.value.rrule).toBe('RRULE:FREQ=MONTHLY;BYMONTHDAY=1')
 })
 
+it('preserves Desktop raw RRULE prefixes when saving edited drafts', async () => {
+  const gateway = createGatewayFixture([
+    automationFixture({
+      id: 'cron_1',
+      kind: 'cron',
+      targetThreadId: null,
+      schedule: {
+        type: 'rrule',
+        rrule: 'FREQ=MONTHLY;BYMONTHDAY=1',
+        rawRrule: 'RRULE:FREQ=MONTHLY;BYMONTHDAY=1',
+      },
+    }),
+  ])
+  const automations = useAutomations({ gateway })
+  await automations.loadAll()
+
+  await automations.saveDraft()
+
+  expect(gateway.updateAutomation).toHaveBeenCalledWith('cron_1', expect.objectContaining({
+    schedule: {
+      type: 'rrule',
+      rrule: 'FREQ=MONTHLY;BYMONTHDAY=1',
+      rawRrule: 'RRULE:FREQ=MONTHLY;BYMONTHDAY=1',
+    },
+  }))
+})
+
 it('prefills create draft from a thread shortcut when no matching automation exists', async () => {
   const automations = useAutomations({ gateway: createGatewayFixture([]) })
   await automations.loadAll()
