@@ -718,6 +718,34 @@ describe('native automation store filesystem behavior', () => {
     expect(rewritten).toContain('[metadata]\nstatus = "desktop-owned"\nname = "Nested name"')
   })
 
+  it('falls back to canonical TOML if comment-preserving writeback would be invalid', () => {
+    const previousRaw = [
+      'version = 1',
+      'id = "daily-check"',
+      'kind = "heartbeat"',
+      'name = "Daily Check"',
+      'prompt = "Check the thread"',
+      'status = "PAUSED"',
+      'rrule = "FREQ=DAILY"',
+      'target_thread_id = "thread-123"',
+      'created_at = 1710000000000',
+      'updated_at = 1710000005000',
+      'desktop_only = "unterminated',
+      '',
+    ].join('\n')
+
+    const rewritten = serializeAutomationToml({
+      ...pausedRecord,
+      status: 'ACTIVE',
+    }, previousRaw)
+
+    expect(parseAutomationToml(rewritten)).toMatchObject({
+      id: 'daily-check',
+      status: 'ACTIVE',
+    })
+    expect(rewritten).not.toContain('desktop_only = "unterminated')
+  })
+
   it('writes cwds when expanding a legacy single-cwd automation to multiple folders', () => {
     const previousRaw = [
       'version = 1',

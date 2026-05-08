@@ -498,6 +498,7 @@ export function parseAutomationToml(raw: string): ThreadAutomationRecord | null 
 export function serializeAutomationToml(record: ThreadAutomationRecord, previousRaw?: string): string {
   const fields = buildAutomationTomlFields(record, previousRaw)
   const orderedKeys = Object.keys(fields)
+  const canonicalRaw = serializeAutomationTomlFields(orderedKeys, fields)
   const knownKeys = new Set([
     ...orderedKeys,
     'cwd',
@@ -510,7 +511,7 @@ export function serializeAutomationToml(record: ThreadAutomationRecord, previous
   ])
 
   if (typeof previousRaw !== 'string') {
-    return `${orderedKeys.map((key) => `${key} = ${fields[key]}`).join('\n')}\n`
+    return canonicalRaw
   }
 
   const seen = new Set<string>()
@@ -583,7 +584,12 @@ export function serializeAutomationToml(record: ThreadAutomationRecord, previous
     }
   }
 
-  return `${merged.join('\n')}\n`
+  const mergedRaw = `${merged.join('\n')}\n`
+  return parseTomlRecord(mergedRaw) ? mergedRaw : canonicalRaw
+}
+
+function serializeAutomationTomlFields(orderedKeys: string[], fields: Record<string, string>): string {
+  return `${orderedKeys.map((key) => `${key} = ${fields[key]}`).join('\n')}\n`
 }
 
 function slugifyAutomationId(threadId: string, name: string): string {
