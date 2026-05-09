@@ -78,40 +78,41 @@ export class AutomationScheduler {
     const maxActiveRunsPerRepo = Number(policy.maxActiveRunsPerRepo)
     let startedRuns = 0
 
-    for (const entry of await this.service.listSchedulerEntries()) {
+    for (const entry of await this.service.listSchedulerEntries(nowIso)) {
       if (startedRuns >= this.maxRunsPerTick) break
-      if (entry.definition.status !== 'active') continue
+      const currentEntry = await this.service.readSchedulerEntry(entry, nowIso)
+      if (!currentEntry || currentEntry.definition.status !== 'active') continue
 
-      let schedulerState = entry.schedulerState
+      let schedulerState = currentEntry.schedulerState
       if (!schedulerState) {
-        schedulerState = await this.service.refreshSchedulerState(entry.definition.id, nowIso)
+        schedulerState = await this.service.refreshSchedulerState(currentEntry.definition.id, nowIso)
       }
-      schedulerState = await this.repairIncompleteReservation(entry, schedulerState, nowIso)
+      schedulerState = await this.repairIncompleteReservation(currentEntry, schedulerState, nowIso)
       if (schedulerState.unsupportedReason || !schedulerState.nextDueAtIso) continue
 
       const decision = evaluateRruleSchedule({
-        rrule: entry.definition.schedule.rrule,
+        rrule: currentEntry.definition.schedule.rrule,
         nowIso,
         nextDueAtIso: schedulerState.nextDueAtIso,
-        anchorIso: entry.definition.updatedAtIso || entry.definition.createdAtIso,
+        anchorIso: currentEntry.definition.updatedAtIso || currentEntry.definition.createdAtIso,
       })
       if (!decision.due || !decision.dueAtIso) continue
-      if (activeRunIndex.activeAutomationIds.has(entry.definition.id)) continue
-      const targetCwds = scheduledTargetCwds(entry.definition)
+      if (activeRunIndex.activeAutomationIds.has(currentEntry.definition.id)) continue
+      const targetCwds = scheduledTargetCwds(currentEntry.definition)
       if (targetCwds.length === 0) continue
       if (activeRunIndex.globalActiveRuns + targetCwds.length > maxGlobalActiveRuns) continue
       if (!hasRepoCapacity(activeRunIndex.repoActiveRuns, targetCwds, maxActiveRunsPerRepo)) continue
 
-      const leaseStore = createAutomationSchedulerLeaseStore(entry.automationDirPath, { ttlMs: this.leaseTtlMs })
+      const leaseStore = createAutomationSchedulerLeaseStore(currentEntry.automationDirPath, { ttlMs: this.leaseTtlMs })
       const leaseHandle = await leaseStore.acquire({
-        automationId: entry.definition.id,
-        sourceDirName: entry.sourceDirName,
+        automationId: currentEntry.definition.id,
+        sourceDirName: currentEntry.sourceDirName,
         dueAtIso: decision.dueAtIso,
         nowIso,
       })
       if (!leaseHandle) continue
 
-      let current = await this.resolveDueEntry(entry, nowIso)
+      let current = await this.resolveDueEntry(currentEntry, nowIso)
       if (!current) {
         await leaseHandle.release()
         continue
@@ -189,7 +190,7 @@ export class AutomationScheduler {
     entry: AutomationSchedulerEntry
     decision: { dueAtIso: string; nextDueAtIso: string | null }
   } | null> {
-    const entry = await this.service.readSchedulerEntry(entrySnapshot)
+    const entry = await this.service.readSchedulerEntry(entrySnapshot, nowIso)
     if (!entry || entry.definition.status !== 'active') return null
     let schedulerState = entry.schedulerState
     if (!schedulerState) {

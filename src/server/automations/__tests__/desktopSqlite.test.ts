@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import {
   closeDesktopAutomationSqlite,
+  deleteDesktopAutomationRuntimeRow,
   isoToMs,
   listDesktopAutomationRunRows,
   listDesktopAutomationRuntimeRows,
@@ -311,6 +312,17 @@ describe('desktop automation SQLite access', () => {
       createdAt: baseAutomationRow.createdAt,
       updatedAt: isoToMs('2026-05-09T13:00:00.000Z')!,
     })
+  })
+
+  it('deletes automation runtime rows by id', async () => {
+    const tempDir = await createTempDir()
+    const handle = openTempDatabase(join(tempDir, 'sqlite', 'codex.db'))
+
+    upsertDesktopAutomationRuntimeRow(handle, baseAutomationRow)
+
+    expect(deleteDesktopAutomationRuntimeRow(handle, baseAutomationRow.id)).toBe(true)
+    expect(readDesktopAutomationRuntimeRow(handle, baseAutomationRow.id)).toBeNull()
+    expect(deleteDesktopAutomationRuntimeRow(handle, baseAutomationRow.id)).toBe(false)
   })
 
   it('upserts, lists, reads, and updates automation run rows', async () => {

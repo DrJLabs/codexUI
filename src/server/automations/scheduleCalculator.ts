@@ -68,7 +68,9 @@ export function evaluateRruleSchedule(input: {
   const now = parseIso(input.nowIso, 'nowIso')
   const anchor = parseIso(input.anchorIso, 'anchorIso')
   const persistedDue = input.nextDueAtIso === null ? null : parseIso(input.nextDueAtIso, 'nextDueAtIso')
-  const candidateDue = persistedDue ?? findNextOccurrence(supported, anchor, anchor)
+  const candidateDue = persistedDue ??
+    findLatestOccurrenceAtOrBefore(supported, anchor, now) ??
+    findNextOccurrence(supported, anchor, anchor)
   if (candidateDue.getTime() <= now.getTime()) {
     return {
       due: true,
@@ -86,6 +88,16 @@ export function evaluateRruleSchedule(input: {
     missedRunPolicy: 'one_catch_up',
     unsupportedReason: null,
   }
+}
+
+function findLatestOccurrenceAtOrBefore(rrule: SupportedRrule, anchor: Date, onOrBefore: Date): Date | null {
+  let candidate = findNextOccurrence(rrule, anchor, anchor)
+  let latest: Date | null = null
+  while (candidate.getTime() < onOrBefore.getTime()) {
+    latest = candidate
+    candidate = findNextOccurrence(rrule, anchor, candidate)
+  }
+  return latest
 }
 
 function unsupportedDecision(reason: string): SchedulerDecision {

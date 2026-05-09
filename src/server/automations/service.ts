@@ -42,6 +42,7 @@ import { evaluateRruleSchedule } from './scheduleCalculator'
 import { createAutomationSchedulerStore, type AutomationSchedulerState } from './schedulerStore'
 import {
   closeDesktopAutomationSqlite,
+  deleteDesktopAutomationRuntimeRow,
   openDesktopAutomationSqlite,
   readDesktopAutomationRuntimeRow,
   upsertDesktopAutomationRuntimeRow,
@@ -71,6 +72,7 @@ const INTERRUPTED_RUN_RECOVERY_GRACE_MS = 6 * 60 * 60 * 1000
 type AutomationSidecar = AutomationSidecarRead
 type MapDefinitionOptions = {
   includeRecentRuns?: boolean
+  storeOptions?: NativeAutomationStoreOptions
 }
 type KanbanProjectionTaskValidator = {
   validateTask(taskId: string): Promise<void>
@@ -157,7 +159,7 @@ export class AutomationsService {
     this.runner.recordHeartbeatThreadState(input)
     for (const entry of await this.listActiveHeartbeatEntriesForThread(input.threadId)) {
       const sidecarResult = await readSidecar(entry)
-      await refreshSchedulerState(entry, sidecarResult.sidecar)
+      await refreshSchedulerState(entry, sidecarResult.sidecar, undefined, this.options)
     }
   }
 
@@ -258,7 +260,7 @@ export class AutomationsService {
     const entry = await this.findEntry(automationId)
     if (!entry) throw new AutomationNotFoundError(automationId)
     const sidecarResult = await readSidecar(entry)
-    return (await mapDefinition(entry, sidecarResult.sidecar)).definition
+    return (await mapDefinition(entry, sidecarResult.sidecar, { storeOptions: this.options })).definition
   }
 
   async createDefinition(input: AutomationCreateInput): Promise<AutomationDefinition> {
@@ -294,7 +296,7 @@ export class AutomationsService {
     await writeSidecar(entry, sidecar)
     sidecar = await this.projectDefinitionSidecar(entry, sidecar)
     await writeSidecar(entry, sidecar)
-    await refreshSchedulerState(entry, sidecar)
+    await refreshSchedulerState(entry, sidecar, undefined, this.options)
     return await this.getDefinition(record.id)
   }
 
@@ -366,7 +368,7 @@ export class AutomationsService {
     nextSidecar = await this.projectDefinitionSidecar({ ...entry, record: nextRecord }, nextSidecar)
     await writeSidecar(entry, nextSidecar)
     if (isSchedulerAffectingPatch(patch)) {
-      await refreshSchedulerState({ ...entry, record: nextRecord }, nextSidecar)
+      await refreshSchedulerState({ ...entry, record: nextRecord }, nextSidecar, undefined, this.options)
     }
     return await this.getDefinition(automationId)
   }
@@ -384,7 +386,10 @@ export class AutomationsService {
     if (!entry) throw new AutomationNotFoundError(automationId)
     if (options.removeNative) {
       const removedNative = await deleteNativeAutomationBySourceDir(entry.sourceDirName, this.options)
-      if (removedNative) this.invalidateHeartbeatThreadEntryCache(entry.record.targetThreadId)
+      if (removedNative) {
+        this.invalidateHeartbeatThreadEntryCache(entry.record.targetThreadId)
+        await deleteDesktopAutomationRuntime(entry.record.id, this.options)
+      }
       return { removed: removedNative, removedNative }
     }
     const removed = await deleteSidecar(entry)
@@ -447,7 +452,7 @@ export class AutomationsService {
 
   private async projectDefinitionSidecar(entry: NativeAutomationEntry, sidecar: AutomationSidecar): Promise<AutomationSidecar> {
     if (!this.projectionAdapter?.projectDefinition || sidecar.kanbanProjection.mode !== 'definition_card') return sidecar
-    const definition = (await mapDefinition(entry, sidecar, { includeRecentRuns: false })).definition
+    const definition = (await mapDefinition(entry, sidecar, { includeRecentRuns: false, storeOptions: this.options })).definition
     const result = await this.projectionAdapter.projectDefinition({ definition })
     if (!result.taskId || sidecar.kanbanProjection.taskId === result.taskId) return sidecar
     return {
@@ -459,45 +464,48 @@ export class AutomationsService {
     }
   }
 
-  async listSchedulerEntries(): Promise<AutomationSchedulerEntry[]> {
+  async listSchedulerEntries(nowIso = new Date().toISOString()): Promise<AutomationSchedulerEntry[]> {
     await migrateLegacyAutomationRuntimeToDesktopSqlite(this.options)
     const entries = await listNativeAutomationEntries(this.options)
     const schedulerEntries: AutomationSchedulerEntry[] = []
     for (const entry of entries.records) {
       if (entry.record.status === 'DELETED') continue
       const sidecarResult = await readSidecar(entry)
-      const mapped = await mapDefinition(entry, sidecarResult.sidecar, { includeRecentRuns: false })
+      const mapped = await mapDefinition(entry, sidecarResult.sidecar, { includeRecentRuns: false, storeOptions: this.options })
       if (entry.record.executionEnvironment && !entry.record.runMode) {
-        await writeUnsupportedExecutionEnvironmentSchedulerState(entry, sidecarResult.sidecar)
+        await writeUnsupportedExecutionEnvironmentSchedulerState(entry, sidecarResult.sidecar, undefined, this.options)
         continue
       }
-      const schedulerState = await readSchedulerStateForTick(entry, sidecarResult.sidecar)
+      const schedulerState = await readSchedulerStateForTick(entry, sidecarResult.sidecar, this.options)
       schedulerEntries.push({
         definition: mapped.definition,
         automationDirPath: entry.automationDirPath,
         sourceDirName: entry.sourceDirName,
-        schedulerState: schedulerState ?? await refreshSchedulerState(entry, sidecarResult.sidecar),
+        schedulerState: schedulerState ?? await refreshSchedulerState(entry, sidecarResult.sidecar, nowIso, this.options),
       })
     }
     schedulerEntries.sort((a, b) => a.definition.name.localeCompare(b.definition.name) || a.definition.id.localeCompare(b.definition.id))
     return schedulerEntries
   }
 
-  async readSchedulerEntry(entry: Pick<AutomationSchedulerEntry, 'automationDirPath' | 'sourceDirName'>): Promise<AutomationSchedulerEntry | null> {
+  async readSchedulerEntry(
+    entry: Pick<AutomationSchedulerEntry, 'automationDirPath' | 'sourceDirName'>,
+    nowIso = new Date().toISOString(),
+  ): Promise<AutomationSchedulerEntry | null> {
     const nativeEntry = await readNativeAutomationEntryFromDirectory(entry.sourceDirName, entry.automationDirPath)
     if (!nativeEntry || nativeEntry.record.status === 'DELETED') return null
     const sidecarResult = await readSidecar(nativeEntry)
-    const mapped = await mapDefinition(nativeEntry, sidecarResult.sidecar, { includeRecentRuns: false })
+    const mapped = await mapDefinition(nativeEntry, sidecarResult.sidecar, { includeRecentRuns: false, storeOptions: this.options })
     if (nativeEntry.record.executionEnvironment && !nativeEntry.record.runMode) {
-      await writeUnsupportedExecutionEnvironmentSchedulerState(nativeEntry, sidecarResult.sidecar)
+      await writeUnsupportedExecutionEnvironmentSchedulerState(nativeEntry, sidecarResult.sidecar, undefined, this.options)
       return null
     }
-    const schedulerState = await readSchedulerStateForTick(nativeEntry, sidecarResult.sidecar)
+    const schedulerState = await readSchedulerStateForTick(nativeEntry, sidecarResult.sidecar, this.options)
     return {
       definition: mapped.definition,
       automationDirPath: nativeEntry.automationDirPath,
       sourceDirName: nativeEntry.sourceDirName,
-      schedulerState: schedulerState ?? await refreshSchedulerState(nativeEntry, sidecarResult.sidecar),
+      schedulerState: schedulerState ?? await refreshSchedulerState(nativeEntry, sidecarResult.sidecar, nowIso, this.options),
     }
   }
 
@@ -505,14 +513,14 @@ export class AutomationsService {
     const entry = await this.findEntry(automationId)
     if (!entry) throw new AutomationNotFoundError(automationId)
     const sidecarResult = await readSidecar(entry)
-    return await refreshSchedulerState(entry, sidecarResult.sidecar, nowIso)
+    return await refreshSchedulerState(entry, sidecarResult.sidecar, nowIso, this.options)
   }
 
   async clearIncompleteSchedulerReservation(automationId: string, dueAtIso: string, nowIso = new Date().toISOString()): Promise<AutomationSchedulerState> {
     const entry = await this.findEntry(automationId)
     if (!entry) throw new AutomationNotFoundError(automationId)
-    await syncDesktopAutomationRuntimeRow(entry)
-    const store = createAutomationSchedulerStore(entry.automationDirPath)
+    await syncDesktopAutomationRuntimeRow(entry, this.options)
+    const store = createAutomationSchedulerStore(entry.automationDirPath, this.options)
     const current = await store.readOrDefault({
       automationId: entry.record.id,
       sourceDirName: entry.sourceDirName,
@@ -537,7 +545,7 @@ export class AutomationsService {
       nowIso?: string
     },
   ): Promise<AutomationSchedulerState> {
-    const store = createAutomationSchedulerStore(entry.automationDirPath)
+    const store = createAutomationSchedulerStore(entry.automationDirPath, this.options)
     const current = await store.readOrDefault({
       automationId: entry.record.id,
       sourceDirName: entry.sourceDirName,
@@ -579,7 +587,7 @@ export class AutomationsService {
     if (!entry) throw new AutomationNotFoundError(automationId)
     if (!this.runner) throw createServiceError(503, 'Codex bridge is not available for automation manual runs')
     const sidecarResult = await readSidecar(entry)
-    const definition = (await mapDefinition(entry, sidecarResult.sidecar, { includeRecentRuns: false })).definition
+    const definition = (await mapDefinition(entry, sidecarResult.sidecar, { includeRecentRuns: false, storeOptions: this.options })).definition
     assertAutomationNotDeleted(definition)
     await this.ensureInterruptedRunRecoveryBeforeCapacity()
     assertAutomationExecutionPolicy(this.policy)
@@ -653,7 +661,7 @@ export class AutomationsService {
     if (!entry) throw new AutomationNotFoundError(automationId)
     if (!this.runner) throw createServiceError(503, 'Codex bridge is not available for automation scheduled runs')
     const sidecarResult = await readSidecar(entry)
-    const definition = (await mapDefinition(entry, sidecarResult.sidecar, { includeRecentRuns: false })).definition
+    const definition = (await mapDefinition(entry, sidecarResult.sidecar, { includeRecentRuns: false, storeOptions: this.options })).definition
     assertAutomationNotDeleted(definition)
     await this.ensureInterruptedRunRecoveryBeforeCapacity()
     assertAutomationExecutionPolicy(this.policy)
@@ -743,13 +751,13 @@ export class AutomationsService {
       const activeRuns = await store.listActiveRuns()
       const sidecarResult = activeRuns.length > 0 ? await readSidecar(entry) : null
       const definition = sidecarResult
-        ? (await mapDefinition(entry, sidecarResult.sidecar, { includeRecentRuns: false })).definition
+        ? (await mapDefinition(entry, sidecarResult.sidecar, { includeRecentRuns: false, storeOptions: this.options })).definition
         : null
       for (const run of activeRuns) {
         if (this.runner?.ownsActiveRun(run.id)) continue
         if (!isInterruptedRunRecoveryCandidate(run)) continue
         if (run.trigger === 'schedule') {
-          await reconcileSchedulerFromScheduledRun(entry, run)
+          await reconcileSchedulerFromScheduledRun(entry, run, this.options)
         }
         const message = 'Automation run was interrupted by a previous server session'
         const classification = classifyAutomationRunFailure(message)
@@ -871,11 +879,12 @@ export class AutomationsService {
       updatedAtMs: Date.now(),
     }, this.options)
     this.invalidateHeartbeatThreadEntryCache(entry.record.targetThreadId)
-    if (status === 'ACTIVE') {
-      const updatedEntry = await this.findEntry(automationId)
-      if (updatedEntry) {
+    const updatedEntry = await this.findEntry(automationId)
+    if (updatedEntry) {
+      await syncDesktopAutomationRuntimeRow(updatedEntry, this.options)
+      if (status === 'ACTIVE') {
         const sidecarResult = await readSidecar(updatedEntry)
-        await refreshSchedulerState(updatedEntry, sidecarResult.sidecar)
+        await refreshSchedulerState(updatedEntry, sidecarResult.sidecar, undefined, this.options)
       }
     }
     return await this.getDefinition(automationId)
@@ -935,7 +944,7 @@ export class AutomationsService {
     for (const entry of entries.records) {
       const sidecarResult = await readSidecar(entry)
       if (sidecarResult.diagnostic) diagnostics.push(sidecarResult.diagnostic)
-      const mapped = await mapDefinition(entry, sidecarResult.sidecar)
+      const mapped = await mapDefinition(entry, sidecarResult.sidecar, { storeOptions: this.options })
       if (mapped.diagnostic) diagnostics.push(mapped.diagnostic)
       definitions.push(mapped.definition)
     }
@@ -951,12 +960,14 @@ export class AutomationsService {
 async function readSchedulerStateForTick(
   entry: NativeAutomationEntry,
   sidecar: AutomationSidecar,
+  options?: NativeAutomationStoreOptions,
 ): Promise<AutomationSchedulerState | null> {
   try {
-    const syncResult = await syncDesktopAutomationRuntimeRow(entry)
+    const syncResult = await syncDesktopAutomationRuntimeRow(entry, options)
     if (syncResult.definitionChanged) return null
-    const state = await createAutomationSchedulerStore(entry.automationDirPath).readState(schedulerStoreIdentity(entry))
+    const state = await createAutomationSchedulerStore(entry.automationDirPath, options).readState(schedulerStoreIdentity(entry))
     if (!state) return null
+    if (state.scheduleHash && state.scheduleHash !== buildScheduleHash(entry, sidecar)) return null
     const recomputed = recomputeTransientSchedulerState(entry, sidecar, state)
     if (!recomputed.unsupportedReason && !recomputed.nextDueAtIso && !recomputed.lastDueAtIso) return null
     return recomputed
@@ -997,12 +1008,14 @@ async function writeUnsupportedExecutionEnvironmentSchedulerState(
   entry: NativeAutomationEntry,
   sidecar: AutomationSidecar,
   nowIso = new Date().toISOString(),
+  options?: NativeAutomationStoreOptions,
 ): Promise<AutomationSchedulerState> {
   return await writeUnsupportedSchedulerState(
     entry,
     sidecar,
     `Unsupported automation execution_environment: ${entry.record.executionEnvironment}`,
     nowIso,
+    options,
   )
 }
 
@@ -1011,9 +1024,10 @@ async function writeUnsupportedSchedulerState(
   sidecar: AutomationSidecar,
   unsupportedReason: string,
   nowIso = new Date().toISOString(),
+  options?: NativeAutomationStoreOptions,
 ): Promise<AutomationSchedulerState> {
-  await syncDesktopAutomationRuntimeRow(entry)
-  const store = createAutomationSchedulerStore(entry.automationDirPath)
+  await syncDesktopAutomationRuntimeRow(entry, options)
+  const store = createAutomationSchedulerStore(entry.automationDirPath, options)
   const current = await store.readOrDefault({
     automationId: entry.record.id,
     sourceDirName: entry.sourceDirName,
@@ -1030,10 +1044,14 @@ async function writeUnsupportedSchedulerState(
   })
 }
 
-async function reconcileSchedulerFromScheduledRun(entry: NativeAutomationEntry, run: AutomationRun): Promise<void> {
+async function reconcileSchedulerFromScheduledRun(
+  entry: NativeAutomationEntry,
+  run: AutomationRun,
+  options?: NativeAutomationStoreOptions,
+): Promise<void> {
   if (!run.dueAtIso) return
-  await syncDesktopAutomationRuntimeRow(entry)
-  const store = createAutomationSchedulerStore(entry.automationDirPath)
+  await syncDesktopAutomationRuntimeRow(entry, options)
+  const store = createAutomationSchedulerStore(entry.automationDirPath, options)
   const current = await store.readOrDefault({
     automationId: entry.record.id,
     sourceDirName: entry.sourceDirName,
@@ -1081,7 +1099,7 @@ async function mapDefinition(
   const recentRuns = includeRecentRuns
     ? await createAutomationRunStore(entry.automationDirPath).listRuns({ limit: 5 })
     : []
-  const nextRun = await readDefinitionNextRunAtIso(entry, sidecar, createdAtIso, updatedAtIso)
+  const nextRun = await readDefinitionNextRunAtIso(entry, sidecar, createdAtIso, updatedAtIso, options.storeOptions)
   const executionEnvironmentDiagnostic: AutomationDiagnostic | null = entry.record.executionEnvironment && !entry.record.runMode
     ? {
         automationId: entry.record.id,
@@ -1146,14 +1164,15 @@ async function refreshSchedulerState(
   entry: NativeAutomationEntry,
   sidecar: AutomationSidecar,
   nowIso = new Date().toISOString(),
+  options?: NativeAutomationStoreOptions,
 ): Promise<AutomationSchedulerState> {
-  await syncDesktopAutomationRuntimeRow(entry)
+  await syncDesktopAutomationRuntimeRow(entry, options)
   if (entry.record.executionEnvironment && !entry.record.runMode) {
-    return await writeUnsupportedExecutionEnvironmentSchedulerState(entry, sidecar, nowIso)
+    return await writeUnsupportedExecutionEnvironmentSchedulerState(entry, sidecar, nowIso, options)
   }
   const unsupportedTargetReason = unsupportedSchedulerTargetReason(entry.record)
   if (unsupportedTargetReason) {
-    return await writeUnsupportedSchedulerState(entry, sidecar, unsupportedTargetReason, nowIso)
+    return await writeUnsupportedSchedulerState(entry, sidecar, unsupportedTargetReason, nowIso, options)
   }
   const decision = evaluateRruleSchedule({
     rrule: entry.record.rrule,
@@ -1161,7 +1180,7 @@ async function refreshSchedulerState(
     nextDueAtIso: null,
     anchorIso: dateIso(entry.record.updatedAtMs ?? entry.record.createdAtMs),
   })
-  return await createAutomationSchedulerStore(entry.automationDirPath).writeState({
+  return await createAutomationSchedulerStore(entry.automationDirPath, options).writeState({
     automationId: entry.record.id,
     sourceDirName: entry.sourceDirName,
     scheduleHash: buildScheduleHash(entry, sidecar),
@@ -1175,13 +1194,30 @@ async function refreshSchedulerState(
   })
 }
 
-async function syncDesktopAutomationRuntimeRow(entry: NativeAutomationEntry): Promise<{ definitionChanged: boolean }> {
-  const handle = openDesktopAutomationSqlite()
+async function deleteDesktopAutomationRuntime(
+  automationId: string,
+  options?: NativeAutomationStoreOptions,
+): Promise<boolean> {
+  const handle = openDesktopAutomationSqlite(options)
+  try {
+    return deleteDesktopAutomationRuntimeRow(handle, automationId)
+  } finally {
+    closeDesktopAutomationSqlite(handle)
+  }
+}
+
+async function syncDesktopAutomationRuntimeRow(
+  entry: NativeAutomationEntry,
+  options?: NativeAutomationStoreOptions,
+): Promise<{ definitionChanged: boolean }> {
+  const handle = openDesktopAutomationSqlite(options)
   try {
     const existing = readDesktopAutomationRuntimeRow(handle, entry.record.id)
     const definitionChanged = existing ? desktopAutomationDefinitionChanged(existing, entry) : false
     const createdAt = existing?.createdAt ?? entry.record.createdAtMs ?? Date.now()
-    const updatedAt = existing?.updatedAt ?? entry.record.updatedAtMs ?? createdAt
+    const updatedAt = definitionChanged
+      ? entry.record.updatedAtMs ?? Date.now()
+      : existing?.updatedAt ?? entry.record.updatedAtMs ?? createdAt
     upsertDesktopAutomationRuntimeRow(handle, {
       id: entry.record.id,
       name: entry.record.name,
@@ -1217,8 +1253,9 @@ async function readDefinitionNextRunAtIso(
   sidecar: AutomationSidecar,
   createdAtIso: string,
   updatedAtIso: string,
+  options?: NativeAutomationStoreOptions,
 ): Promise<{ nextRunAtIso: string | null; diagnostic: AutomationDiagnostic | null }> {
-  const store = createAutomationSchedulerStore(entry.automationDirPath)
+  const store = createAutomationSchedulerStore(entry.automationDirPath, options)
   let state
   try {
     state = await store.readState(schedulerStoreIdentity(entry))

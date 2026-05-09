@@ -367,7 +367,7 @@ export class AutomationRunner {
     dueAtIso: string | null
     nextDueAtIso: string | null
   }): Promise<void> {
-    const store = createAutomationSchedulerStore(input.automationDirPath)
+    const store = createAutomationSchedulerStore(input.automationDirPath, this.options)
     const current = await store.readOrDefault({
       automationId: input.automationId,
       sourceDirName: input.sourceDirName,

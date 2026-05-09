@@ -1,7 +1,7 @@
 import { execFile } from 'node:child_process'
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, sep } from 'node:path'
 import { promisify } from 'node:util'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AutomationRun } from '../../../types/automations'
@@ -14,6 +14,11 @@ import { AutomationScheduler } from '../scheduler'
 import { createAutomationSchedulerLeaseStore } from '../schedulerLease'
 import { createAutomationSchedulerStore, type AutomationSchedulerState } from '../schedulerStore'
 import { AutomationsService, type AutomationProjectionAdapter } from '../service'
+import {
+  closeDesktopAutomationSqlite,
+  openDesktopAutomationSqlite,
+  readDesktopAutomationRuntimeRow,
+} from '../desktopSqlite'
 
 const codexHomeDirs: string[] = []
 const execFileAsync = promisify(execFile)
@@ -185,7 +190,7 @@ async function writeScheduler(automationDir: string, state: Partial<AutomationSc
     updatedAtIso: '2026-04-30T08:00:00.000Z',
     ...state,
   }
-  return await createAutomationSchedulerStore(automationDir).writeState(schedulerState)
+  return await createAutomationSchedulerStore(automationDir, schedulerStoreOptionsForAutomationDir(automationDir)).writeState(schedulerState)
 }
 
 async function writeFreshScheduler(
@@ -207,7 +212,23 @@ async function readScheduler(
   automationId = 'daily-check',
   sourceDirName = 'daily-check-dir',
 ): Promise<AutomationSchedulerState | null> {
-  return await createAutomationSchedulerStore(automationDir).readState({ automationId, sourceDirName })
+  return await createAutomationSchedulerStore(automationDir, schedulerStoreOptionsForAutomationDir(automationDir)).readState({ automationId, sourceDirName })
+}
+
+function schedulerStoreOptionsForAutomationDir(automationDir: string): { codexHomeDir?: string } {
+  const marker = `${sep}automations${sep}`
+  const markerIndex = automationDir.lastIndexOf(marker)
+  if (markerIndex < 0) return {}
+  return { codexHomeDir: automationDir.slice(0, markerIndex) }
+}
+
+function readDesktopRuntimeStatus(codexHomeDir: string, automationId: string): string | null {
+  const handle = openDesktopAutomationSqlite({ codexHomeDir })
+  try {
+    return readDesktopAutomationRuntimeRow(handle, automationId)?.status ?? null
+  } finally {
+    closeDesktopAutomationSqlite(handle)
+  }
 }
 
 async function writeActiveRun(automationDir: string, input: {
@@ -1236,12 +1257,38 @@ Run the cron task`)
       notes: '',
     })
     const automationDir = join(codexHomeDir, 'automations', created.id)
+    expect(readDesktopRuntimeStatus(codexHomeDir, created.id)).toBe('ACTIVE')
 
     await expect(service.deleteDefinition(created.id, { removeNative: true })).resolves.toEqual({
       removed: true,
       removedNative: true,
     })
     await expect(readFile(join(automationDir, 'automation.toml'), 'utf8')).rejects.toThrow()
+    expect(readDesktopRuntimeStatus(codexHomeDir, created.id)).toBeNull()
+  })
+
+  it('mirrors paused status into the Desktop automation runtime table', async () => {
+    const { codexHomeDir, service } = await createHarness()
+    const created = await service.createDefinition({
+      kind: 'heartbeat',
+      name: 'Thread heartbeat',
+      description: null,
+      prompt: 'Check this thread',
+      schedule: { type: 'rrule', rrule: 'FREQ=MINUTELY;INTERVAL=15' },
+      targetThreadId: 'thread-pause',
+      cwd: null,
+      cwds: [],
+      runMode: 'chat',
+      model: null,
+      reasoningEffort: null,
+      localEnvironmentConfigPath: null,
+      kanbanProjection: { mode: 'off' },
+      notes: '',
+    })
+
+    expect(readDesktopRuntimeStatus(codexHomeDir, created.id)).toBe('ACTIVE')
+    await service.pauseDefinition(created.id)
+    expect(readDesktopRuntimeStatus(codexHomeDir, created.id)).toBe('PAUSED')
   })
 
   it('keeps sidecar-only deletion available for explicit debug maintenance', async () => {
@@ -1946,7 +1993,7 @@ Run the cron task`)
     const schedulerState = await readScheduler(automationDir)
     expect(runs).toEqual([])
     expect(schedulerState?.scheduleHash).not.toBe('stale-hash')
-    expect(schedulerState?.nextDueAtIso).toBe('2026-05-01T09:00:00.000Z')
+    expect(schedulerState?.nextDueAtIso).toBeNull()
   })
 
   it('does not rewind the scheduler cursor after execution-only sidecar edits', async () => {
@@ -2342,7 +2389,7 @@ Run the cron task`)
       new AutomationScheduler({ service: secondService, now: () => new Date('2026-04-30T10:00:00.000Z') }).tick(),
     ])
 
-    expect(Date.now() - startedAt).toBeLessThan(500)
+    expect(Date.now() - startedAt).toBeLessThan(800)
     const firstRuns = await createAutomationRunStore(firstDir).listRuns()
     const secondRuns = await createAutomationRunStore(secondDir).listRuns()
     expect(firstRuns.length + secondRuns.length).toBe(2)

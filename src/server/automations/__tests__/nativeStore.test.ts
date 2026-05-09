@@ -49,8 +49,8 @@ const pausedRecord: ThreadAutomationRecord = {
   runMode: 'chat',
   cwd: null,
   cwds: [],
-  createdAtMs: 1710000000000,
-  updatedAtMs: 1710000005000,
+  createdAtMs: 1777654085276,
+  updatedAtMs: 1777654090276,
   nextRunAtMs: null,
 }
 
@@ -321,8 +321,8 @@ describe('native automation store TOML compatibility', () => {
       '""",',
       '  "/old/[two]",',
       ']',
-      'created_at = 1710000000000',
-      'updated_at = 1710000005000',
+      'created_at = 1777654085276',
+      'updated_at = 1777654090276',
       'desktop_only = "keep"',
       '',
     ].join('\n')
@@ -361,8 +361,8 @@ describe('native automation store TOML compatibility', () => {
       'target_thread_id = "not-a-real-key"',
       '""",',
       ']',
-      'created_at = 1710000000000',
-      'updated_at = 1710000005000',
+      'created_at = 1777654085276',
+      'updated_at = 1777654090276',
       '',
     ].join('\n')
 
@@ -427,8 +427,8 @@ describe('native automation store TOML compatibility', () => {
       'status = "PAUSED" # paused on purpose',
       'rrule = "FREQ=DAILY;INTERVAL=1" # every day',
       'target_thread_id = "thread-123" # target',
-      'created_at = 1710000000000 # ms',
-      'updated_at = 1710000005000 # ms',
+      'created_at = 1777654085276 # ms',
+      'updated_at = 1777654090276 # ms',
       '',
     ].join('\n')
 
@@ -454,8 +454,8 @@ describe('native automation store TOML compatibility', () => {
       'status = "PAUSED"',
       'rrule = "FREQ=DAILY;INTERVAL=1"',
       'target_thread_id = "thread-123"',
-      'created_at = 1710000000000',
-      'updated_at = 1710000005000',
+      'created_at = 1777654085276',
+      'updated_at = 1777654090276',
       '',
     ].join('\n')
 
@@ -479,8 +479,8 @@ describe('native automation store TOML compatibility', () => {
       'status = "PAUSED"',
       'rrule = "FREQ=DAILY"',
       'target_thread_id = "thread-123"',
-      'created_at = 1710000000000',
-      'updated_at = 1710000000000',
+      'created_at = 1777654085276',
+      'updated_at = 1777654085276',
       'unknown_notes = """',
       'keep unknown body',
       'prompt = "inside unknown"',
@@ -511,8 +511,8 @@ describe('native automation store TOML compatibility', () => {
       'status = "PAUSED"',
       'rrule = "FREQ=DAILY;INTERVAL=1"',
       'target_thread_id = "thread-123"',
-      'created_at = 1710000000000',
-      'updated_at = 1710000005000',
+      'created_at = 1777654085276',
+      'updated_at = 1777654090276',
       '',
     ].join('\n')
 
@@ -535,8 +535,8 @@ describe('native automation store TOML compatibility', () => {
       'status = "PAUSED"',
       'rrule = "FREQ=DAILY;INTERVAL=1"',
       'target_thread_id = "thread-123"',
-      'created_at = 1710000000000',
-      'updated_at = 1710000005000',
+      'created_at = 1777654085276',
+      'updated_at = 1777654090276',
       '',
     ].join('\n')
 
@@ -559,8 +559,8 @@ describe('native automation store TOML compatibility', () => {
       'status = "PAUSED"',
       'rrule = "FREQ=DAILY;INTERVAL=1"',
       'target_thread_id = "thread-123"',
-      'created_at = 1710000000000',
-      'updated_at = 1710000005000',
+      'created_at = 1777654085276',
+      'updated_at = 1777654090276',
       '',
     ].join('\n')
 
@@ -829,8 +829,8 @@ describe('native automation store filesystem behavior', () => {
       'status = "PAUSED" # keep status note',
       'rrule = "FREQ=DAILY"',
       'target_thread_id = "thread-123"',
-      'created_at = 1710000000000',
-      'updated_at = 1710000005000',
+      'created_at = 1777654085276',
+      'updated_at = 1777654090276',
       '',
       '[metadata]',
       'status = "desktop-owned"',
@@ -842,7 +842,7 @@ describe('native automation store filesystem behavior', () => {
       ...pausedRecord,
       name: 'Updated Daily Check',
       status: 'ACTIVE',
-      updatedAtMs: 1710000006000,
+      updatedAtMs: 1777654091276,
     }, previousRaw)
 
     expect(rewritten).toContain('id = "daily-check" # keep id note')
@@ -861,8 +861,8 @@ describe('native automation store filesystem behavior', () => {
       'status = "PAUSED"',
       'rrule = "FREQ=DAILY"',
       'target_thread_id = "thread-123"',
-      'created_at = 1710000000000',
-      'updated_at = 1710000005000',
+      'created_at = 1777654085276',
+      'updated_at = 1777654090276',
       'desktop_only = "unterminated',
       '',
     ].join('\n')
