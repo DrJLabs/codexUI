@@ -1180,8 +1180,8 @@ async function syncDesktopAutomationRuntimeRow(entry: NativeAutomationEntry): Pr
   try {
     const existing = readDesktopAutomationRuntimeRow(handle, entry.record.id)
     const definitionChanged = existing ? desktopAutomationDefinitionChanged(existing, entry) : false
-    const createdAt = existing?.createdAt ?? entry.record.createdAtMs
-    const updatedAt = existing?.updatedAt ?? entry.record.updatedAtMs
+    const createdAt = existing?.createdAt ?? entry.record.createdAtMs ?? Date.now()
+    const updatedAt = existing?.updatedAt ?? entry.record.updatedAtMs ?? createdAt
     upsertDesktopAutomationRuntimeRow(handle, {
       id: entry.record.id,
       name: entry.record.name,

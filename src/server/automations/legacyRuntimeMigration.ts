@@ -56,7 +56,7 @@ export async function migrateLegacyAutomationRuntimeToDesktopSqlite(
       if (schedulerState.found) migratedSchedulerStates += 1
 
       const runStore = createAutomationRunStore(entry.automationDirPath)
-      for (const run of await runStore.listRuns()) {
+      for (const run of await listLegacyRunsForMigration(runStore)) {
         syncDesktopAutomationRun(run, codexHomeDir)
         migratedRuns += 1
       }
@@ -73,6 +73,16 @@ export async function migrateLegacyAutomationRuntimeToDesktopSqlite(
   }, null, 2)}\n`, 'utf8')
 
   return { skipped: false, markerPath, migratedSchedulerStates, migratedRuns }
+}
+
+async function listLegacyRunsForMigration(
+  runStore: ReturnType<typeof createAutomationRunStore>,
+) {
+  try {
+    return await runStore.listRuns()
+  } catch {
+    return []
+  }
 }
 
 async function readLegacySchedulerState(entry: NativeAutomationEntry): Promise<{

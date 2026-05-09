@@ -46,3 +46,9 @@
 - Updated wiki page: `concepts/opencode-zen-big-pickle.md`.
 - Documents: DeepSeek thinking-mode `reasoning_content` round-trip requirement, Chat-shaped Zen proxy endpoint selection, streaming reasoning preservation, Docker validation, and the `/tmp/app.tar` restart gotcha.
 - Updated `index.md`.
+
+## [2026-05-09] ingest | Desktop automation runtime parity
+- Added source: `raw/features/desktop-automation-runtime-parity.md`.
+- Created wiki page: `concepts/desktop-automation-runtime-parity.md`.
+- Documents: Desktop TOML canonical definitions, Desktop SQLite scheduler/run state, scheduler ownership detection, and legacy runtime migration.
+- Updated `index.md`.

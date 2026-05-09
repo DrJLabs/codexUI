@@ -1846,8 +1846,8 @@ Run the cron task`)
     const runs = await createAutomationRunStore(automationDir).listRuns()
     const schedulerState = await readScheduler(automationDir)
     expect(runs).toEqual([])
-    expect(schedulerState.scheduleHash).not.toBe('stale-hash')
-    expect(schedulerState.nextDueAtIso).toBe('2026-05-01T09:00:00.000Z')
+    expect(schedulerState?.scheduleHash).not.toBe('stale-hash')
+    expect(schedulerState?.nextDueAtIso).toBe('2026-05-01T09:00:00.000Z')
   })
 
   it('does not rewind the scheduler cursor after execution-only sidecar edits', async () => {
@@ -1864,7 +1864,7 @@ Run the cron task`)
     const runs = await createAutomationRunStore(automationDir).listRuns()
     const schedulerState = await readScheduler(automationDir)
     expect(runs).toEqual([])
-    expect(schedulerState.nextDueAtIso).toBe('2026-05-01T09:00:00.000Z')
+    expect(schedulerState?.nextDueAtIso).toBe('2026-05-01T09:00:00.000Z')
   })
 
   it('keeps scheduling healthy automations when another scheduler state file is invalid', async () => {
@@ -1894,7 +1894,7 @@ Run the cron task`)
 
     const healthyRuns = await createAutomationRunStore(healthyDir).listRuns()
     const repairedBadScheduler = await readScheduler(badDir, 'bad-check', 'bad-dir')
-    expect(repairedBadScheduler.nextDueAtIso).toEqual(expect.any(String))
+    expect(repairedBadScheduler?.nextDueAtIso).toEqual(expect.any(String))
     expect(healthyRuns).toHaveLength(1)
     expect(healthyRuns[0]).toMatchObject({ automationId: 'healthy-check', trigger: 'schedule' })
   })
@@ -1946,7 +1946,7 @@ Run the cron task`)
     const schedulerState = await readScheduler(automationDir)
     expect(runs).toHaveLength(1)
     expect(runs[0]?.dueAtIso).toBe('2026-04-30T09:30:00.000Z')
-    expect(Date.parse(schedulerState.nextDueAtIso ?? '')).toBeGreaterThan(now.getTime())
+    expect(Date.parse(schedulerState?.nextDueAtIso ?? '')).toBeGreaterThan(now.getTime())
   })
 
   it('requeues an incomplete scheduler reservation when the recorded run is missing', async () => {
@@ -1992,7 +1992,7 @@ Run the cron task`)
 
     const schedulerState = await readScheduler(dueDir, 'due-check', 'due-dir')
     expect(await createAutomationRunStore(dueDir).listRuns()).toEqual([])
-    expect(schedulerState.nextDueAtIso).toBe('2026-04-30T09:00:00.000Z')
+    expect(schedulerState?.nextDueAtIso).toBe('2026-04-30T09:00:00.000Z')
     expect(rpcCalls).toEqual([])
   })
 
@@ -2019,9 +2019,9 @@ Run the cron task`)
 
     await new AutomationScheduler({ service, now: () => new Date('2026-04-30T10:00:00.000Z') }).tick()
 
-    const schedulerState = await readScheduler(dueDir, 'due-check', 'due-dir')
+    const schedulerState = await readScheduler(dueDir, 'multi-check', 'multi-dir')
     expect(await createAutomationRunStore(dueDir).listRuns()).toEqual([])
-    expect(schedulerState.nextDueAtIso).toBe('2026-04-30T09:00:00.000Z')
+    expect(schedulerState?.nextDueAtIso).toBe('2026-04-30T09:00:00.000Z')
     expect(rpcCalls).toEqual([])
   })
 

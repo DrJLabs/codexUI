@@ -32,7 +32,7 @@ describe('createAutomationRunStore', () => {
     }))
     await store.updateRun(created.id, {
       threadId: 'thread-1',
-      state: 'completed',
+      state: 'completed_no_findings',
       readAtIso: '2026-04-30T08:05:00.000Z',
       inboxTitle: 'Done',
       inboxSummary: 'No findings',

@@ -271,6 +271,40 @@ This file tracks manual regression and feature verification steps.
 
 ---
 
+### Desktop automation runtime parity
+
+#### Feature/Change Name
+Automations use Desktop-compatible TOML definitions and Desktop SQLite runtime rows so CodexUI and Codex Desktop can stay in sync.
+
+#### Prerequisites/Setup
+1. Dev server or test server running from this branch.
+2. `$CODEX_HOME` points at a disposable test home for manual destructive checks.
+3. A Codex Desktop install is available for optional cross-app verification.
+4. Light theme and dark theme are available from the appearance switcher if inspecting the Automations UI.
+
+#### Steps
+1. Create or edit an automation in CodexUI.
+2. Confirm `$CODEX_HOME/automations/<automation-id>/automation.toml` contains the canonical name, prompt, status, `cwds`, `rrule`, model, and reasoning fields.
+3. Open `$CODEX_HOME/sqlite/codex-dev.db` if present, otherwise `$CODEX_HOME/sqlite/codex.db`, and confirm the `automations` row for that ID has matching definition fields plus `next_run_at` / `last_run_at`.
+4. Trigger a manual or scheduled run and confirm `automation_runs` contains a row for the run thread with Desktop status values: `IN_PROGRESS`, `PENDING_REVIEW`, `ACCEPTED`, or `ARCHIVED`.
+5. Start Codex Desktop and confirm CodexUI reports Desktop scheduler ownership instead of running its fallback scheduler in `auto` mode.
+6. Stop Codex Desktop, set `CODEXUI_AUTOMATIONS_SCHEDULER=auto`, and confirm CodexUI fallback scheduling can tick when desktop process detection is supported.
+7. Switch between light and dark theme and confirm the Automations UI remains readable; no theme-specific layout changes are expected from this runtime parity work.
+
+#### Expected Results
+- Definition edits are represented by Desktop-compatible `automation.toml` fields.
+- Scheduler timing is stored in Desktop SQLite, not newly written to `scheduler.json`.
+- Existing legacy `scheduler.json` and `runs/*/run.json` runtime state is migrated into Desktop SQLite once and marked with `.codexui-runtime-migrated-to-desktop-sqlite`.
+- Run lifecycle and inbox triage mirror into Desktop `automation_runs`.
+- Desktop process detection prevents a second CodexUI scheduler from racing Desktop when Desktop is active.
+- Light and dark themes remain functionally unchanged and readable.
+
+#### Rollback/Cleanup
+- Remove the disposable `$CODEX_HOME` used for testing.
+- Stop any fallback scheduler test process.
+
+---
+
 ### Startup avoids duplicate setup probes
 
 #### Feature/Change Name

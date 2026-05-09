@@ -37,7 +37,9 @@ import {
   deleteThreadHeartbeatAutomation,
   listThreadHeartbeatAutomations,
   readThreadHeartbeatAutomation,
+  writeNativeAutomation,
   writeThreadHeartbeatAutomation,
+  type ThreadAutomationRecord,
 } from './automations/nativeStore.js'
 import { parseThreadAutomationWritePayload } from './automations/legacyAdapter.js'
 import { ThreadTerminalManager } from './terminalManager.js'
@@ -6679,10 +6681,9 @@ export function createCodexBridgeMiddleware(): CodexBridgeMiddleware {
           setJson(res, 400, { error: 'Missing threadId' })
           return
         }
-        const automation = automationId
-          ? await readThreadHeartbeatAutomation(threadId, automationId)
-          : await readThreadHeartbeatAutomations(threadId)
-        setJson(res, 200, { data: automation })
+        const automation = await readThreadHeartbeatAutomation(threadId)
+        const data = automationId && automation?.id !== automationId ? null : automation
+        setJson(res, 200, { data })
         return
       }
 
@@ -6745,7 +6746,9 @@ export function createCodexBridgeMiddleware(): CodexBridgeMiddleware {
           setJson(res, 400, { error: 'threadId, name, prompt, and rrule are required' })
           return
         }
-        const automation = await writeThreadHeartbeatAutomation({ threadId, id, name, prompt, rrule, status })
+        const automation = id
+          ? await writeNativeAutomation({ kind: 'heartbeat', threadId, id, name, prompt, rrule, status })
+          : await writeThreadHeartbeatAutomation({ threadId, name, prompt, rrule, status })
         setJson(res, 200, { data: automation })
         return
       }
@@ -6758,8 +6761,12 @@ export function createCodexBridgeMiddleware(): CodexBridgeMiddleware {
           setJson(res, 400, { error: 'threadId and automationId are required' })
           return
         }
-        const automation = await readThreadHeartbeatAutomation(threadId, automationId)
+        const automation = await readThreadHeartbeatAutomation(threadId)
         if (!automation) {
+          setJson(res, 404, { error: 'Automation not found for thread' })
+          return
+        }
+        if (automation.id !== automationId) {
           setJson(res, 404, { error: 'Automation not found for thread' })
           return
         }
@@ -6776,7 +6783,10 @@ export function createCodexBridgeMiddleware(): CodexBridgeMiddleware {
           setJson(res, 400, { error: 'Missing threadId' })
           return
         }
-        const removed = await deleteThreadHeartbeatAutomation(threadId, automationId)
+        const automation = await readThreadHeartbeatAutomation(threadId)
+        const removed = automationId && automation?.id !== automationId
+          ? false
+          : await deleteThreadHeartbeatAutomation(threadId)
         setJson(res, 200, { data: { removed } })
         return
       }

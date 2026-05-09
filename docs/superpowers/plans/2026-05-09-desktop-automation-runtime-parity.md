@@ -6,6 +6,8 @@
 
 **Architecture:** Keep `$CODEX_HOME/automations/<id>/automation.toml` as the canonical definition store. Replace CodexUI-only `scheduler.json`, `scheduler-lock*.json`, `runs/*`, and `.active-runs.json` runtime state with the same SQLite tables Desktop uses under `$CODEX_HOME/sqlite/codex-dev.db` or `$CODEX_HOME/sqlite/codex.db`. CodexUI scheduling remains opt-in fallback work: Desktop owns scheduling when the Desktop scheduler process is detected.
 
+**Implementation note:** Scheduler timing and shared run/inbox state now use Desktop SQLite. Local run JSON remains only for CodexUI-private details that Desktop `automation_runs` does not model; it is mirrored into SQLite for cross-app compatibility.
+
 **Tech Stack:** TypeScript, Node server, Express, `smol-toml`, `better-sqlite3`, Vitest.
 
 ---
