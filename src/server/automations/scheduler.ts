@@ -30,7 +30,7 @@ export class AutomationScheduler {
     maxRunsPerTick?: number
   }) {
     this.service = options.service
-    this.intervalMs = options.intervalMs ?? 60_000
+    this.intervalMs = options.intervalMs ?? 30_000
     this.now = options.now ?? (() => new Date())
     this.shouldRun = options.shouldRun ?? (() => true)
     this.leaseTtlMs = options.leaseTtlMs

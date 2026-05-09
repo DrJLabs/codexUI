@@ -302,6 +302,14 @@ function notifyHeartbeatRendererState(
 }
 
 describe('AutomationScheduler', () => {
+  it('uses the Desktop scheduler cadence and max-runs defaults', async () => {
+    const { service } = await createHarness()
+    const scheduler = new AutomationScheduler({ service })
+
+    expect((scheduler as unknown as { intervalMs: number }).intervalMs).toBe(30_000)
+    expect((scheduler as unknown as { maxRunsPerTick: number }).maxRunsPerTick).toBe(3)
+  })
+
   it('includes Desktop cron automations as scheduler candidates', async () => {
     const { codexHomeDir, service } = await createHarness()
     await writeNative(codexHomeDir, 'cron-check-dir', {
