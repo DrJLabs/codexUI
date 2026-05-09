@@ -13,7 +13,7 @@ import { createAutomationRunPaths, createAutomationRunStore } from '../runStore'
 import { AutomationScheduler } from '../scheduler'
 import { createAutomationSchedulerLeaseStore } from '../schedulerLease'
 import { createAutomationSchedulerStore, type AutomationSchedulerState } from '../schedulerStore'
-import { AutomationsService } from '../service'
+import { AutomationsService, type AutomationProjectionAdapter } from '../service'
 
 const codexHomeDirs: string[] = []
 const execFileAsync = promisify(execFile)
@@ -89,6 +89,7 @@ async function createHarness(options: {
     availableModels?: string[]
     turnStartErrorByCwd?: Record<string, Error>
     completeTurnBeforeStartReturns?: boolean
+    projectionAdapter?: AutomationProjectionAdapter | null
   } = {}) {
   const codexHomeDir = await mkdtemp(join(tmpdir(), 'codexui-automation-scheduler-'))
   codexHomeDirs.push(codexHomeDir)
@@ -152,6 +153,7 @@ async function createHarness(options: {
     policy: options.policy ?? enabledPolicy,
     enableScheduler: true,
     projectlessHomeDir: options.projectlessHomeDir,
+    projectionAdapter: options.projectionAdapter,
   })
   return { codexHomeDir, service, bridge, rpcCalls, notificationListeners }
 }
@@ -1631,6 +1633,103 @@ Run the cron task`)
       inboxSummary: 'Ready for re-review; focus on auth edge case',
       readAtIso: null,
     })
+  })
+
+  it('does not project terminal runs when kanban projection is off', async () => {
+    const projectRun = vi.fn(async () => ({ taskId: 'task-ignored' }))
+    const { codexHomeDir, service, notificationListeners } = await createHarness({
+      projectionAdapter: { projectRun },
+      threadReadById: {
+        thread_local_1: {
+          thread: {
+            id: 'thread_local_1',
+            turns: [{
+              id: 'turn_1',
+              items: [{ type: 'assistantMessage', text: 'RESULT: OK\nNo follow-up needed.' }],
+            }],
+          },
+        },
+      },
+    })
+    const repo = join(codexHomeDir, 'cron-no-projection-repo')
+    await mkdir(repo, { recursive: true })
+    const automationDir = await writeNative(codexHomeDir, 'cron-no-projection-dir', {
+      ...nativeRecord,
+      id: 'cron-no-projection',
+      kind: 'cron',
+      name: 'Cron no projection',
+      rrulePrefix: 'RRULE:',
+      targetThreadId: null,
+      executionEnvironment: 'local',
+      runMode: 'local',
+      cwd: repo,
+      cwds: [repo],
+    })
+
+    await service.runNow('cron-no-projection')
+    await Promise.all(notificationListeners.map(async (listener) => {
+      await listener({
+        method: 'turn/completed',
+        params: { threadId: 'thread_local_1', turnId: 'turn_1' },
+        atIso: '2026-05-07T12:00:00.000Z',
+      })
+    }))
+
+    const [run] = await createAutomationRunStore(automationDir).listRuns()
+    expect(projectRun).not.toHaveBeenCalled()
+    expect(run?.kanbanTaskId).toBeNull()
+  })
+
+  it('projects terminal runs when run-card projection filters match', async () => {
+    const projectRun = vi.fn(async () => ({ taskId: 'task-findings' }))
+    const { codexHomeDir, service, notificationListeners } = await createHarness({
+      projectionAdapter: { projectRun },
+      threadReadById: {
+        thread_local_1: {
+          thread: {
+            id: 'thread_local_1',
+            turns: [{
+              id: 'turn_1',
+              items: [{
+                type: 'assistantMessage',
+                text: 'Found a follow-up.\n::inbox-item{title="Needs review" summary="Review the output"}',
+              }],
+            }],
+          },
+        },
+      },
+    })
+    const repo = join(codexHomeDir, 'cron-projection-repo')
+    await mkdir(repo, { recursive: true })
+    const automationDir = await writeNative(codexHomeDir, 'cron-projection-dir', {
+      ...nativeRecord,
+      id: 'cron-projection',
+      kind: 'cron',
+      name: 'Cron projection',
+      rrulePrefix: 'RRULE:',
+      targetThreadId: null,
+      executionEnvironment: 'local',
+      runMode: 'local',
+      cwd: repo,
+      cwds: [repo],
+    }, {
+      kanbanProjection: { mode: 'run_card', createFor: 'findings_only' },
+    })
+
+    await service.runNow('cron-projection')
+    await Promise.all(notificationListeners.map(async (listener) => {
+      await listener({
+        method: 'turn/completed',
+        params: { threadId: 'thread_local_1', turnId: 'turn_1' },
+        atIso: '2026-05-07T12:00:00.000Z',
+      })
+    }))
+
+    const [run] = await createAutomationRunStore(automationDir).listRuns()
+    expect(projectRun).toHaveBeenCalledTimes(1)
+    const projectCalls = projectRun.mock.calls as unknown as Array<[{ definition: { id: string } }]>
+    expect(projectCalls[0]?.[0].definition.id).toBe('cron-projection')
+    expect(run?.kanbanTaskId).toBe('task-findings')
   })
 
   it('replays turn completions that arrive before the run is indexed', async () => {

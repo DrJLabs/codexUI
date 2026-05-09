@@ -76,10 +76,24 @@ describe('resolveAutomationSchedulerPreference', () => {
     })
   })
 
-  it('lets explicit enabled override desktop detection', () => {
+  it('lets explicit enabled override active desktop detection', () => {
     const preference = resolveAutomationSchedulerPreference({
       CODEXUI_AUTOMATIONS_SCHEDULER: 'enabled',
     }, () => true)
+
+    expect(preference.enabled).toBe(true)
+    expect(preference.shouldRun()).toBe(true)
+    expect(preference.readStatus()).toEqual({
+      mode: 'codexui',
+      desktopDetected: false,
+      detectionSupported: true,
+    })
+  })
+
+  it('lets explicit enabled run when desktop is inactive', () => {
+    const preference = resolveAutomationSchedulerPreference({
+      CODEXUI_AUTOMATIONS_SCHEDULER: 'enabled',
+    }, () => false)
 
     expect(preference.enabled).toBe(true)
     expect(preference.shouldRun()).toBe(true)

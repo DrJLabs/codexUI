@@ -756,7 +756,9 @@ export class AutomationRunner {
     store: ReturnType<typeof createAutomationRunStore>
     run: AutomationRun
   }): Promise<AutomationRun> {
-    if (!this.projectionAdapter?.projectRun || input.run.kanbanTaskId) return input.run
+    if (!this.projectionAdapter?.projectRun || input.run.kanbanTaskId || !shouldProjectAutomationRun(input.definition, input.run)) {
+      return input.run
+    }
     try {
       const result = await this.projectionAdapter.projectRun({
         definition: input.definition,
@@ -1141,6 +1143,14 @@ function extractAssistantText(response: unknown, turnId: string): { text: string
     text,
     warning: text ? null : `thread/read completed turn ${turnId} did not include assistant text`,
   }
+}
+
+function shouldProjectAutomationRun(definition: AutomationDefinition, run: AutomationRun): boolean {
+  const projection = definition.kanbanProjection
+  if (projection.mode !== 'run_card') return false
+  if (projection.createFor === 'every_run') return true
+  if (projection.createFor === 'findings_only') return run.findings === true
+  return projection.createFor === 'failures_only' && run.state === 'failed'
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {

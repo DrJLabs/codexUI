@@ -896,7 +896,7 @@ export class AutomationsService {
     store: ReturnType<typeof createAutomationRunStore>
     run: AutomationRun
   }): Promise<void> {
-    if (!this.projectionAdapter?.projectRun || input.run.kanbanTaskId) return
+    if (!this.projectionAdapter?.projectRun || input.run.kanbanTaskId || !shouldProjectAutomationRun(input.definition, input.run)) return
     try {
       const result = await this.projectionAdapter.projectRun({
         definition: input.definition,
@@ -1568,6 +1568,14 @@ function isInterruptedRunRecoveryCandidate(run: AutomationRun): boolean {
   const latestActivityIso = run.updatedAtIso || run.startedAtIso || run.createdAtIso
   const latestActivityMs = Date.parse(latestActivityIso)
   return !Number.isFinite(latestActivityMs) || Date.now() - latestActivityMs >= INTERRUPTED_RUN_RECOVERY_GRACE_MS
+}
+
+function shouldProjectAutomationRun(definition: AutomationDefinition, run: AutomationRun): boolean {
+  const projection = definition.kanbanProjection
+  if (projection.mode !== 'run_card') return false
+  if (projection.createFor === 'every_run') return true
+  if (projection.createFor === 'findings_only') return run.findings === true
+  return projection.createFor === 'failures_only' && run.state === 'failed'
 }
 
 async function withNativeRunStartLock<T>(automationsRoot: string, fn: () => Promise<T>): Promise<T> {
