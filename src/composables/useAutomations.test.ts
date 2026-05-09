@@ -538,6 +538,7 @@ function stateFixture(definitions: AutomationDefinition[]): AutomationsState {
   return {
     storageRoot: '/tmp/automations',
     featureFlags: { scheduler: false, manualRun: false, kanbanProjection: false, artifactIndexing: false },
+    schedulerOwnership: { mode: 'desktop', desktopDetected: false, detectionSupported: false },
     sourceCounts: { native: definitions.filter((definition) => definition.source === 'native').length, codexui: 0 },
     diagnostics: [],
     definitions,

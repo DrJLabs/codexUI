@@ -11,6 +11,11 @@ describe('resolveAutomationSchedulerPreference', () => {
 
     expect(preference.enabled).toBe(false)
     expect(preference.shouldRun()).toBe(false)
+    expect(preference.readStatus()).toEqual({
+      mode: 'desktop',
+      desktopDetected: false,
+      detectionSupported: true,
+    })
   })
 
   it('supports explicit best-effort auto mode when no Codex desktop process is active', () => {
@@ -20,6 +25,11 @@ describe('resolveAutomationSchedulerPreference', () => {
 
     expect(preference.enabled).toBe(true)
     expect(preference.shouldRun()).toBe(true)
+    expect(preference.readStatus()).toEqual({
+      mode: 'codexui',
+      desktopDetected: false,
+      detectionSupported: true,
+    })
   })
 
   it('pauses scheduler ticks in explicit auto mode while Codex desktop is active', () => {
@@ -29,6 +39,11 @@ describe('resolveAutomationSchedulerPreference', () => {
 
     expect(preference.enabled).toBe(true)
     expect(preference.shouldRun()).toBe(false)
+    expect(preference.readStatus()).toEqual({
+      mode: 'desktop',
+      desktopDetected: true,
+      detectionSupported: true,
+    })
   })
 
   it('keeps explicit auto mode disabled when Desktop process detection is unsupported', () => {
@@ -38,6 +53,11 @@ describe('resolveAutomationSchedulerPreference', () => {
 
     expect(preference.enabled).toBe(false)
     expect(preference.shouldRun()).toBe(false)
+    expect(preference.readStatus()).toEqual({
+      mode: 'disabled',
+      desktopDetected: false,
+      detectionSupported: false,
+    })
   })
 
   it('pauses explicit auto mode when Desktop process detection fails', () => {
@@ -49,6 +69,11 @@ describe('resolveAutomationSchedulerPreference', () => {
 
     expect(preference.enabled).toBe(true)
     expect(preference.shouldRun()).toBe(false)
+    expect(preference.readStatus()).toEqual({
+      mode: 'desktop',
+      desktopDetected: true,
+      detectionSupported: true,
+    })
   })
 
   it('lets explicit enabled override desktop detection', () => {
@@ -58,6 +83,11 @@ describe('resolveAutomationSchedulerPreference', () => {
 
     expect(preference.enabled).toBe(true)
     expect(preference.shouldRun()).toBe(true)
+    expect(preference.readStatus()).toEqual({
+      mode: 'codexui',
+      desktopDetected: false,
+      detectionSupported: true,
+    })
   })
 
   it('disables the scheduler when the env setting selects desktop ownership', () => {
@@ -67,6 +97,11 @@ describe('resolveAutomationSchedulerPreference', () => {
 
     expect(preference.enabled).toBe(false)
     expect(preference.shouldRun()).toBe(false)
+    expect(preference.readStatus()).toEqual({
+      mode: 'desktop',
+      desktopDetected: false,
+      detectionSupported: true,
+    })
   })
 
   it('disables the scheduler for unknown values instead of guessing ownership', () => {
@@ -76,6 +111,11 @@ describe('resolveAutomationSchedulerPreference', () => {
 
     expect(preference.enabled).toBe(false)
     expect(preference.shouldRun()).toBe(false)
+    expect(preference.readStatus()).toEqual({
+      mode: 'desktop',
+      desktopDetected: false,
+      detectionSupported: true,
+    })
   })
 })
 

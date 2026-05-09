@@ -14,6 +14,7 @@ describe('automationsGateway', () => {
         data: {
           storageRoot: '/tmp/automations',
           featureFlags: { scheduler: false, manualRun: false, kanbanProjection: false, artifactIndexing: false },
+          schedulerOwnership: { mode: 'desktop', desktopDetected: false, detectionSupported: false },
           sourceCounts: { native: 0, codexui: 0 },
           diagnostics: [],
           definitions: [],

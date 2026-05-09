@@ -12,6 +12,7 @@ export type CreateAutomationsMiddlewareOptions = CreateAutomationsRouterOptions 
   enableScheduler?: boolean
   schedulerIntervalMs?: number
   schedulerShouldRun?: () => boolean
+  schedulerOwnership?: CreateAutomationsRouterOptions['schedulerOwnership']
 }
 
 export function createAutomationsMiddleware(options: CreateAutomationsMiddlewareOptions = {}): AutomationsRequestHandler {

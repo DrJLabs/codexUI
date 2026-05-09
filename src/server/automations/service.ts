@@ -90,6 +90,7 @@ export type AutomationsServiceOptions = NativeAutomationStoreOptions & {
   kanbanProjectionTaskValidator?: KanbanProjectionTaskValidator | null
   artifactIndexing?: boolean
   projectlessHomeDir?: string
+  schedulerOwnership?: AutomationsState['schedulerOwnership']
 }
 
 type CodexConfigReadResult = {
@@ -199,6 +200,11 @@ export class AutomationsService {
         manualRun: this.isRunExecutionAvailable(),
         kanbanProjection: this.projectionAdapter !== null,
         artifactIndexing: this.options.artifactIndexing === true,
+      },
+      schedulerOwnership: this.options.schedulerOwnership ?? {
+        mode: this.options.enableScheduler === true ? 'codexui' : 'desktop',
+        desktopDetected: false,
+        detectionSupported: false,
       },
       sourceCounts: {
         native: definitions.filter((definition) => definition.source === 'native').length,

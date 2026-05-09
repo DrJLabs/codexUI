@@ -82,6 +82,7 @@ export function createServer(options: ServerOptions = {}): ServerInstance {
     bridge,
     enableScheduler: automationScheduler.enabled,
     schedulerShouldRun: automationScheduler.shouldRun,
+    schedulerOwnership: automationScheduler.readStatus(),
     projectRoot: process.cwd(),
   })
   const authSession = options.password ? createAuthSession(options.password) : null

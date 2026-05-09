@@ -129,6 +129,11 @@ export type AutomationsState = {
     kanbanProjection: boolean
     artifactIndexing: boolean
   }
+  schedulerOwnership: {
+    mode: 'desktop' | 'codexui' | 'disabled'
+    desktopDetected: boolean
+    detectionSupported: boolean
+  }
   sourceCounts: {
     native: number
     codexui: number

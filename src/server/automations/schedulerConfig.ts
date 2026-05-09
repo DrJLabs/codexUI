@@ -4,6 +4,11 @@ import { readdirSync, readFileSync } from 'node:fs'
 export type AutomationSchedulerPreference = {
   enabled: boolean
   shouldRun: () => boolean
+  readStatus: () => {
+    mode: 'desktop' | 'codexui' | 'disabled'
+    desktopDetected: boolean
+    detectionSupported: boolean
+  }
 }
 
 export type CodexDesktopProcessDetectorOptions = {
@@ -22,9 +27,21 @@ export function resolveAutomationSchedulerPreference(
   canDetectDesktop: () => boolean = canDetectCodexDesktopProcess,
 ): AutomationSchedulerPreference {
   const setting = readSchedulerSetting(env)
-  if (setting === 'enabled') return { enabled: true, shouldRun: () => true }
-  if (setting === 'disabled') return { enabled: false, shouldRun: () => false }
-  if (!canDetectDesktop()) return { enabled: false, shouldRun: () => false }
+  if (setting === 'enabled') return {
+    enabled: true,
+    shouldRun: () => true,
+    readStatus: () => ({ mode: 'codexui', desktopDetected: false, detectionSupported: canDetectDesktop() }),
+  }
+  if (setting === 'disabled') return {
+    enabled: false,
+    shouldRun: () => false,
+    readStatus: () => ({ mode: 'desktop', desktopDetected: false, detectionSupported: canDetectDesktop() }),
+  }
+  if (!canDetectDesktop()) return {
+    enabled: false,
+    shouldRun: () => false,
+    readStatus: () => ({ mode: 'disabled', desktopDetected: false, detectionSupported: false }),
+  }
   return {
     enabled: true,
     shouldRun: () => {
@@ -32,6 +49,18 @@ export function resolveAutomationSchedulerPreference(
         return !isDesktopActive()
       } catch {
         return false
+      }
+    },
+    readStatus: () => {
+      try {
+        const desktopDetected = isDesktopActive()
+        return {
+          mode: desktopDetected ? 'desktop' : 'codexui',
+          desktopDetected,
+          detectionSupported: true,
+        }
+      } catch {
+        return { mode: 'desktop', desktopDetected: true, detectionSupported: true }
       }
     },
   }

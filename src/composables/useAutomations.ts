@@ -84,6 +84,11 @@ function createEmptyState(): AutomationsState {
       kanbanProjection: false,
       artifactIndexing: false,
     },
+    schedulerOwnership: {
+      mode: 'desktop',
+      desktopDetected: false,
+      detectionSupported: false,
+    },
     sourceCounts: {
       native: 0,
       codexui: 0,
