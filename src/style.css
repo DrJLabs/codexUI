@@ -183,6 +183,14 @@
   @apply border-emerald-700 bg-emerald-950/80 text-zinc-50;
 }
 
+:root.dark .sidebar-automations-link {
+  @apply border-sky-900/70 bg-[linear-gradient(135deg,_rgba(12,74,110,0.42),_rgba(24,24,27,0.96))] text-zinc-100 hover:border-sky-700 hover:bg-sky-950;
+}
+
+:root.dark .sidebar-automations-link.is-active {
+  @apply border-sky-700 bg-sky-950/80 text-zinc-50;
+}
+
 :root.dark .sidebar-search-toggle {
   @apply text-zinc-400 hover:border-zinc-600 hover:bg-zinc-800;
 }

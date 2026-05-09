@@ -59,6 +59,21 @@
               <span class="sidebar-skills-link-subtitle">{{ t('Plugins, apps, MCPs') }}</span>
             </span>
           </button>
+          <button
+            v-if="!isSidebarCollapsed"
+            class="sidebar-automations-link"
+            :class="{ 'is-active': isAutomationsRoute }"
+            type="button"
+            @click="router.push({ name: 'automations' }); isMobile && setSidebarCollapsed(true)"
+          >
+            <span class="sidebar-automations-link-icon" aria-hidden="true">
+              <IconTablerBolt />
+            </span>
+            <span class="sidebar-skills-link-copy">
+              <span class="sidebar-skills-link-title">{{ t('Automations') }}</span>
+              <span class="sidebar-skills-link-subtitle">{{ t('Scheduled chats') }}</span>
+            </span>
+          </button>
 
           <SidebarThreadTree :groups="projectGroups" :project-display-name-by-id="projectDisplayNameById"
             :project-git-repo-by-name="projectGitRepoByName"
@@ -483,7 +498,7 @@
         :style="contentStyle"
       >
         <span v-if="isVirtualKeyboardOpen" class="content-keyboard-spacer" aria-hidden="true" />
-        <ContentHeader :title="contentTitle" :accent="isSkillsRoute">
+        <ContentHeader :title="contentTitle" :accent="isSkillsRoute || isAutomationsRoute">
           <template #leading>
             <SidebarThreadControls
               v-if="isSidebarCollapsed || isMobile"
@@ -493,7 +508,7 @@
               @toggle-sidebar="setSidebarCollapsed(!isSidebarCollapsed)"
               @start-new-thread="onStartNewThreadFromToolbar"
             />
-            <span v-if="isSkillsRoute" class="skills-route-header-icon" aria-hidden="true">
+            <span v-if="isSkillsRoute || isAutomationsRoute" class="skills-route-header-icon" aria-hidden="true">
               <IconTablerBolt />
             </span>
           </template>
@@ -545,6 +560,9 @@
               @skills-changed="onSkillsChanged"
               @try-item="onTryDirectoryItem"
             />
+          </template>
+          <template v-else-if="isAutomationsRoute">
+            <AutomationsPage />
           </template>
           <template v-else-if="isHomeRoute">
             <div class="content-grid content-grid-home">
@@ -1008,6 +1026,7 @@ const ThreadConversation = defineAsyncComponent(() => import('./components/conte
 const ThreadTerminalPanel = defineAsyncComponent(() => import('./components/content/ThreadTerminalPanel.vue'))
 const ReviewPane = defineAsyncComponent(() => import('./components/content/ReviewPane.vue'))
 const DirectoryHub = defineAsyncComponent(() => import('./components/content/DirectoryHub.vue'))
+const AutomationsPage = defineAsyncComponent(() => import('./components/automations/AutomationsPage.vue'))
 const { t, uiLanguage, uiLanguageOptions, setUiLanguage } = useUiLanguage()
 
 const SIDEBAR_COLLAPSED_STORAGE_KEY = 'codex-web-local.sidebar-collapsed.v1'
@@ -1395,7 +1414,9 @@ const routeThreadId = computed(() => {
 
 const isHomeRoute = computed(() => route.name === 'home')
 const isSkillsRoute = computed(() => route.name === 'skills')
+const isAutomationsRoute = computed(() => route.name === 'automations')
 const contentTitle = computed(() => {
+  if (isAutomationsRoute.value) return t('Automations')
   if (isSkillsRoute.value) return t('Skills')
   if (isHomeRoute.value) return t('Start new thread')
   return selectedThread.value?.title ?? t('Choose a thread')
@@ -1460,7 +1481,7 @@ const isTerminalKeyboardLayoutActive = computed(() => (
 ))
 const directoryCwd = computed(() => selectedThread.value?.cwd?.trim() ?? newThreadCwd.value.trim())
 const isSelectedThreadInProgress = computed(() => !isHomeRoute.value && selectedThread.value?.inProgress === true)
-const showThreadContextBadge = computed(() => !isHomeRoute.value && !isSkillsRoute.value && selectedThreadId.value.trim().length > 0)
+const showThreadContextBadge = computed(() => !isHomeRoute.value && !isSkillsRoute.value && !isAutomationsRoute.value && selectedThreadId.value.trim().length > 0)
 const isAccountSwitchBlocked = computed(() =>
   isSendingMessage.value ||
   isInterruptingTurn.value ||
@@ -3424,7 +3445,7 @@ function onImplementPlan(payload: { turnId: string }): void {
 
 
 function onExportChat(): void {
-  if (isHomeRoute.value || isSkillsRoute.value || typeof document === 'undefined') return
+  if (isHomeRoute.value || isSkillsRoute.value || isAutomationsRoute.value || typeof document === 'undefined') return
   if (!selectedThread.value || filteredMessages.value.length === 0) return
   const markdown = buildThreadMarkdown()
   const fileName = buildExportFileName()
@@ -3880,7 +3901,7 @@ async function syncThreadSelectionWithRoute(): Promise<void> {
     do {
       hasPendingRouteSync = false
 
-      if (route.name === 'home' || route.name === 'skills') {
+      if (route.name === 'home' || route.name === 'skills' || route.name === 'automations') {
         if (selectedThreadId.value !== '') {
           await selectThread('')
         }
@@ -3947,7 +3968,7 @@ watch(
   async (threadId) => {
     if (!hasInitialized.value) return
     if (isRouteSyncInProgress.value) return
-    if (isHomeRoute.value || isSkillsRoute.value) return
+    if (isHomeRoute.value || isSkillsRoute.value || isAutomationsRoute.value) return
 
     if (!threadId) {
       if (route.name !== 'home') {
@@ -4266,6 +4287,22 @@ async function loadWorktreeBranches(sourceCwd: string): Promise<void> {
 
 .sidebar-skills-link.is-active {
   @apply border-transparent bg-zinc-100 text-zinc-950;
+}
+
+.sidebar-automations-link {
+  @apply mx-2 flex items-center gap-3 rounded-2xl border border-transparent bg-transparent px-3 py-2.5 text-left text-zinc-700 transition hover:bg-sky-50 hover:text-sky-950 cursor-pointer;
+}
+
+.sidebar-automations-link.is-active {
+  @apply border-transparent bg-sky-50 text-sky-950;
+}
+
+.sidebar-automations-link-icon {
+  @apply flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-sky-600 text-white;
+}
+
+.sidebar-automations-link-icon :deep(svg) {
+  @apply h-5 w-5;
 }
 
 .sidebar-skills-link-icon {

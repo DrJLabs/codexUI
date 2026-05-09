@@ -1,6 +1,8 @@
 import { defineConfig } from "vite";
 import vue from "@vitejs/plugin-vue";
 import { createCodexBridgeMiddleware } from "./src/server/codexAppServerBridge";
+import { createAutomationsMiddleware } from "./src/server/automations";
+import { resolveAutomationSchedulerPreference } from "./src/server/automations/schedulerConfig";
 import { createDirectoryListingHtml, createTextEditorHtml, decodeBrowsePath, getLocalDirectoryListing, isTextEditableFile, normalizeLocalPath } from "./src/server/localBrowseUi";
 import tailwindcss from "@tailwindcss/vite";
 import { spawnSync } from "node:child_process";
@@ -89,18 +91,44 @@ function readEnvValueFromFile(filePath: string, key: string): string {
     if (separator <= 0) continue;
     const currentKey = trimmed.slice(0, separator).trim();
     if (currentKey !== key) continue;
-    return trimmed.slice(separator + 1).trim();
+    return normalizeEnvValue(trimmed.slice(separator + 1));
   }
   return "";
 }
 
-function resolveViteRollbackDebugFallback(): string {
-  const fromEnvLocal = readEnvValueFromFile(".env.local", "VITE_ROLLBACK_DEBUG");
+function normalizeEnvValue(value: string): string {
+  const trimmed = value.trim();
+  if (
+    (trimmed.startsWith('"') && trimmed.endsWith('"')) ||
+    (trimmed.startsWith("'") && trimmed.endsWith("'"))
+  ) {
+    return trimmed.slice(1, -1).trim();
+  }
+  return trimmed;
+}
+
+function readEnvValue(key: string): string {
+  const fromProcess = process.env[key];
+  if (fromProcess && fromProcess.trim()) return normalizeEnvValue(fromProcess);
+  const fromEnvLocal = readEnvValueFromFile(".env.local", key);
   if (fromEnvLocal) return fromEnvLocal;
-  return readEnvValueFromFile(".env", "VITE_ROLLBACK_DEBUG");
+  return readEnvValueFromFile(".env", key);
+}
+
+function resolveViteRollbackDebugFallback(): string {
+  return readEnvValue("VITE_ROLLBACK_DEBUG");
 }
 
 const viteRollbackDebugFallback = resolveViteRollbackDebugFallback();
+
+function resolveViteAllowedHosts(): string[] {
+  const defaults = [".trycloudflare.com"];
+  const configured = readEnvValue("CODEXUI_VITE_ALLOWED_HOSTS")
+    .split(/[,\s]+/u)
+    .map((host) => host.trim())
+    .filter(Boolean);
+  return [...new Set([...defaults, ...configured])];
+}
 
 export default defineConfig({
   define: {
@@ -111,7 +139,7 @@ export default defineConfig({
   server: {
     host: "0.0.0.0",
     port: 5173,
-    allowedHosts: [".trycloudflare.com"],
+    allowedHosts: resolveViteAllowedHosts(),
     watch: {
       ignored: [
         '**/.omx/**',
@@ -130,6 +158,13 @@ export default defineConfig({
       configureServer(server) {
         process.env.CODEXUI_SERVER_PORT = String(server.config.server.port ?? 5173);
         const bridge = createCodexBridgeMiddleware();
+        const automationScheduler = resolveAutomationSchedulerPreference();
+        const automations = createAutomationsMiddleware({
+          bridge,
+          enableScheduler: automationScheduler.enabled,
+          schedulerShouldRun: automationScheduler.shouldRun,
+          projectRoot: process.cwd(),
+        });
         const httpServer = server.httpServer;
         if (httpServer) {
           httpServer.once("listening", () => {
@@ -373,8 +408,15 @@ export default defineConfig({
             res.end(JSON.stringify({ error: "Write failed." }));
           });
         });
+        // Development-only: scripts/dev.cjs starts Vite with --no-password, so
+        // this mount intentionally mirrors the open dev server instead of
+        // creating a separate automation-only auth layer.
+        server.middlewares.use("/codex-api/automations", (req, res, next) => {
+          automations(req as never, res as never, next);
+        });
         server.middlewares.use(bridge);
         server.httpServer?.once("close", () => {
+          automations.dispose?.();
           bridge.dispose();
         });
       },

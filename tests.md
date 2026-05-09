@@ -271,6 +271,65 @@ This file tracks manual regression and feature verification steps.
 
 ---
 
+### Env-driven Vite dev-server allowed hosts
+
+#### Feature/Change Name
+The Vite dev server reads additional allowed host patterns from `CODEXUI_VITE_ALLOWED_HOSTS` in the shell environment, `.env.local`, or `.env`.
+
+#### Prerequisites/Setup
+1. `.env` or `.env.local` contains `CODEXUI_VITE_ALLOWED_HOSTS=.tail7570d1.ts.net`.
+2. Dev server is started with `pnpm run dev -- --host 0.0.0.0 --port 5173`.
+
+#### Steps
+1. Run `pnpm run build:frontend`.
+2. Start the dev server on port 5173.
+3. Run `curl -sS -H 'Host: codexui.tail7570d1.ts.net' -o /dev/null -w '%{http_code}\n' http://127.0.0.1:5173/`.
+4. Run `curl -sS -H 'Host: codexui-dev.tail7570d1.ts.net' -o /dev/null -w '%{http_code}\n' http://127.0.0.1:5173/`.
+
+#### Expected Results
+- The frontend build completes successfully.
+- Both Tailscale host-header requests return `200`.
+- Localhost remains reachable at `http://127.0.0.1:5173/`.
+
+#### Rollback/Cleanup
+- Remove `CODEXUI_VITE_ALLOWED_HOSTS` from `.env` or `.env.local` if remote dev-server access is no longer needed.
+
+---
+
+### Desktop automation runtime parity
+
+#### Feature/Change Name
+Automations use Desktop-compatible TOML definitions and Desktop SQLite runtime rows so CodexUI and Codex Desktop can stay in sync.
+
+#### Prerequisites/Setup
+1. Dev server or test server running from this branch.
+2. `$CODEX_HOME` points at a disposable test home for manual destructive checks.
+3. A Codex Desktop install is available for optional cross-app verification.
+4. Light theme and dark theme are available from the appearance switcher if inspecting the Automations UI.
+
+#### Steps
+1. Create or edit an automation in CodexUI.
+2. Confirm `$CODEX_HOME/automations/<automation-id>/automation.toml` contains the canonical name, prompt, status, `cwds`, `rrule`, model, and reasoning fields.
+3. Open `$CODEX_HOME/sqlite/codex-dev.db` if present, otherwise `$CODEX_HOME/sqlite/codex.db`, and confirm the `automations` row for that ID has matching definition fields plus `next_run_at` / `last_run_at`.
+4. Trigger a manual or scheduled run and confirm `automation_runs` contains a row for the run thread with Desktop status values: `IN_PROGRESS`, `PENDING_REVIEW`, `ACCEPTED`, or `ARCHIVED`.
+5. Start Codex Desktop and confirm CodexUI reports Desktop scheduler ownership instead of running its fallback scheduler in `auto` mode.
+6. Stop Codex Desktop, set `CODEXUI_AUTOMATIONS_SCHEDULER=auto`, and confirm CodexUI fallback scheduling can tick when desktop process detection is supported.
+7. Switch between light and dark theme and confirm the Automations UI remains readable; no theme-specific layout changes are expected from this runtime parity work.
+
+#### Expected Results
+- Definition edits are represented by Desktop-compatible `automation.toml` fields.
+- Scheduler timing is stored in Desktop SQLite, not newly written to `scheduler.json`.
+- Existing legacy `scheduler.json` and `runs/*/run.json` runtime state is migrated into Desktop SQLite once and marked with `.codexui-runtime-migrated-to-desktop-sqlite`.
+- Run lifecycle and inbox triage mirror into Desktop `automation_runs`.
+- Desktop process detection prevents a second CodexUI scheduler from racing Desktop when Desktop is active.
+- Light and dark themes remain functionally unchanged and readable.
+
+#### Rollback/Cleanup
+- Remove the disposable `$CODEX_HOME` used for testing.
+- Stop any fallback scheduler test process.
+
+---
+
 ### Startup avoids duplicate setup probes
 
 #### Feature/Change Name

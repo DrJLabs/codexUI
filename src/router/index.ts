@@ -1,12 +1,10 @@
-import { createRouter, createWebHashHistory } from 'vue-router'
+import { createRouter, createWebHashHistory, type RouteRecordRaw } from 'vue-router'
 
 const EmptyRouteView = {
   render: () => null,
 }
 
-const router = createRouter({
-  history: createWebHashHistory(),
-  routes: [
+export const routes: RouteRecordRaw[] = [
     {
       path: '/',
       name: 'home',
@@ -23,11 +21,20 @@ const router = createRouter({
       component: EmptyRouteView,
     },
     {
+      path: '/automations',
+      name: 'automations',
+      component: EmptyRouteView,
+    },
+    {
       path: '/new-thread',
       redirect: { name: 'home' },
     },
     { path: '/:pathMatch(.*)*', redirect: { name: 'home' } },
-  ],
+  ]
+
+const router = createRouter({
+  history: createWebHashHistory(),
+  routes,
 })
 
 export default router

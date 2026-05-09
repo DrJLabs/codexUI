@@ -6,6 +6,8 @@ import { writeFile, stat } from 'node:fs/promises'
 import express, { type Express } from 'express'
 import { createCodexBridgeMiddleware } from './codexAppServerBridge.js'
 import { createAuthSession } from './authMiddleware.js'
+import { createAutomationsMiddleware } from './automations/index.js'
+import { resolveAutomationSchedulerPreference } from './automations/schedulerConfig.js'
 import { createDirectoryListingHtml, createTextEditorHtml, decodeBrowsePath, getLocalDirectoryListing, isTextEditableFile, normalizeLocalPath } from './localBrowseUi.js'
 import { WebSocketServer, type WebSocket } from 'ws'
 
@@ -75,6 +77,14 @@ function readWildcardPathParam(value: unknown): string {
 export function createServer(options: ServerOptions = {}): ServerInstance {
   const app = express()
   const bridge = createCodexBridgeMiddleware()
+  const automationScheduler = resolveAutomationSchedulerPreference()
+  const automations = createAutomationsMiddleware({
+    bridge,
+    enableScheduler: automationScheduler.enabled,
+    schedulerShouldRun: automationScheduler.shouldRun,
+    schedulerOwnership: automationScheduler.readStatus(),
+    projectRoot: process.cwd(),
+  })
   const authSession = options.password ? createAuthSession(options.password) : null
 
   // 1. Auth middleware (if password is set)
@@ -82,10 +92,13 @@ export function createServer(options: ServerOptions = {}): ServerInstance {
     app.use(authSession.middleware)
   }
 
-  // 2. Bridge middleware for /codex-api/*
+  // 2. Automations own their API path before the generic bridge.
+  app.use('/codex-api/automations', automations)
+
+  // 3. Bridge middleware for /codex-api/*
   app.use(bridge)
 
-  // 3. Serve local images referenced in markdown (desktop parity for absolute image paths)
+  // 4. Serve local images referenced in markdown (desktop parity for absolute image paths)
   app.get('/codex-local-image', (req, res) => {
     const rawPath = typeof req.query.path === 'string' ? req.query.path : ''
     const localPath = normalizeLocalImagePath(rawPath)
@@ -251,7 +264,10 @@ export function createServer(options: ServerOptions = {}): ServerInstance {
 
   return {
     app,
-    dispose: () => bridge.dispose(),
+    dispose: () => {
+      automations.dispose?.()
+      bridge.dispose()
+    },
     attachWebSocket: (server: HttpServer) => {
       const wss = new WebSocketServer({ noServer: true })
 
