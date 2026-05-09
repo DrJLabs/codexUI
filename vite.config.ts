@@ -91,18 +91,44 @@ function readEnvValueFromFile(filePath: string, key: string): string {
     if (separator <= 0) continue;
     const currentKey = trimmed.slice(0, separator).trim();
     if (currentKey !== key) continue;
-    return trimmed.slice(separator + 1).trim();
+    return normalizeEnvValue(trimmed.slice(separator + 1));
   }
   return "";
 }
 
-function resolveViteRollbackDebugFallback(): string {
-  const fromEnvLocal = readEnvValueFromFile(".env.local", "VITE_ROLLBACK_DEBUG");
+function normalizeEnvValue(value: string): string {
+  const trimmed = value.trim();
+  if (
+    (trimmed.startsWith('"') && trimmed.endsWith('"')) ||
+    (trimmed.startsWith("'") && trimmed.endsWith("'"))
+  ) {
+    return trimmed.slice(1, -1).trim();
+  }
+  return trimmed;
+}
+
+function readEnvValue(key: string): string {
+  const fromProcess = process.env[key];
+  if (fromProcess && fromProcess.trim()) return normalizeEnvValue(fromProcess);
+  const fromEnvLocal = readEnvValueFromFile(".env.local", key);
   if (fromEnvLocal) return fromEnvLocal;
-  return readEnvValueFromFile(".env", "VITE_ROLLBACK_DEBUG");
+  return readEnvValueFromFile(".env", key);
+}
+
+function resolveViteRollbackDebugFallback(): string {
+  return readEnvValue("VITE_ROLLBACK_DEBUG");
 }
 
 const viteRollbackDebugFallback = resolveViteRollbackDebugFallback();
+
+function resolveViteAllowedHosts(): string[] {
+  const defaults = [".trycloudflare.com"];
+  const configured = readEnvValue("CODEXUI_VITE_ALLOWED_HOSTS")
+    .split(/[,\s]+/u)
+    .map((host) => host.trim())
+    .filter(Boolean);
+  return [...new Set([...defaults, ...configured])];
+}
 
 export default defineConfig({
   define: {
@@ -113,7 +139,7 @@ export default defineConfig({
   server: {
     host: "0.0.0.0",
     port: 5173,
-    allowedHosts: [".trycloudflare.com"],
+    allowedHosts: resolveViteAllowedHosts(),
     watch: {
       ignored: [
         '**/.omx/**',

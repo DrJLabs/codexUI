@@ -271,6 +271,31 @@ This file tracks manual regression and feature verification steps.
 
 ---
 
+### Env-driven Vite dev-server allowed hosts
+
+#### Feature/Change Name
+The Vite dev server reads additional allowed host patterns from `CODEXUI_VITE_ALLOWED_HOSTS` in the shell environment, `.env.local`, or `.env`.
+
+#### Prerequisites/Setup
+1. `.env` or `.env.local` contains `CODEXUI_VITE_ALLOWED_HOSTS=.tail7570d1.ts.net`.
+2. Dev server is started with `pnpm run dev -- --host 0.0.0.0 --port 5173`.
+
+#### Steps
+1. Run `pnpm run build:frontend`.
+2. Start the dev server on port 5173.
+3. Run `curl -sS -H 'Host: codexui.tail7570d1.ts.net' -o /dev/null -w '%{http_code}\n' http://127.0.0.1:5173/`.
+4. Run `curl -sS -H 'Host: codexui-dev.tail7570d1.ts.net' -o /dev/null -w '%{http_code}\n' http://127.0.0.1:5173/`.
+
+#### Expected Results
+- The frontend build completes successfully.
+- Both Tailscale host-header requests return `200`.
+- Localhost remains reachable at `http://127.0.0.1:5173/`.
+
+#### Rollback/Cleanup
+- Remove `CODEXUI_VITE_ALLOWED_HOSTS` from `.env` or `.env.local` if remote dev-server access is no longer needed.
+
+---
+
 ### Desktop automation runtime parity
 
 #### Feature/Change Name
