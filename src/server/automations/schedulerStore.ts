@@ -11,6 +11,8 @@ import {
   type DesktopAutomationSqliteOptions,
 } from './desktopSqlite'
 
+// Desktop SQLite is the canonical shared runtime store for scheduler timing.
+// This adapter intentionally does not create or update legacy scheduler.json files.
 export type AutomationSchedulerState = {
   automationId: string
   sourceDirName: string

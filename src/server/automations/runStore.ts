@@ -10,6 +10,8 @@ import {
   upsertDesktopAutomationRunRow,
 } from './desktopSqlite'
 
+// Desktop SQLite is mirrored for cross-app run/inbox state. Local JSON files remain
+// only for CodexUI-private run details that do not exist in Desktop automation_runs.
 const ACTIVE_RUN_INDEX_LOCK_TIMEOUT_MS = 5000
 const ACTIVE_RUN_INDEX_LOCK_POLL_MS = 10
 const ACTIVE_RUN_INDEX_STALE_LOCK_MS = 30_000
@@ -136,7 +138,7 @@ export function createAutomationRunStore(automationDirPath: string): AutomationR
   }
 }
 
-function syncDesktopAutomationRun(run: AutomationRun, codexHomeDir: string | null): void {
+export function syncDesktopAutomationRun(run: AutomationRun, codexHomeDir: string | null): void {
   if (!codexHomeDir) return
   const handle = openDesktopAutomationSqlite(codexHomeDir ? { codexHomeDir } : {})
   try {

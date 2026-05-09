@@ -22,6 +22,7 @@ import {
   type CodexConfigProfileDefaults,
 } from '../execution/runProfiles'
 import { AutomationConflictError, AutomationDeferredRunError, AutomationNotFoundError, AutomationValidationError } from './errors.js'
+import { migrateLegacyAutomationRuntimeToDesktopSqlite } from './legacyRuntimeMigration'
 import { isProjectlessCwd } from './projectless'
 import {
   deleteNativeAutomationBySourceDir,
@@ -459,6 +460,7 @@ export class AutomationsService {
   }
 
   async listSchedulerEntries(): Promise<AutomationSchedulerEntry[]> {
+    await migrateLegacyAutomationRuntimeToDesktopSqlite(this.options)
     const entries = await listNativeAutomationEntries(this.options)
     const schedulerEntries: AutomationSchedulerEntry[] = []
     for (const entry of entries.records) {
@@ -926,6 +928,7 @@ export class AutomationsService {
     diagnostics: AutomationDiagnostic[]
     storageRoot: string
   }> {
+    await migrateLegacyAutomationRuntimeToDesktopSqlite(this.options)
     const entries = await listNativeAutomationEntries(this.options)
     const definitions: AutomationDefinition[] = []
     const diagnostics = [...entries.diagnostics]
