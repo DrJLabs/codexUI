@@ -39,6 +39,7 @@
   "pnpm": {
     "onlyBuiltDependencies": [
       "@firebase/util",
+      "better-sqlite3",
       "esbuild",
       "node-pty",
       "protobufjs"
@@ -61,6 +62,7 @@
     "@composio/client": "0.1.0-alpha.66",
     "@xterm/addon-fit": "^0.11.0",
     "@xterm/xterm": "^6.0.0",
+    "better-sqlite3": "^11.10.0",
     "commander": "^13.1.0",
     "express": "^5.1.0",
     "firebase": "^12.2.1",
