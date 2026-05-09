@@ -172,8 +172,9 @@ export class AutomationScheduler {
     schedulerState: AutomationSchedulerState,
     nowIso: string,
   ): Promise<AutomationSchedulerState> {
-    if (!schedulerState.lastScheduledRunId || !schedulerState.lastDueAtIso) return schedulerState
-    if (await this.service.hasRun(entry.definition.id, schedulerState.lastScheduledRunId)) return schedulerState
+    if (!schedulerState.lastDueAtIso) return schedulerState
+    if (schedulerState.lastScheduledRunId && await this.service.hasRun(entry.definition.id, schedulerState.lastScheduledRunId)) return schedulerState
+    if (!schedulerState.lastScheduledRunId && await this.service.hasRunForDue(entry.definition.id, schedulerState.lastDueAtIso)) return schedulerState
     return await this.service.clearIncompleteSchedulerReservation(
       entry.definition.id,
       schedulerState.lastDueAtIso,

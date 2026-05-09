@@ -1,6 +1,15 @@
-import { mkdir, readFile } from 'node:fs/promises'
-import { dirname, join } from 'node:path'
-import { writeFileAtomic } from './fileWrites'
+import {
+  closeDesktopAutomationSqlite,
+  isoToMs,
+  msToIso,
+  openDesktopAutomationSqlite,
+  readDesktopAutomationRuntimeRow,
+  resolveDesktopAutomationSqlitePath,
+  updateDesktopAutomationTiming,
+  type DesktopAutomationRuntimeRow,
+  type DesktopAutomationSqliteHandle,
+  type DesktopAutomationSqliteOptions,
+} from './desktopSqlite'
 
 export type AutomationSchedulerState = {
   automationId: string
@@ -20,35 +29,66 @@ export type MissingSchedulerStateInput = {
   sourceDirName: string
 }
 
-export function createAutomationSchedulerStore(automationDirPath: string) {
-  const schedulerJsonPath = join(automationDirPath, 'scheduler.json')
+export type AutomationSchedulerStoreOptions = DesktopAutomationSqliteOptions
+
+export function createAutomationSchedulerStore(
+  _automationDirPath: string,
+  options: AutomationSchedulerStoreOptions = {},
+) {
+  const databasePath = resolveDesktopAutomationSqlitePath(options)
+
+  async function readPersistedState(input: MissingSchedulerStateInput): Promise<AutomationSchedulerState | null> {
+    const identity = normalizeMissingSchedulerStateInput(input)
+
+    return withDesktopSqlite(databasePath, (handle) => {
+      const row = readDesktopAutomationRuntimeRow(handle, identity.automationId)
+      if (!row) return null
+      return mapRuntimeRowToSchedulerState(row, identity.sourceDirName)
+    })
+  }
 
   return {
-    path: schedulerJsonPath,
+    path: databasePath,
 
-    async readState(): Promise<AutomationSchedulerState | null> {
-      try {
-        return parseState(await readFile(schedulerJsonPath, 'utf8'))
-      } catch (error) {
-        if (isNodeError(error) && error.code === 'ENOENT') return null
-        throw error
-      }
+    async readState(input: MissingSchedulerStateInput): Promise<AutomationSchedulerState | null> {
+      return await readPersistedState(input)
     },
 
     async readOrDefault(input: MissingSchedulerStateInput): Promise<AutomationSchedulerState> {
-      return await this.readState() ?? createMissingSchedulerState(input)
+      const normalizedInput = normalizeMissingSchedulerStateInput(input)
+      return await readPersistedState(normalizedInput) ?? createMissingSchedulerState(normalizedInput)
     },
 
     async writeState(state: AutomationSchedulerState): Promise<AutomationSchedulerState> {
       const normalized = parseState(JSON.stringify(state))
-      await mkdir(dirname(schedulerJsonPath), { recursive: true })
-      await writeFileAtomic(schedulerJsonPath, `${JSON.stringify(normalized, null, 2)}\n`)
-      return normalized
+      const nextRunAt = isoToMs(normalized.nextDueAtIso)
+      const lastRunAt = isoToMs(normalized.lastDueAtIso)
+      const updatedAt = isoToMs(normalized.updatedAtIso)
+
+      return withDesktopSqlite(databasePath, (handle) => {
+        const existing = readDesktopAutomationRuntimeRow(handle, normalized.automationId)
+        if (!existing) {
+          return normalized
+        }
+
+        const persisted = updateDesktopAutomationTiming(handle, {
+          id: normalized.automationId,
+          nextRunAt,
+          lastRunAt,
+          updatedAt,
+        })
+        if (!persisted) throw new Error(`Failed to write automation scheduler state: ${normalized.automationId}`)
+
+        return normalized
+      })
     },
 
     async updateState(update: Partial<AutomationSchedulerState>): Promise<AutomationSchedulerState> {
-      const current = await this.readState()
-      if (!current) throw new Error('Cannot update missing automation scheduler state')
+      const defaultState = readDefaultFromUpdate(update)
+      const current = await this.readState({
+        automationId: defaultState.automationId,
+        sourceDirName: defaultState.sourceDirName,
+      }) ?? defaultState
       return await this.writeState({ ...current, ...update })
     },
   }
@@ -87,6 +127,51 @@ function parseState(raw: string): AutomationSchedulerState {
   }
 }
 
+function normalizeMissingSchedulerStateInput(input: MissingSchedulerStateInput): MissingSchedulerStateInput {
+  return {
+    automationId: readIdentity(input.automationId, 'automationId'),
+    sourceDirName: readIdentity(input.sourceDirName, 'sourceDirName'),
+  }
+}
+
+function readDefaultFromUpdate(update: Partial<AutomationSchedulerState>): AutomationSchedulerState {
+  if (typeof update.automationId !== 'string' || typeof update.sourceDirName !== 'string') {
+    throw new Error('Cannot update missing automation scheduler state')
+  }
+  return createMissingSchedulerState({
+    automationId: update.automationId,
+    sourceDirName: update.sourceDirName,
+  })
+}
+
+function withDesktopSqlite<T>(databasePath: string, operation: (handle: DesktopAutomationSqliteHandle) => T): T {
+  const handle = openDesktopAutomationSqlite({ databasePath })
+  try {
+    return operation(handle)
+  } finally {
+    closeDesktopAutomationSqlite(handle)
+  }
+}
+
+function mapRuntimeRowToSchedulerState(
+  row: DesktopAutomationRuntimeRow,
+  sourceDirName: string,
+): AutomationSchedulerState {
+  const automationId = readIdentity(row.id, 'automationId')
+  return {
+    automationId,
+    sourceDirName: readIdentity(sourceDirName, 'sourceDirName'),
+    scheduleHash: '',
+    nextDueAtIso: msToIso(row.nextRunAt),
+    lastDueAtIso: msToIso(row.lastRunAt),
+    lastScheduledRunId: null,
+    lastEvaluatedAtIso: null,
+    missedRunPolicy: 'one_catch_up',
+    unsupportedReason: null,
+    updatedAtIso: msToIso(row.updatedAt),
+  }
+}
+
 function readIdentity(value: unknown, field: string): string {
   if (typeof value !== 'string' || !isSafeIdentity(value)) {
     throw new Error(`Invalid scheduler state ${field}`)
@@ -106,8 +191,4 @@ function readNullableIso(value: unknown, field: string): string | null {
     throw new Error(`Invalid scheduler state ${field}`)
   }
   return value
-}
-
-function isNodeError(error: unknown): error is NodeJS.ErrnoException {
-  return error instanceof Error && 'code' in error
 }
