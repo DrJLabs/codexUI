@@ -1521,7 +1521,7 @@ Run the cron task`)
     ])
   })
 
-  it('counts earlier folders from the same scheduled automation against global capacity', async () => {
+  it('rejects scheduled multi-folder runs when capacity cannot reserve every folder', async () => {
     const policy = { ...enabledPolicy, maxGlobalActiveRuns: 1 } as unknown as AutomationExecutionPolicy
     const repoA = join(tmpdir(), 'codexui-cron-capacity-a')
     const repoB = join(tmpdir(), 'codexui-cron-capacity-b')
@@ -1543,15 +1543,14 @@ Run the cron task`)
       reasoningEffort: 'low',
     })
 
-    const run = await service.runScheduled('capacity-cron', {
+    await expect(service.runScheduled('capacity-cron', {
       dueAtIso: '2026-05-07T12:00:00.000Z',
       nextDueAtIso: '2026-05-07T13:00:00.000Z',
-    })
+    })).rejects.toThrow('Automation global active run limit reached')
 
     const runs = await createAutomationRunStore(automationDir).listRuns()
-    expect(run.cwd).toBe(repoA)
-    expect(runs).toHaveLength(1)
-    expect(rpcCalls.filter((call) => call.method === 'turn/start').map((call) => (call.params as { cwd?: string }).cwd)).toEqual([repoA])
+    expect(runs).toHaveLength(0)
+    expect(rpcCalls.some((call) => call.method === 'turn/start')).toBe(false)
   })
 
   it('projects Desktop inbox directives into local run history without storing the directive in the summary', async () => {

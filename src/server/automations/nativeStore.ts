@@ -4,6 +4,7 @@ import { createRequire } from 'node:module'
 import { join } from 'node:path'
 import type { AutomationDiagnostic, AutomationRunMode } from '../../types/automations'
 import { resolveCodexHomeDir } from './paths'
+import { writeFileAtomic } from './fileWrites'
 
 const { parse: parseTomlDocument } = createRequire(import.meta.url)('smol-toml') as {
   parse: (input: string) => unknown
@@ -815,7 +816,7 @@ export async function writeNativeAutomation(
   }
 
   await mkdir(automationDir, { recursive: true })
-  await writeFile(join(automationDir, 'automation.toml'), serializeAutomationToml(record, previousRaw), 'utf8')
+  await writeFileAtomic(join(automationDir, 'automation.toml'), serializeAutomationToml(record, previousRaw))
   const memoryPath = join(automationDir, 'memory.md')
   try {
     await stat(memoryPath)
@@ -843,7 +844,7 @@ export async function writeNativeAutomationBySourceDir(
     previousRaw = undefined
   }
   await mkdir(automationDir, { recursive: true })
-  await writeFile(automationTomlPath, serializeAutomationToml(record, previousRaw), 'utf8')
+  await writeFileAtomic(automationTomlPath, serializeAutomationToml(record, previousRaw))
   const memoryPath = join(automationDir, 'memory.md')
   try {
     await stat(memoryPath)

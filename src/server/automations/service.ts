@@ -401,6 +401,30 @@ export class AutomationsService {
     }
   }
 
+  private async assertRunStartCapacityForBatch(definitions: AutomationDefinition[]): Promise<void> {
+    const activeRuns = await this.listPersistedActiveRuns()
+    const maxGlobalActiveRuns = Number(this.policy.maxGlobalActiveRuns)
+    if (activeRuns.length + definitions.length > maxGlobalActiveRuns) {
+      throw createServiceError(409, 'Automation global active run limit reached')
+    }
+    const maxActiveRunsPerRepo = Number(this.policy.maxActiveRunsPerRepo)
+    const neededByRepo = new Map<string, number>()
+    for (const definition of definitions) {
+      const repoKey = automationRepoLimitKey(definition)
+      if (!repoKey) continue
+      neededByRepo.set(repoKey, (neededByRepo.get(repoKey) ?? 0) + 1)
+    }
+    for (const [repoKey, needed] of neededByRepo) {
+      const activeRepoRuns = activeRuns.filter((activeRun) => {
+        const runMode = activeRun.run.runMode
+        return (runMode === 'local' || runMode === 'worktree') && activeRun.run.cwd === repoKey
+      }).length
+      if (activeRepoRuns + needed > maxActiveRunsPerRepo) {
+        throw createServiceError(409, `Automation repo active run limit reached for ${repoKey}`)
+      }
+    }
+  }
+
   private async assertKanbanProjectionTarget(projection: AutomationSidecar['kanbanProjection']): Promise<void> {
     if (projection.mode !== 'attach_existing_task') return
     const validator = this.kanbanProjectionTaskValidator
@@ -623,13 +647,17 @@ export class AutomationsService {
     if (targetCwds.length === 0) {
       throw new AutomationDeferredRunError('Scheduled run skipped: no folders configured', { deferMode: 'unsupported_target' })
     }
+    const targetDefinitions = targetCwds.map((targetCwd) => definitionWithTargetCwd(definition, targetCwd))
+    for (const targetDefinition of targetDefinitions) {
+      assertAutomationRunnerTarget(targetDefinition)
+    }
+    await this.assertRunStartCapacityForBatch(targetDefinitions)
     let firstRun: AutomationRun | null = null
     let firstError: unknown = null
     try {
-      for (const targetCwd of targetCwds) {
+      for (const targetDefinition of targetDefinitions) {
+        const targetCwd = targetDefinition.cwd
         try {
-          const targetDefinition = definitionWithTargetCwd(definition, targetCwd)
-          assertAutomationRunnerTarget(targetDefinition)
           const executionOptions = input.runProfiles
             ? null
             : await this.readExecutionOptions(targetConfigCwds(targetCwd, targetDefinition), { preferCwdDefault: true })

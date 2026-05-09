@@ -1,5 +1,6 @@
-import { mkdir, readFile, writeFile } from 'node:fs/promises'
+import { mkdir, readFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
+import { writeFileAtomic } from './fileWrites'
 
 export type AutomationSchedulerState = {
   automationId: string
@@ -41,7 +42,7 @@ export function createAutomationSchedulerStore(automationDirPath: string) {
     async writeState(state: AutomationSchedulerState): Promise<AutomationSchedulerState> {
       const normalized = parseState(JSON.stringify(state))
       await mkdir(dirname(schedulerJsonPath), { recursive: true })
-      await writeFile(schedulerJsonPath, `${JSON.stringify(normalized, null, 2)}\n`, 'utf8')
+      await writeFileAtomic(schedulerJsonPath, `${JSON.stringify(normalized, null, 2)}\n`)
       return normalized
     },
 
