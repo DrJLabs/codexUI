@@ -85,10 +85,11 @@ async function createHarness(options: {
   policy?: AutomationExecutionPolicy
   turnStartDelayMs?: number
   threadReadById?: Record<string, unknown>
-  projectlessHomeDir?: string
-  availableModels?: string[]
-  turnStartErrorByCwd?: Record<string, Error>
-} = {}) {
+    projectlessHomeDir?: string
+    availableModels?: string[]
+    turnStartErrorByCwd?: Record<string, Error>
+    completeTurnBeforeStartReturns?: boolean
+  } = {}) {
   const codexHomeDir = await mkdtemp(join(tmpdir(), 'codexui-automation-scheduler-'))
   codexHomeDirs.push(codexHomeDir)
   const rpcCalls: Array<{ method: string; params: unknown }> = []
@@ -112,7 +113,18 @@ async function createHarness(options: {
           await new Promise((resolve) => setTimeout(resolve, options.turnStartDelayMs))
         }
         turnStartCount += 1
-        return { turn: { id: `turn_${turnStartCount}` } } as T
+        const turnId = `turn_${turnStartCount}`
+        if (options.completeTurnBeforeStartReturns) {
+          const threadId = readRecord(params).threadId
+          await Promise.all(notificationListeners.map(async (listener) => {
+            await listener({
+              method: 'turn/completed',
+              params: { threadId, turnId },
+              atIso: '2026-05-07T12:00:00.000Z',
+            })
+          }))
+        }
+        return { turn: { id: turnId } } as T
       }
       if (method === 'thread/read') {
         const threadId = readRecord(params).threadId
@@ -1601,6 +1613,50 @@ Run the cron task`)
       inboxTitle: 'PR comments addressed',
       inboxSummary: 'Ready for re-review; focus on auth edge case',
       readAtIso: null,
+    })
+  })
+
+  it('replays turn completions that arrive before the run is indexed', async () => {
+    const { codexHomeDir, service } = await createHarness({
+      completeTurnBeforeStartReturns: true,
+      threadReadById: {
+        thread_local_1: {
+          thread: {
+            id: 'thread_local_1',
+            turns: [{
+              id: 'turn_1',
+              items: [{
+                type: 'assistantMessage',
+                text: 'RESULT: OK\nNo follow-up needed.',
+              }],
+            }],
+          },
+        },
+      },
+    })
+    const repo = join(codexHomeDir, 'cron-fast-completion-repo')
+    await mkdir(repo, { recursive: true })
+    const automationDir = await writeNative(codexHomeDir, 'cron-fast-completion-dir', {
+      ...nativeRecord,
+      id: 'cron-fast-completion',
+      kind: 'cron',
+      name: 'Cron fast completion',
+      rrulePrefix: 'RRULE:',
+      targetThreadId: null,
+      executionEnvironment: 'local',
+      runMode: 'local',
+      cwd: repo,
+      cwds: [repo],
+    })
+
+    const returned = await service.runNow('cron-fast-completion')
+    const [run] = await createAutomationRunStore(automationDir).listRuns()
+
+    expect(returned.state).toBe('completed_no_findings')
+    expect(run).toMatchObject({
+      state: 'completed_no_findings',
+      resultSummary: 'RESULT: OK\nNo follow-up needed.',
+      readAtIso: expect.any(String),
     })
   })
 

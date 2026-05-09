@@ -12,7 +12,7 @@ describe('resolveAutomationSchedulerPreference', () => {
   it('supports explicit best-effort auto mode when no Codex desktop process is active', () => {
     const preference = resolveAutomationSchedulerPreference({
       CODEXUI_AUTOMATIONS_SCHEDULER: 'auto',
-    }, () => false)
+    }, () => false, () => true)
 
     expect(preference.enabled).toBe(true)
     expect(preference.shouldRun()).toBe(true)
@@ -21,9 +21,18 @@ describe('resolveAutomationSchedulerPreference', () => {
   it('pauses scheduler ticks in explicit auto mode while Codex desktop is active', () => {
     const preference = resolveAutomationSchedulerPreference({
       CODEXUI_AUTOMATIONS_SCHEDULER: 'auto',
-    }, () => true)
+    }, () => true, () => true)
 
     expect(preference.enabled).toBe(true)
+    expect(preference.shouldRun()).toBe(false)
+  })
+
+  it('keeps explicit auto mode disabled when Desktop process detection is unsupported', () => {
+    const preference = resolveAutomationSchedulerPreference({
+      CODEXUI_AUTOMATIONS_SCHEDULER: 'auto',
+    }, () => false, () => false)
+
+    expect(preference.enabled).toBe(false)
     expect(preference.shouldRun()).toBe(false)
   })
 

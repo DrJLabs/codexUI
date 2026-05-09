@@ -382,6 +382,9 @@ export default defineConfig({
             res.end(JSON.stringify({ error: "Write failed." }));
           });
         });
+        // Development-only: scripts/dev.cjs starts Vite with --no-password, so
+        // this mount intentionally mirrors the open dev server instead of
+        // creating a separate automation-only auth layer.
         server.middlewares.use("/codex-api/automations", (req, res, next) => {
           automations(req as never, res as never, next);
         });

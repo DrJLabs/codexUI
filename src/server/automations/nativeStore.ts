@@ -567,7 +567,8 @@ function safeAutomationId(recordId: string | null | undefined, sourceDirName: st
 async function chooseAvailableAutomationBasename(automationRoot: string, basename: string): Promise<string> {
   const safeBase = isSafeAutomationBasename(basename) ? basename : randomBytes(8).toString('hex')
   let candidate = safeBase
-  for (let attempt = 0; attempt < 100; attempt += 1) {
+  const maxAttempts = 1000
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
     try {
       await mkdir(join(automationRoot, candidate))
       return candidate
@@ -579,7 +580,7 @@ async function chooseAvailableAutomationBasename(automationRoot: string, basenam
       throw error
     }
   }
-  throw new Error(`Unable to allocate automation directory for ${safeBase}`)
+  throw new Error(`Unable to allocate automation directory for ${safeBase} under ${automationRoot} after ${maxAttempts} attempts`)
 }
 
 async function readAutomationRecordFromFile(filePath: string): Promise<ThreadAutomationRecord | null> {

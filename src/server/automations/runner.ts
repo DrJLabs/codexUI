@@ -42,6 +42,8 @@ export type AutomationRunnerOptions = NativeAutomationStoreOptions & {
 
 const AUTOMATION_BRIDGE_METHODS = ['thread/start', 'thread/resume', 'thread/read', 'turn/start', 'model/list', 'config/read'] as const
 const MAX_COMPLETION_LOCK_DEPTH = 25
+const MAX_PENDING_COMPLETED_TURNS = 100
+const PENDING_COMPLETED_TURN_TTL_MS = 60_000
 let automationRunSequence = 0
 
 type IndexedActiveRun = {
@@ -71,6 +73,7 @@ export class AutomationRunner {
   private readonly completionLockDepths = new Map<string, number>()
   private readonly ownedActiveRunIds = new Set<string>()
   private readonly activeRunsByTurn = new Map<string, IndexedActiveRun>()
+  private readonly pendingCompletedTurns = new Map<string, number>()
   private readonly heartbeatRendererStatesByThread = new Map<string, HeartbeatRendererState>()
   private readonly unsubscribeNotifications: () => void
 
@@ -88,6 +91,7 @@ export class AutomationRunner {
   dispose(): void {
     this.unsubscribeNotifications()
     this.activeRunsByTurn.clear()
+    this.pendingCompletedTurns.clear()
     this.heartbeatRendererStatesByThread.clear()
     this.completionLocks.clear()
     this.completionLockDepths.clear()
@@ -324,7 +328,8 @@ export class AutomationRunner {
       await store.appendEvent(run, { type: `${eventPrefix}.turn_started`, threadId, turnId })
       await store.appendLog(run, `Turn started: ${turnId}`)
       markRunningRecordReady(true)
-      return run
+      await this.replayPendingCompletedTurn(threadId, turnId)
+      return await store.readRun(run.id).catch(() => run)
     } catch (error) {
       markRunningRecordReady(false)
       if (activeTurnKeyForRun) this.activeRunsByTurn.delete(activeTurnKeyForRun)
@@ -619,7 +624,10 @@ export class AutomationRunner {
 
   private async completeMatchingRun(threadId: string, turnId: string): Promise<void> {
     const match = await this.findActiveRunForTurn(threadId, turnId)
-    if (!match) return
+    if (!match) {
+      this.rememberPendingCompletedTurn(threadId, turnId)
+      return
+    }
     let response: unknown
     try {
       response = await this.bridge.rpc('thread/read', { threadId, includeTurns: true })
@@ -718,6 +726,29 @@ export class AutomationRunner {
   private forgetActiveRunTurn(run: AutomationRun): void {
     if (!run.threadId || !run.turnId) return
     this.activeRunsByTurn.delete(activeRunTurnKey(run.threadId, run.turnId))
+  }
+
+  private rememberPendingCompletedTurn(threadId: string, turnId: string): void {
+    const now = Date.now()
+    this.sweepPendingCompletedTurns(now)
+    const key = activeRunTurnKey(threadId, turnId)
+    this.pendingCompletedTurns.set(key, now)
+    if (this.pendingCompletedTurns.size <= MAX_PENDING_COMPLETED_TURNS) return
+    const oldestKey = this.pendingCompletedTurns.keys().next().value as string | undefined
+    if (oldestKey) this.pendingCompletedTurns.delete(oldestKey)
+  }
+
+  private async replayPendingCompletedTurn(threadId: string, turnId: string): Promise<void> {
+    const key = activeRunTurnKey(threadId, turnId)
+    if (!this.pendingCompletedTurns.delete(key)) return
+    await this.completeMatchingRun(threadId, turnId)
+  }
+
+  private sweepPendingCompletedTurns(now: number): void {
+    for (const [key, seenAtMs] of this.pendingCompletedTurns) {
+      if (now - seenAtMs <= PENDING_COMPLETED_TURN_TTL_MS) continue
+      this.pendingCompletedTurns.delete(key)
+    }
   }
 
   private async projectTerminalRun(input: {

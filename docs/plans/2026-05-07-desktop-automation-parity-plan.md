@@ -199,17 +199,22 @@ Current CodexUI behavior:
 - Does not require automation memory usage.
 
 Desktop behavior:
-- Automation prompt instructs agents to use:
+- Automation prompt instructs agents to use the memory file in the native automation directory. In the normal Desktop layout the directory name and automation id match, so the path is:
 
 ```text
 $CODEX_HOME/automations/<automation_id>/memory.md
 ```
 
+Normative CodexUI contract:
+- The prompt and Advanced metadata MUST point at the existing native automation directory's `memory.md`.
+- When the native directory name equals the automation id, this is exactly `$CODEX_HOME/automations/<automation_id>/memory.md`.
+- If a legacy or repaired record has a native directory name that differs from its automation id, CodexUI MUST use that existing native directory path as the fallback and MUST NOT create a competing `$CODEX_HOME/automations/<id>/memory.md`.
+
 Plan:
 1. Create `memory.md` path handling in CodexUI automation service.
-2. Include memory path in cron run prompt exactly like Desktop:
+2. Include memory path in cron run prompt using the existing native automation directory:
    - `Automation ID: <id>`
-   - `Automation memory: $CODEX_HOME/automations/<id>/memory.md`
+   - `Automation memory: <native automation directory>/memory.md`
    - `Last run: <timestamp or never>`
 3. Do not use a CodexUI-only memory location.
 4. Surface memory file existence/path in Advanced metadata.
@@ -222,7 +227,7 @@ Acceptance:
 Section 5 implementation notes:
 - Desktop Linux build evidence: `/tmp/codex-desktop-asar-extracted/.vite/build/main-DlFGMsC6.js` builds cron turn text as `Automation: ${name}`, `Automation ID: ${id}`, `Automation memory: $CODEX_HOME/automations/${id}/memory.md`, `Last run: ${timestamp-or-never}`, blank line, then the automation prompt.
 - Keep `memory.md` in the native automation directory. CodexUI already creates that file on native writes; this section adds the stable path to storage metadata rather than adding a second memory store.
-- If a native directory name differs from the automation id, use the actual native directory path for both the Advanced display and prompt so CodexUI does not create a competing `$CODEX_HOME/automations/<id>/memory.md`.
+- Native-directory variation is fallback/legacy behavior: detect it when `storage.nativeDirName !== id`, continue using `storage.nativePath` for both the Advanced display and prompt, and prefer repairing future writes without creating a second memory file.
 - Use the previous persisted run, not the new in-flight run, for `Last run:`. Leave Desktop's full developer instructions and inbox directive contract to the run-history/inbox section.
 - Review pass finding: because `automation.toml` is the canonical Desktop contract, the fallback TOML preservation path must be table-aware. CodexUI should never read nested table keys as top-level automation fields, and serializer merge updates must not rewrite nested Desktop-owned metadata tables.
 - Review pass fix: non-empty `cwds` is always persisted so legacy single-`cwd` automations can be safely expanded to multi-folder Desktop cron automations without losing the folder list used by manual and scheduled execution.

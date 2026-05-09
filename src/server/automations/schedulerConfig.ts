@@ -8,10 +8,12 @@ export type AutomationSchedulerPreference = {
 export function resolveAutomationSchedulerPreference(
   env: NodeJS.ProcessEnv = process.env,
   isDesktopActive: () => boolean = detectCodexDesktopProcess,
+  canDetectDesktop: () => boolean = canDetectCodexDesktopProcess,
 ): AutomationSchedulerPreference {
   const setting = readSchedulerSetting(env)
   if (setting === 'enabled') return { enabled: true, shouldRun: () => true }
   if (setting === 'disabled') return { enabled: false, shouldRun: () => false }
+  if (!canDetectDesktop()) return { enabled: false, shouldRun: () => false }
   return {
     enabled: true,
     shouldRun: () => !isDesktopActive(),
@@ -28,7 +30,7 @@ function readSchedulerSetting(env: NodeJS.ProcessEnv): 'auto' | 'enabled' | 'dis
 }
 
 export function detectCodexDesktopProcess(): boolean {
-  if (process.platform !== 'linux') return false
+  if (!canDetectCodexDesktopProcess()) return false
   try {
     for (const entry of readdirSync('/proc', { withFileTypes: true })) {
       if (!entry.isDirectory() || !/^\d+$/.test(entry.name) || Number(entry.name) === process.pid) continue
@@ -50,4 +52,8 @@ export function detectCodexDesktopProcess(): boolean {
     return false
   }
   return false
+}
+
+function canDetectCodexDesktopProcess(): boolean {
+  return process.platform === 'linux'
 }
