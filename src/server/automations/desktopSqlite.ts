@@ -396,6 +396,11 @@ export function readDesktopAutomationRunRow(
   return row === undefined ? null : normalizeAutomationRunRow(row)
 }
 
+export function deleteDesktopAutomationRunRow(handle: DesktopAutomationSqliteHandle, threadId: string): boolean {
+  const result = handle.database.prepare('DELETE FROM automation_runs WHERE thread_id = ?').run(threadId)
+  return result.changes > 0
+}
+
 export function listDesktopAutomationRunRows(handle: DesktopAutomationSqliteHandle): DesktopAutomationRunRow[] {
   return handle.database.prepare(`
     SELECT

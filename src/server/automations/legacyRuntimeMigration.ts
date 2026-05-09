@@ -32,6 +32,7 @@ export async function migrateLegacyAutomationRuntimeToDesktopSqlite(
   const entries = await listNativeAutomationEntries(options)
   let migratedSchedulerStates = 0
   let migratedRuns = 0
+  let skippedRunStores = 0
   const handle = openDesktopAutomationSqlite(options)
   try {
     for (const entry of entries.records) {
@@ -56,7 +57,12 @@ export async function migrateLegacyAutomationRuntimeToDesktopSqlite(
       if (schedulerState.found) migratedSchedulerStates += 1
 
       const runStore = createAutomationRunStore(entry.automationDirPath)
-      for (const run of await listLegacyRunsForMigration(runStore)) {
+      const legacyRuns = await listLegacyRunsForMigration(runStore)
+      if (legacyRuns === null) {
+        skippedRunStores += 1
+        continue
+      }
+      for (const run of legacyRuns) {
         syncDesktopAutomationRun(run, codexHomeDir)
         migratedRuns += 1
       }
@@ -65,23 +71,23 @@ export async function migrateLegacyAutomationRuntimeToDesktopSqlite(
     closeDesktopAutomationSqlite(handle)
   }
 
-  await mkdir(automationRoot, { recursive: true })
-  await writeFile(markerPath, `${JSON.stringify({
-    migratedAtIso: new Date().toISOString(),
-    migratedSchedulerStates,
-    migratedRuns,
-  }, null, 2)}\n`, 'utf8')
+  if (skippedRunStores === 0) {
+    await mkdir(automationRoot, { recursive: true })
+    await writeFile(markerPath, `${JSON.stringify({
+      migratedAtIso: new Date().toISOString(),
+      migratedSchedulerStates,
+      migratedRuns,
+    }, null, 2)}\n`, 'utf8')
+  }
 
   return { skipped: false, markerPath, migratedSchedulerStates, migratedRuns }
 }
 
-async function listLegacyRunsForMigration(
-  runStore: ReturnType<typeof createAutomationRunStore>,
-) {
+async function listLegacyRunsForMigration(runStore: ReturnType<typeof createAutomationRunStore>) {
   try {
     return await runStore.listRuns()
   } catch {
-    return []
+    return null
   }
 }
 

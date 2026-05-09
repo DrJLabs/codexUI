@@ -41,12 +41,7 @@ describe('createAutomationRunStore', () => {
 
     const handle = openDesktopAutomationSqlite({ codexHomeDir })
     try {
-      expect(readDesktopAutomationRunRow(handle, created.id)).toMatchObject({
-        threadId: created.id,
-        automationId: 'daily-check',
-        status: 'IN_PROGRESS',
-        sourceCwd: '/repo',
-      })
+      expect(readDesktopAutomationRunRow(handle, created.id)).toBeNull()
       expect(readDesktopAutomationRunRow(handle, 'thread-1')).toMatchObject({
         threadId: 'thread-1',
         automationId: 'daily-check',

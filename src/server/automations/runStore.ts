@@ -5,6 +5,7 @@ import { dirname, join } from 'node:path'
 import type { AutomationRun } from '../../types/automations'
 import {
   closeDesktopAutomationSqlite,
+  deleteDesktopAutomationRunRow,
   isoToMs,
   openDesktopAutomationSqlite,
   upsertDesktopAutomationRunRow,
@@ -142,6 +143,9 @@ export function syncDesktopAutomationRun(run: AutomationRun, codexHomeDir: strin
   if (!codexHomeDir) return
   const handle = openDesktopAutomationSqlite(codexHomeDir ? { codexHomeDir } : {})
   try {
+    if (run.threadId && run.threadId !== run.id) {
+      deleteDesktopAutomationRunRow(handle, run.id)
+    }
     upsertDesktopAutomationRunRow(handle, {
       threadId: desktopRunThreadId(run),
       automationId: run.automationId,

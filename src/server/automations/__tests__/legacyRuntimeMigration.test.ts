@@ -79,6 +79,35 @@ describe('migrateLegacyAutomationRuntimeToDesktopSqlite', () => {
       closeDesktopAutomationSqlite(handle)
     }
   })
+
+  it('does not mark migration complete when legacy run history cannot be scanned', async () => {
+    const codexHomeDir = await mkdtemp(join(tmpdir(), 'codexui-legacy-runtime-migration-'))
+    tempDirs.push(codexHomeDir)
+    const record = await writeNativeAutomation({
+      id: 'daily-check',
+      kind: 'cron',
+      threadId: null,
+      name: 'Daily Check',
+      prompt: 'Check the repo',
+      rrule: 'FREQ=DAILY',
+      status: 'ACTIVE',
+      cwd: '/repo',
+      runMode: 'local',
+    }, { codexHomeDir })
+    const automationDir = join(codexHomeDir, 'automations', record.id)
+    await writeFile(join(automationDir, 'runs'), 'not a directory', 'utf8')
+
+    const result = await migrateLegacyAutomationRuntimeToDesktopSqlite({ codexHomeDir })
+
+    expect(result).toMatchObject({ skipped: false, migratedSchedulerStates: 0, migratedRuns: 0 })
+    await expect(readFile(result.markerPath, 'utf8')).rejects.toThrow()
+    const handle = openDesktopAutomationSqlite({ codexHomeDir })
+    try {
+      expect(readDesktopAutomationRuntimeRow(handle, record.id)).toMatchObject({ id: record.id })
+    } finally {
+      closeDesktopAutomationSqlite(handle)
+    }
+  })
 })
 
 function automationRunFixture(overrides: Partial<AutomationRun> = {}): AutomationRun {
