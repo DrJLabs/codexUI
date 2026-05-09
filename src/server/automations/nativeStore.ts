@@ -113,10 +113,16 @@ function findTomlArrayStringEndIndex(value: string, startIndex: number): number 
   const quote = value[startIndex]
   if (quote !== '"' && quote !== "'") return -1
   let end = startIndex + 1
+  if (quote === "'") {
+    while (end < value.length && value[end] !== quote) {
+      end += 1
+    }
+    return end < value.length ? end : -1
+  }
   let escaped = false
   while (end < value.length) {
     const char = value[end]
-    if (quote === '"' && !escaped && char === '\\') {
+    if (!escaped && char === '\\') {
       escaped = true
       end += 1
       continue
