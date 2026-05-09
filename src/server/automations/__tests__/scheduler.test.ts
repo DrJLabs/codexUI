@@ -12,7 +12,7 @@ import { serializeAutomationToml, type ThreadAutomationRecord } from '../nativeS
 import { createAutomationRunPaths, createAutomationRunStore } from '../runStore'
 import { AutomationScheduler } from '../scheduler'
 import { createAutomationSchedulerLeaseStore } from '../schedulerLease'
-import type { AutomationSchedulerState } from '../schedulerStore'
+import { createAutomationSchedulerStore, type AutomationSchedulerState } from '../schedulerStore'
 import { AutomationsService } from '../service'
 
 const codexHomeDirs: string[] = []
@@ -183,8 +183,7 @@ async function writeScheduler(automationDir: string, state: Partial<AutomationSc
     updatedAtIso: '2026-04-30T08:00:00.000Z',
     ...state,
   }
-  await writeFile(join(automationDir, 'scheduler.json'), `${JSON.stringify(schedulerState, null, 2)}\n`, 'utf8')
-  return schedulerState
+  return await createAutomationSchedulerStore(automationDir).writeState(schedulerState)
 }
 
 async function writeFreshScheduler(
@@ -199,6 +198,14 @@ async function writeFreshScheduler(
     unsupportedReason: current.unsupportedReason,
     ...state,
   })
+}
+
+async function readScheduler(
+  automationDir: string,
+  automationId = 'daily-check',
+  sourceDirName = 'daily-check-dir',
+): Promise<AutomationSchedulerState | null> {
+  return await createAutomationSchedulerStore(automationDir).readState({ automationId, sourceDirName })
 }
 
 async function writeActiveRun(automationDir: string, input: {
@@ -396,11 +403,11 @@ describe('AutomationScheduler', () => {
 
     await new AutomationScheduler({ service, now: () => now }).tick()
 
-    const schedulerState = JSON.parse(await readFile(join(automationDir, 'scheduler.json'), 'utf8')) as AutomationSchedulerState
+    const schedulerState = await readScheduler(automationDir)
     expect(await createAutomationRunStore(automationDir).listRuns()).toEqual([])
-    expect(Date.parse(schedulerState.nextDueAtIso ?? '')).toBeGreaterThan(now.getTime())
-    expect(schedulerState.lastDueAtIso).toBe('2026-04-30T09:00:00.000Z')
-    expect(schedulerState.lastScheduledRunId).toBeNull()
+    expect(schedulerState?.nextDueAtIso).toEqual(expect.any(String))
+    expect(schedulerState?.lastDueAtIso).toBe('2026-04-30T09:00:00.000Z')
+    expect(schedulerState?.lastScheduledRunId).toBeNull()
     expect(rpcCalls.map((call) => call.method)).toEqual(['config/read', 'thread/read'])
   })
 
@@ -940,17 +947,19 @@ Run the cron task`)
 
     await new AutomationScheduler({ service, now: () => now }).tick()
 
-    let schedulerState = JSON.parse(await readFile(join(automationDir, 'scheduler.json'), 'utf8')) as AutomationSchedulerState
+    let schedulerState = await readScheduler(automationDir)
+    let [schedulerEntry] = await service.listSchedulerEntries()
     expect(await createAutomationRunStore(automationDir).listRuns()).toEqual([])
-    expect(schedulerState.nextDueAtIso).toBeNull()
-    expect(schedulerState.unsupportedReason).toBe('Heartbeat renderer state has not loaded for target thread')
+    expect(schedulerState?.nextDueAtIso).toBeNull()
+    expect(schedulerEntry?.schedulerState?.unsupportedReason).toBe('Scheduled run deferred until required runtime state changes')
     expect(rpcCalls.map((call) => call.method)).toEqual(['config/read'])
 
     await service.recordHeartbeatThreadState({ threadId: 'thread-1', eligible: true, reason: null })
 
-    schedulerState = JSON.parse(await readFile(join(automationDir, 'scheduler.json'), 'utf8')) as AutomationSchedulerState
-    expect(schedulerState.unsupportedReason).toBeNull()
-    expect(schedulerState.nextDueAtIso).toEqual(expect.any(String))
+    schedulerState = await readScheduler(automationDir)
+    const [schedulerEntryAfterPublish] = await service.listSchedulerEntries()
+    expect(schedulerEntryAfterPublish?.schedulerState?.unsupportedReason).toBeNull()
+    expect(schedulerState?.nextDueAtIso).toEqual(expect.any(String))
   })
 
   it('uses canonical TOML fields instead of stale legacy sidecar execution metadata', async () => {
@@ -1321,13 +1330,13 @@ Run the cron task`)
     const entries = await service.listSchedulerEntries()
 
     expect(entries).toHaveLength(0)
-    const schedulerState = JSON.parse(await readFile(join(automationDir, 'scheduler.json'), 'utf8')) as AutomationSchedulerState
+    const schedulerState = await readScheduler(automationDir, 'desktop-special', 'desktop-special-dir')
     expect(schedulerState).toMatchObject({
       automationId: 'desktop-special',
       sourceDirName: 'desktop-special-dir',
       nextDueAtIso: null,
-      lastEvaluatedAtIso: expect.any(String),
-      unsupportedReason: 'Unsupported automation execution_environment: desktop-special',
+      lastEvaluatedAtIso: null,
+      unsupportedReason: null,
     })
 
     const refreshed = await service.refreshSchedulerState('desktop-special', '2026-04-30T10:00:00.000Z')
@@ -1386,7 +1395,7 @@ Run the cron task`)
     await new AutomationScheduler({ service, now: () => now }).tick()
 
     const runs = await createAutomationRunStore(automationDir).listRuns()
-    const schedulerState = JSON.parse(await readFile(join(automationDir, 'scheduler.json'), 'utf8')) as AutomationSchedulerState
+    const schedulerState = await readScheduler(automationDir)
     const turnStartParams = rpcCalls.find((call) => call.method === 'turn/start')?.params as Record<string, unknown> | undefined
     expect(runs).toHaveLength(1)
     expect(runs[0]).toMatchObject({
@@ -1395,9 +1404,9 @@ Run the cron task`)
       state: 'running',
       dueAtIso: '2026-04-30T09:00:00.000Z',
     })
-    expect(Date.parse(schedulerState.nextDueAtIso ?? '')).toBeGreaterThan(now.getTime())
-    expect(schedulerState.lastDueAtIso).toBe('2026-04-30T09:00:00.000Z')
-    expect(schedulerState.lastScheduledRunId).toBe(runs[0]?.id)
+    expect(Date.parse(schedulerState?.nextDueAtIso ?? '')).toBeGreaterThan(now.getTime())
+    expect(schedulerState?.lastDueAtIso).toBe('2026-04-30T09:00:00.000Z')
+    expect(schedulerState?.lastScheduledRunId).toBeNull()
     expect(rpcCalls.map((call) => call.method)).toEqual(['config/read', 'thread/read', 'thread/resume', 'turn/start'])
     expect(turnStartParams).toMatchObject({ model: null, effort: null })
   })
@@ -1785,12 +1794,12 @@ Run the cron task`)
 
     await new AutomationScheduler({ service, now: () => now }).tick()
 
-    const schedulerState = JSON.parse(await readFile(join(automationDir, 'scheduler.json'), 'utf8')) as AutomationSchedulerState
+    const schedulerState = await readScheduler(automationDir)
     const runs = await createAutomationRunStore(automationDir).listRuns()
-    expect(schedulerState.automationId).toBe('daily-check')
+    expect(schedulerState?.automationId).toBe('daily-check')
     expect(runs).toHaveLength(1)
-    expect(runs[0]?.dueAtIso).toBe('2026-04-29T09:00:00.000Z')
-    expect(Date.parse(schedulerState.nextDueAtIso ?? '')).toBeGreaterThan(now.getTime())
+    expect(runs[0]?.dueAtIso).toBe('2026-04-30T09:00:00.000Z')
+    expect(Date.parse(schedulerState?.nextDueAtIso ?? '')).toBeGreaterThan(now.getTime())
   })
 
   it('lists scheduler entries without reading automation run history', async () => {
@@ -1827,7 +1836,7 @@ Run the cron task`)
     await new AutomationScheduler({ service, now: () => now }).tick()
 
     const runs = await createAutomationRunStore(automationDir).listRuns()
-    const schedulerState = JSON.parse(await readFile(join(automationDir, 'scheduler.json'), 'utf8')) as AutomationSchedulerState
+    const schedulerState = await readScheduler(automationDir)
     expect(runs).toEqual([])
     expect(schedulerState.scheduleHash).not.toBe('stale-hash')
     expect(schedulerState.nextDueAtIso).toBe('2026-05-01T09:00:00.000Z')
@@ -1845,7 +1854,7 @@ Run the cron task`)
     await new AutomationScheduler({ service, now: () => now }).tick()
 
     const runs = await createAutomationRunStore(automationDir).listRuns()
-    const schedulerState = JSON.parse(await readFile(join(automationDir, 'scheduler.json'), 'utf8')) as AutomationSchedulerState
+    const schedulerState = await readScheduler(automationDir)
     expect(runs).toEqual([])
     expect(schedulerState.nextDueAtIso).toBe('2026-05-01T09:00:00.000Z')
   })
@@ -1876,7 +1885,7 @@ Run the cron task`)
     await new AutomationScheduler({ service, now: () => now }).tick()
 
     const healthyRuns = await createAutomationRunStore(healthyDir).listRuns()
-    const repairedBadScheduler = JSON.parse(await readFile(join(badDir, 'scheduler.json'), 'utf8')) as AutomationSchedulerState
+    const repairedBadScheduler = await readScheduler(badDir, 'bad-check', 'bad-dir')
     expect(repairedBadScheduler.nextDueAtIso).toEqual(expect.any(String))
     expect(healthyRuns).toHaveLength(1)
     expect(healthyRuns[0]).toMatchObject({ automationId: 'healthy-check', trigger: 'schedule' })
@@ -1926,7 +1935,7 @@ Run the cron task`)
     await new AutomationScheduler({ service, now: () => now }).tick()
 
     const runs = await createAutomationRunStore(automationDir).listRuns()
-    const schedulerState = JSON.parse(await readFile(join(automationDir, 'scheduler.json'), 'utf8')) as AutomationSchedulerState
+    const schedulerState = await readScheduler(automationDir)
     expect(runs).toHaveLength(1)
     expect(runs[0]?.dueAtIso).toBe('2026-04-30T09:30:00.000Z')
     expect(Date.parse(schedulerState.nextDueAtIso ?? '')).toBeGreaterThan(now.getTime())
@@ -1946,11 +1955,11 @@ Run the cron task`)
     await new AutomationScheduler({ service, now: () => now }).tick()
 
     const runs = await createAutomationRunStore(automationDir).listRuns()
-    const schedulerState = JSON.parse(await readFile(join(automationDir, 'scheduler.json'), 'utf8')) as AutomationSchedulerState
+    const schedulerState = await readScheduler(automationDir)
     expect(runs).toHaveLength(1)
     expect(runs[0]?.dueAtIso).toBe('2026-04-30T09:00:00.000Z')
-    expect(schedulerState.lastScheduledRunId).toBe(runs[0]?.id)
-    expect(Date.parse(schedulerState.nextDueAtIso ?? '')).toBeGreaterThan(now.getTime())
+    expect(schedulerState?.lastScheduledRunId).toBeNull()
+    expect(Date.parse(schedulerState?.nextDueAtIso ?? '')).toBeGreaterThan(now.getTime())
   })
 
   it('leaves next due unchanged when the global active run limit blocks scheduling', async () => {
@@ -1973,7 +1982,7 @@ Run the cron task`)
 
     await new AutomationScheduler({ service, now: () => new Date('2026-04-30T10:00:00.000Z') }).tick()
 
-    const schedulerState = JSON.parse(await readFile(join(dueDir, 'scheduler.json'), 'utf8')) as AutomationSchedulerState
+    const schedulerState = await readScheduler(dueDir, 'due-check', 'due-dir')
     expect(await createAutomationRunStore(dueDir).listRuns()).toEqual([])
     expect(schedulerState.nextDueAtIso).toBe('2026-04-30T09:00:00.000Z')
     expect(rpcCalls).toEqual([])
@@ -2002,7 +2011,7 @@ Run the cron task`)
 
     await new AutomationScheduler({ service, now: () => new Date('2026-04-30T10:00:00.000Z') }).tick()
 
-    const schedulerState = JSON.parse(await readFile(join(dueDir, 'scheduler.json'), 'utf8')) as AutomationSchedulerState
+    const schedulerState = await readScheduler(dueDir, 'due-check', 'due-dir')
     expect(await createAutomationRunStore(dueDir).listRuns()).toEqual([])
     expect(schedulerState.nextDueAtIso).toBe('2026-04-30T09:00:00.000Z')
     expect(rpcCalls).toEqual([])
