@@ -3,6 +3,12 @@ import { appendFile, mkdir, readFile, readdir, rename, rm, stat, writeFile } fro
 import { hostname } from 'node:os'
 import { dirname, join } from 'node:path'
 import type { AutomationRun } from '../../types/automations'
+import {
+  closeDesktopAutomationSqlite,
+  isoToMs,
+  openDesktopAutomationSqlite,
+  upsertDesktopAutomationRunRow,
+} from './desktopSqlite'
 
 const ACTIVE_RUN_INDEX_LOCK_TIMEOUT_MS = 5000
 const ACTIVE_RUN_INDEX_LOCK_POLL_MS = 10
@@ -23,6 +29,7 @@ export type AutomationRunStore = {
 
 export function createAutomationRunStore(automationDirPath: string): AutomationRunStore {
   const runsRoot = join(automationDirPath, 'runs')
+  const codexHomeDir = codexHomeDirFromAutomationDir(automationDirPath)
   const readRun = async (runId: string): Promise<AutomationRun> => {
     return parseRun(await readFile(runJsonPath(runsRoot, runId), 'utf8'), automationDirPath, runId)
   }
@@ -59,6 +66,7 @@ export function createAutomationRunStore(automationDirPath: string): AutomationR
       await mkdir(dirname(next.runJsonPath), { recursive: true })
       await writeFile(next.runJsonPath, serializeRun(next), 'utf8')
       await syncActiveRunIndex(runsRoot, next)
+      syncDesktopAutomationRun(next, codexHomeDir)
       return next
     },
 
@@ -110,6 +118,7 @@ export function createAutomationRunStore(automationDirPath: string): AutomationR
       await mkdir(dirname(canonical.runJsonPath), { recursive: true })
       await writeFile(canonical.runJsonPath, serializeRun(canonical), 'utf8')
       await syncActiveRunIndex(runsRoot, canonical)
+      syncDesktopAutomationRun(canonical, codexHomeDir)
       return canonical
     },
 
@@ -125,6 +134,49 @@ export function createAutomationRunStore(automationDirPath: string): AutomationR
       await appendFile(paths.logPath, `[${new Date().toISOString()}] ${message}\n`, 'utf8')
     },
   }
+}
+
+function syncDesktopAutomationRun(run: AutomationRun, codexHomeDir: string | null): void {
+  if (!codexHomeDir) return
+  const handle = openDesktopAutomationSqlite(codexHomeDir ? { codexHomeDir } : {})
+  try {
+    upsertDesktopAutomationRunRow(handle, {
+      threadId: desktopRunThreadId(run),
+      automationId: run.automationId,
+      status: desktopRunStatus(run),
+      readAt: isoToMs(run.readAtIso),
+      threadTitle: run.resultSummary,
+      sourceCwd: run.cwd,
+      inboxTitle: run.inboxTitle || run.automationName,
+      inboxSummary: run.inboxSummary || run.errorMessage || run.resultSummary,
+      createdAt: isoToMs(run.createdAtIso) ?? 0,
+      updatedAt: isoToMs(run.updatedAtIso) ?? isoToMs(run.createdAtIso) ?? 0,
+      archivedUserMessage: null,
+      archivedAssistantMessage: null,
+      archivedReason: run.archivedAtIso ? 'Archived in CodexUI' : null,
+    })
+  } finally {
+    closeDesktopAutomationSqlite(handle)
+  }
+}
+
+function codexHomeDirFromAutomationDir(automationDirPath: string): string | null {
+  const normalized = automationDirPath.replace(/\\/gu, '/')
+  const marker = '/automations/'
+  const markerIndex = normalized.lastIndexOf(marker)
+  if (markerIndex <= 0) return null
+  return automationDirPath.slice(0, markerIndex)
+}
+
+function desktopRunThreadId(run: AutomationRun): string {
+  return run.threadId || run.id
+}
+
+function desktopRunStatus(run: AutomationRun): 'IN_PROGRESS' | 'PENDING_REVIEW' | 'ACCEPTED' | 'ARCHIVED' {
+  if (run.archivedAtIso) return 'ARCHIVED'
+  if (run.readAtIso) return 'ACCEPTED'
+  if (isActiveAutomationRunState(run.state)) return 'IN_PROGRESS'
+  return 'PENDING_REVIEW'
 }
 
 export function createAutomationRunPaths(automationDirPath: string, runId: string): Pick<AutomationRun, 'runJsonPath' | 'eventsPath' | 'logPath'> {

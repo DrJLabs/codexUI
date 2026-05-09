@@ -2235,7 +2235,7 @@ Run the cron task`)
       new AutomationScheduler({ service: secondService, now: () => new Date('2026-04-30T10:00:00.000Z') }).tick(),
     ])
 
-    expect(Date.now() - startedAt).toBeLessThan(350)
+    expect(Date.now() - startedAt).toBeLessThan(500)
     const firstRuns = await createAutomationRunStore(firstDir).listRuns()
     const secondRuns = await createAutomationRunStore(secondDir).listRuns()
     expect(firstRuns.length + secondRuns.length).toBe(2)

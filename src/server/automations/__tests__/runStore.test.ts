@@ -3,6 +3,7 @@ import { hostname, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import type { AutomationRun } from '../../../types/automations'
+import { closeDesktopAutomationSqlite, openDesktopAutomationSqlite, readDesktopAutomationRunRow } from '../desktopSqlite'
 import { createAutomationRunPaths, createAutomationRunStore } from '../runStore'
 
 const tempDirs: string[] = []
@@ -14,6 +15,51 @@ afterEach(async () => {
 })
 
 describe('createAutomationRunStore', () => {
+  it('mirrors run lifecycle state into Desktop automation_runs SQLite', async () => {
+    const codexHomeDir = await mkdtemp(join(tmpdir(), 'codexui-automation-run-store-'))
+    tempDirs.push(codexHomeDir)
+    const automationDir = join(codexHomeDir, 'automations', 'daily-check-dir')
+    const store = createAutomationRunStore(automationDir)
+    const created = await store.createRun(automationRunFixture({
+      id: 'automation_run_sqlite',
+      automationId: 'daily-check',
+      automationName: 'Daily Check',
+      threadId: null,
+      state: 'running',
+      cwd: '/repo',
+      createdAtIso: '2026-04-30T08:00:00.000Z',
+      updatedAtIso: '2026-04-30T08:00:00.000Z',
+    }))
+    await store.updateRun(created.id, {
+      threadId: 'thread-1',
+      state: 'completed',
+      readAtIso: '2026-04-30T08:05:00.000Z',
+      inboxTitle: 'Done',
+      inboxSummary: 'No findings',
+      updatedAtIso: '2026-04-30T08:05:00.000Z',
+    })
+
+    const handle = openDesktopAutomationSqlite({ codexHomeDir })
+    try {
+      expect(readDesktopAutomationRunRow(handle, created.id)).toMatchObject({
+        threadId: created.id,
+        automationId: 'daily-check',
+        status: 'IN_PROGRESS',
+        sourceCwd: '/repo',
+      })
+      expect(readDesktopAutomationRunRow(handle, 'thread-1')).toMatchObject({
+        threadId: 'thread-1',
+        automationId: 'daily-check',
+        status: 'ACCEPTED',
+        readAt: Date.parse('2026-04-30T08:05:00.000Z'),
+        inboxTitle: 'Done',
+        inboxSummary: 'No findings',
+      })
+    } finally {
+      closeDesktopAutomationSqlite(handle)
+    }
+  })
+
   it('normalizes legacy run records without branchName', async () => {
     const automationDir = await mkdtemp(join(tmpdir(), 'codexui-automation-run-store-'))
     tempDirs.push(automationDir)
